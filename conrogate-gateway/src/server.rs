@@ -31,7 +31,6 @@ pub struct GatewayServer {
     route_matcher: Arc<RouteMatcher>,
     upstream_selector: Arc<UpstreamSelectorImpl>,
     http_handler: Arc<HttpProtocolHandler>,
-    #[allow(dead_code)]
     tcp_handler: Arc<TcpTunnelProtocolHandler>,
     plugin_registry: Arc<PluginRegistryImpl>,
     max_connections: usize,
@@ -270,9 +269,12 @@ impl GatewayServer {
 
                     let client_ip = remote_addr.ip().to_string();
                     let http_handler = self.http_handler.clone();
+                    let tcp_handler = self.tcp_handler.clone();
                     let route_matcher = self.route_matcher.clone();
                     let semaphore = conn_semaphore.clone();
                     let tls_acc = tls_acceptor.clone();
+                    let listen_addr = addr.to_string();
+                    let tls_passthrough = tls_enabled && tls_mode == "passthrough";
 
                     tokio::spawn(async move {
                         // 获取并发许可
@@ -284,14 +286,24 @@ impl GatewayServer {
                             }
                         };
 
+                        // TLS passthrough 模式：原始 TCP 隧道转发，不终止 TLS
+                        if tls_passthrough {
+                            let result = tcp_handler
+                                .handle(listen_addr, None, client_ip, stream)
+                                .await;
+                            if let Err(e) = &result {
+                                tracing::debug!(error = %e, "tcp tunnel connection ended");
+                            }
+                            return;
+                        }
+
+                        // HTTP 模式（含 TLS 终止）
                         let svc = HyperServiceBridge {
                             handler: http_handler,
                             route_matcher,
                             client_ip,
                             max_body_bytes,
                         };
-
-                        // TLS 握手（如果启用 terminate 模式）
                         let h1 = http1::Builder::new();
                         let result = if let Some(acc) = tls_acc {
                             match acc.accept(stream).await {
