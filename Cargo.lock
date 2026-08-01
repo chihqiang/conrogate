@@ -444,6 +444,7 @@ name = "conrogate"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "clap",
  "conrogate-balancer",
  "conrogate-contract",
@@ -456,6 +457,7 @@ dependencies = [
  "conrogate-storage",
  "conrogate-traffic",
  "dotenvy",
+ "sea-orm",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -493,6 +495,7 @@ name = "conrogate-control"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "clap",
  "conrogate-contract",
  "conrogate-control-svc",

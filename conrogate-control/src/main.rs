@@ -3,6 +3,7 @@
 //! 仅运行控制面（管理 API + 配置落库 + 指标入库 + 审计）。
 
 use clap::Parser;
+use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(name = "conrogate-control")]
@@ -36,18 +37,81 @@ async fn main() -> anyhow::Result<()> {
         "starting conrogate-control (control plane only)"
     );
 
-    // TODO: Bootstrap 控制面组件
-    // 1. 初始化 DB 连接池（主库读写）
-    // 2. 初始化仓储层
-    // 3. 初始化 ConfigCache（Redis 写入端）
-    // 4. 组装 axum 路由 + 中间件
-    // 5. 启动控制面监听
-    // 6. 启动后台任务（过期数据清理、Redis 缓存刷新）
+    // ── 1. DB 连接池（主库读写）──
+    let main_db = conrogate_storage::pool::create_main_pool(&config.db).await?;
+    let main_db = Arc::new(main_db);
 
-    tracing::info!("conrogate-control ready");
+    // ── 2. 自动迁移 ──
+    if config.node.auto_migrate {
+        tracing::info!("auto_migrate enabled, running migrations");
+        conrogate_storage::migration::run_migrations(&config.db).await?;
+    }
 
-    tokio::signal::ctrl_c().await?;
-    tracing::info!("received SIGINT, shutting down");
+    // ── 3. 初始化仓储 ──
+    let route_repo: Arc<dyn conrogate_contract::storage::RouteRepo> = Arc::new(
+        conrogate_storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()),
+    );
+    let upstream_repo: Arc<dyn conrogate_contract::storage::UpstreamRepo> = Arc::new(
+        conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*main_db).clone()),
+    );
+    let binding_repo: Arc<dyn conrogate_contract::storage::PluginBindingRepo> = Arc::new(
+        conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new((*main_db).clone()),
+    );
+    let config_repo: Arc<dyn conrogate_contract::storage::ConfigVersionRepo> = Arc::new(
+        conrogate_storage::repository::config_version_repo::ConfigVersionRepoImpl::new((*main_db).clone()),
+    );
+    let metric_repo: Arc<dyn conrogate_contract::storage::MetricRepo> = Arc::new(
+        conrogate_storage::repository::metric_repo::MetricRepoImpl::new((*main_db).clone()),
+    );
+    let event_repo: Arc<dyn conrogate_contract::storage::EventRepo> = Arc::new(
+        conrogate_storage::repository::event_repo::EventRepoImpl::new((*main_db).clone()),
+    );
+    let audit_repo: Arc<dyn conrogate_contract::storage::AuditLogRepo> = Arc::new(
+        conrogate_storage::repository::audit_log_repo::AuditLogRepoImpl::new((*main_db).clone()),
+    );
+    let node_app_repo: Arc<dyn conrogate_contract::storage::NodeApplicationRepo> = Arc::new(
+        conrogate_storage::repository::node_application_repo::NodeApplicationRepoImpl::new((*main_db).clone()),
+    );
+    let plugin_repo: Arc<dyn conrogate_contract::storage::InstalledPluginRepo> = Arc::new(
+        conrogate_storage::repository::installed_plugin_repo::InstalledPluginRepoImpl::new((*main_db).clone()),
+    );
 
+    // ── 4. 组装 ControlService ──
+    let svc = Arc::new(conrogate_control_svc::ControlService::new(
+        route_repo,
+        upstream_repo,
+        binding_repo,
+        config_repo,
+        metric_repo,
+        event_repo,
+        audit_repo,
+        node_app_repo,
+        plugin_repo,
+    ));
+
+    // ── 5. 组装 axum 路由 + 中间件 ──
+    let app_state = conrogate_control_svc::AppState { svc };
+    let router = conrogate_control_svc::build_router(
+        app_state,
+        &config.control.auth.token,
+    );
+
+    // ── 6. 启动控制面监听 ──
+    let addr = format!(
+        "{}:{}",
+        config.control.listen.host,
+        config.control.listen.port
+    );
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    tracing::info!(addr = %addr, "conrogate-control listening");
+
+    axum::serve(listener, router)
+        .with_graceful_shutdown(async {
+            tokio::signal::ctrl_c().await.ok();
+            tracing::info!("received SIGINT, initiating graceful shutdown");
+        })
+        .await?;
+
+    tracing::info!("shutdown complete");
     Ok(())
 }

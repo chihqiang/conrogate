@@ -7,3 +7,4 @@ pub mod migration;
 pub mod pool;
 pub mod repository;
 pub mod convert;
+pub mod config_cache;

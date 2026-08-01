@@ -8,3 +8,5 @@ pub mod pool;
 pub mod upgrade;
 pub mod filter;
 pub mod telemetry;
+pub mod discovery;
+pub mod health;
