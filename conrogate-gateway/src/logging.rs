@@ -14,25 +14,19 @@ pub fn init(log_config: &LogConfig) {
     // 控制台 layer
     let console_layer: Box<dyn Layer<_> + Send + Sync> = if log_config.console {
         if log_config.format.eq_ignore_ascii_case("json") {
-            Box::new(
-                tracing_subscriber::fmt::layer()
-                    .json()
-                    .with_writer(std::io::stderr)
-                    .boxed(),
-            )
+            tracing_subscriber::fmt::layer()
+                .json()
+                .with_writer(std::io::stderr)
+                .boxed()
         } else {
-            Box::new(
-                tracing_subscriber::fmt::layer()
-                    .with_writer(std::io::stderr)
-                    .boxed(),
-            )
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .boxed()
         }
     } else {
-        Box::new(
-            tracing_subscriber::fmt::layer()
-                .with_writer(std::io::empty)
-                .boxed(),
-        )
+        tracing_subscriber::fmt::layer()
+            .with_writer(std::io::empty)
+            .boxed()
     };
 
     // 文件 layer

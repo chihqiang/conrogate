@@ -8,8 +8,8 @@ use tokio::sync::{mpsc, oneshot};
 /// 启动全部组件，返回停机信号发送端
 pub async fn run(
     config: conrogate_contract::config::Config,
-) -> anyhow::Result<oneshot::Sender<()>> {
-    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+) -> anyhow::Result<tokio::sync::broadcast::Sender<()>> {
+    let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(1);
 
     // ── 2. 初始化 DB 连接池 ──
     let main_db = conrogate_storage::pool::create_main_pool(&config.db).await?;
@@ -124,20 +124,20 @@ pub async fn run(
         plugins: plugin_executor,
     });
 
-    // ── 17-18. 启动数据面 ──
+    // ── 17-18. 启动数据面（带优雅停机）──
     let gate_config = config.gate.clone();
-    let gate_svc = svc.clone();
+    let mut gate_shutdown_rx = shutdown_tx.subscribe();
     let gate_handle = tokio::spawn(async move {
         let server = conrogate_gateway::server::GatewayServer::from_config(
             conrogate_contract::config::Config {
-                gate: gate_config,
+                gate: gate_config.clone(),
                 ..conrogate_contract::config::Config::default()
             },
         )
         .await;
-        // 注意：GatewayServer::from_config 内部会创建自己的 ServiceContext，
-        // 实际生产中应注入外部 svc，此处简化为独立构建
-        if let Err(e) = server.run().await {
+        if let Err(e) = server.run_with_shutdown(async move {
+            let _ = gate_shutdown_rx.recv().await;
+        }).await {
             tracing::error!(error = %e, "gate server error");
         }
     });
@@ -175,10 +175,19 @@ pub async fn run(
     tracing::info!("background tasks started");
 
     // 等待停机信号
-    let _ = shutdown_rx.await;
-    gate_handle.abort();
+    let mut shutdown_recv = shutdown_tx.subscribe();
+    // 阻塞等待外部停机信号（由 main 发送 shutdown_tx.send()）
+    let _ = shutdown_recv.recv().await;
+    tracing::info!("bootstrap shutdown signal received");
+
+    // gate 的 run_with_shutdown 已收到信号，进入宽限期（由 server.rs 内部处理）
+    // 等待 gate handle 完成（含宽限期 + idle_timeout 自然超时）
+    let gate_shutdown_timeout = config.gate.shutdown.long_conn_drain
+        + std::time::Duration::from_secs(5); // 宽限期 + 额外缓冲
+    let _ = tokio::time::timeout(gate_shutdown_timeout, gate_handle).await;
+
     // 逆序取消后台任务（带超时）
-    task_manager.shutdown(std::time::Duration::from_secs(30)).await;
+    task_manager.shutdown(std::time::Duration::from_secs(10)).await;
     tracing::info!("shutdown complete");
 
     Ok(shutdown_tx)

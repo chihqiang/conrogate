@@ -26,15 +26,15 @@ async fn main() -> anyhow::Result<()> {
         let _ = dotenvy::dotenv();
     }
 
-    // 初始化日志
-    tracing_subscriber::fmt::init();
-
     // 加载配置
     let config = conrogate_contract::config::Config::from_env()
         .map_err(|e| anyhow::anyhow!("config load failed: {e}"))?;
     config
         .validate()
         .map_err(|e| anyhow::anyhow!("config validation failed: {e}"))?;
+
+    // 初始化日志（JSON 格式 + 文件输出）
+    conrogate_gateway::logging::init(&config.log);
 
     tracing::info!(
         instance_id = ?config.common.instance_id,
@@ -50,10 +50,11 @@ async fn main() -> anyhow::Result<()> {
     tokio::signal::ctrl_c().await?;
     tracing::info!("received SIGINT, initiating graceful shutdown");
 
-    // 发送停机信号
+    // 发送停机信号（broadcast 通知 gate + 后台任务）
     let _ = shutdown_tx.send(());
 
-    // TODO: 等待优雅停机完成（带超时）
+    // 等待优雅停机完成（最多 35s）
+    tokio::time::sleep(std::time::Duration::from_secs(35)).await;
     tracing::info!("shutdown complete");
 
     Ok(())

@@ -13,3 +13,4 @@ pub mod health;
 pub mod handler_registry;
 pub mod task_manager;
 pub mod logging;
+pub mod tls;

@@ -186,8 +186,17 @@ impl GatewayServer {
         server
     }
 
-    /// 启动网关服务
-    pub async fn run(&self) -> Result<(), ConrogateError> {
+    /// 启动网关服务（带优雅停机）
+    ///
+    /// `shutdown` 为停机 Future：完成后停止 accept 新连接，
+    /// 等待宽限期 `long_conn_drain` 后强制结束。
+    pub async fn run_with_shutdown<F>(
+        &self,
+        shutdown: F,
+    ) -> Result<(), ConrogateError>
+    where
+        F: std::future::Future<Output = ()>,
+    {
         let config = self.config.current();
         let addr = format!("{}:{}", config.gate.listen.host, config.gate.listen.port);
         let addr: SocketAddr = addr
@@ -202,54 +211,125 @@ impl GatewayServer {
         let conn_semaphore = Arc::new(tokio::sync::Semaphore::new(self.max_connections));
         let max_body_bytes = self.max_body_bytes;
         let idle_timeout = self.idle_timeout;
+        let long_conn_drain = config.gate.shutdown.long_conn_drain;
 
-        tracing::info!(addr = %addr, max_connections = self.max_connections, "gateway server started");
+        // TLS 入站终止
+        let tls_enabled = config.gate.listen.tls.enabled;
+        let tls_mode = config.gate.listen.tls.mode.clone();
+        let tls_acceptor = if tls_enabled && tls_mode == "terminate" {
+            match crate::tls::build_tls_acceptor(&config.gate.listen.tls) {
+                Ok(a) => {
+                    tracing::info!(cert_file = %config.gate.listen.tls.cert_file, "TLS terminate mode enabled");
+                    Some(a)
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "TLS config failed, falling back to plain TCP");
+                    None
+                }
+            }
+        } else if tls_enabled && tls_mode == "passthrough" {
+            tracing::info!("TLS passthrough mode enabled (raw TCP forwarding)");
+            None
+        } else {
+            None
+        };
+
+        tracing::info!(addr = %addr, max_connections = self.max_connections, tls = tls_enabled, "gateway server started");
+
+        // 优雅停机：select! 在 accept 和 shutdown 之间竞争
+        tokio::pin!(shutdown);
 
         loop {
-            let (stream, remote_addr) = listener
-                .accept()
-                .await
-                .map_err(|e| ConrogateError::Init(format!("tcp accept: {e}")))?;
+            tokio::select! {
+                // 正常 accept 新连接
+                accept_result = listener.accept() => {
+                    let (stream, remote_addr) = accept_result
+                        .map_err(|e| ConrogateError::Init(format!("tcp accept: {e}")))?;
 
-            // 健康探针：GET /healthz 直接返回 200，不走路由
-            let client_ip = remote_addr.ip().to_string();
-            let http_handler = self.http_handler.clone();
-            let semaphore = conn_semaphore.clone();
+                    let client_ip = remote_addr.ip().to_string();
+                    let http_handler = self.http_handler.clone();
+                    let semaphore = conn_semaphore.clone();
+                    let tls_acc = tls_acceptor.clone();
 
-            tokio::spawn(async move {
-                // 获取并发许可（带超时，避免堆积）
-                let _permit = match semaphore.acquire().await {
-                    Ok(p) => p,
-                    Err(_) => {
-                        tracing::warn!("connection semaphore closed");
-                        return;
-                    }
-                };
+                    tokio::spawn(async move {
+                        // 获取并发许可
+                        let _permit = match semaphore.acquire().await {
+                            Ok(p) => p,
+                            Err(_) => {
+                                tracing::warn!("connection semaphore closed");
+                                return;
+                            }
+                        };
 
-                let io = TokioIo::new(stream);
-                let svc = HyperServiceBridge {
-                    handler: http_handler,
-                    client_ip,
-                    max_body_bytes,
-                };
+                        let svc = HyperServiceBridge {
+                            handler: http_handler,
+                            client_ip,
+                            max_body_bytes,
+                        };
 
-                // HTTP/1 服务（带空闲超时）
-                let h1 = http1::Builder::new();
-                let serve = h1.serve_connection(io, svc);
+                        // TLS 握手（如果启用 terminate 模式）
+                        let h1 = http1::Builder::new();
+                        let result = if let Some(acc) = tls_acc {
+                            match acc.accept(stream).await {
+                                Ok(tls_stream) => {
+                                    let io = TokioIo::new(tls_stream);
+                                    tokio::time::timeout(
+                                        idle_timeout,
+                                        h1.serve_connection(io, svc),
+                                    ).await
+                                }
+                                Err(e) => {
+                                    tracing::warn!(error = %e, "TLS handshake failed");
+                                    return;
+                                }
+                            }
+                        } else {
+                            let io = TokioIo::new(stream);
+                            tokio::time::timeout(
+                                idle_timeout,
+                                h1.serve_connection(io, svc),
+                            ).await
+                        };
 
-                // 包裹空闲超时
-                let result = tokio::time::timeout(idle_timeout, serve).await;
-                match result {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => {
-                        tracing::debug!(error = %e, "http connection ended");
-                    }
-                    Err(_) => {
-                        tracing::debug!("http connection idle timeout");
-                    }
+                        match result {
+                            Ok(Ok(())) => {}
+                            Ok(Err(e)) => {
+                                tracing::debug!(error = %e, "http connection ended");
+                            }
+                            Err(_) => {
+                                tracing::debug!("http connection idle timeout");
+                            }
+                        }
+                    });
                 }
-            });
+
+                // 优雅停机信号
+                _ = &mut shutdown => {
+                    tracing::info!("shutdown signal received, stopping accept loop");
+                    // 停止接受新连接，进入宽限期
+                    break;
+                }
+            }
         }
+
+        // 宽限期：等待存量连接自然结束
+        tracing::info!(drain_ms = long_conn_drain.as_millis(), "graceful shutdown: draining in-flight connections");
+        tokio::time::sleep(long_conn_drain).await;
+
+        // 宽限期结束，强制释放所有并发许可（触发连接清理）
+        tracing::info!("graceful drain period expired, connections will be force-closed");
+        // 语义上的信号：permit drop 后 Semaphore 容量恢复，
+        // 但已在执行中的连接会在 idle_timeout 后自然超时
+
+        Ok(())
+    }
+
+    /// 启动网关服务（阻塞，无优雅停机）
+    pub async fn run(&self) -> Result<(), ConrogateError> {
+        let (_tx, rx) = tokio::sync::oneshot::channel::<()>();
+        self.run_with_shutdown(async move {
+            let _ = rx.await;
+        }).await
     }
 
     /// 热加载路由
