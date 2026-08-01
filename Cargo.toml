@@ -71,6 +71,7 @@ sea-orm-migration = { version = "1.1", features = [
 # 日志链路
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+tracing-appender = { version = "0.2" }
 # 基础工具
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.10", features = ["v4", "serde"] }

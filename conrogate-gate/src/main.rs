@@ -24,13 +24,15 @@ async fn main() -> anyhow::Result<()> {
         let _ = dotenvy::dotenv();
     }
 
-    tracing_subscriber::fmt::init();
-
+    // 先加载配置
     let config = conrogate_contract::config::Config::from_env()
         .map_err(|e| anyhow::anyhow!("config load failed: {e}"))?;
     config
         .validate()
         .map_err(|e| anyhow::anyhow!("config validation failed: {e}"))?;
+
+    // 初始化日志（JSON 格式 + 文件输出）
+    conrogate_gateway::logging::init(&config.log);
 
     tracing::info!(
         host = %config.gate.listen.host,

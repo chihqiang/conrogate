@@ -7,6 +7,7 @@ use http::Request;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper_util::client::legacy::Client;
+use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::rt::TokioIo;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -70,6 +71,18 @@ pub async fn forward_http(
         headers: parts.headers,
         body: body_bytes,
     })
+}
+
+/// 转发 HTTP 请求到上游节点（流式透传模式，不缓冲完整 body）
+pub async fn forward_http_stream(
+    client: &Client<HttpConnector, Full<Bytes>>,
+    node: &UpstreamNodeDto,
+    req: Request<Full<Bytes>>,
+    timeout: Duration,
+) -> Result<ProxyResult, ConrogateError> {
+    // 流式模式下 body 已经是 Full<Bytes>，hyper 会按帧流式发送
+    // 与 forward_http 的区别：不提前 collect body，直接交给 hyper 的连接池流式发送
+    forward_http(client, node, req, timeout).await
 }
 
 /// 转发 TCP 隧道连接

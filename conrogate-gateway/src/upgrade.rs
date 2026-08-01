@@ -1,8 +1,10 @@
-//! WebSocket 协议升级处理。
+//! WebSocket 协议升级处理 + 双向字节流转发。
 
 use bytes::Bytes;
 use http::{Method, Request, Response, StatusCode};
 use std::time::Duration;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 /// 检查是否为 WebSocket 升级请求
 pub fn is_upgrade_request(req: &Request<Bytes>) -> bool {
@@ -34,8 +36,6 @@ pub fn build_upgrade_response(req: &Request<Bytes>) -> Response<Bytes> {
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
-    // 计算握手 accept 值
-    use std::fmt::Write;
     let mut hasher = Sha1::new();
     hasher.update(key.as_bytes());
     hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
@@ -48,6 +48,106 @@ pub fn build_upgrade_response(req: &Request<Bytes>) -> Response<Bytes> {
         .header("Sec-WebSocket-Accept", accept)
         .body(Bytes::new())
         .unwrap()
+}
+
+/// WebSocket 双向转发：连接上游 + 透传字节流
+///
+/// 流程：connect upstream → send upgrade request → read 101 response → bidirectional copy
+pub async fn forward_websocket(
+    upstream_addr: &str,
+    client: TcpStream,
+    upgrade_req: Request<Bytes>,
+    timeout: Duration,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // 1. 连接上游（带超时）
+    let upstream = tokio::time::timeout(timeout, TcpStream::connect(upstream_addr))
+        .await
+        .map_err(|_| "upstream connect timeout")??;
+
+    // 2. 将升级请求发送到上游
+    let (mut client_r, mut client_w) = client.into_split();
+    let (mut upstream_r, mut upstream_w) = upstream.into_split();
+
+    // 序列化 HTTP 升级请求并发送到上游
+    let req_bytes = serialize_request(&upgrade_req);
+    upstream_w.write_all(&req_bytes).await?;
+    upstream_w.flush().await?;
+
+    // 3. 读取上游的 101 响应并转发给客户端
+    // 读取直到 \r\n\r\n
+    let mut response_buf = Vec::with_capacity(1024);
+    loop {
+        let mut buf = [0u8; 256];
+        let n = upstream_r.read(&mut buf).await?;
+        if n == 0 {
+            return Err("upstream closed before sending 101".into());
+        }
+        response_buf.extend_from_slice(&buf[..n]);
+        client_w.write_all(&buf[..n]).await?;
+        client_w.flush().await?;
+
+        // 检查是否已读完 HTTP 头部
+        if response_buf.windows(4).any(|w| w == b"\r\n\r\n") {
+            break;
+        }
+        if response_buf.len() > 8192 {
+            return Err("upgrade response too large".into());
+        }
+    }
+
+    // 4. 双向字节流透传（带背压处理）
+    let c2s = async {
+        let mut buf = [0u8; 8192];
+        loop {
+            let n = client_r.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            upstream_w.write_all(&buf[..n]).await?;
+            upstream_w.flush().await?;
+        }
+        let _ = upstream_w.shutdown().await;
+        Result::<_, Box<dyn std::error::Error + Send + Sync>>::Ok(())
+    };
+
+    let s2c = async {
+        let mut buf = [0u8; 8192];
+        loop {
+            let n = upstream_r.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            client_w.write_all(&buf[..n]).await?;
+            client_w.flush().await?;
+        }
+        let _ = client_w.shutdown().await;
+        Result::<_, Box<dyn std::error::Error + Send + Sync>>::Ok(())
+    };
+
+    // 双向并发，任一方向结束即结束
+    tokio::try_join!(c2s, s2c)?;
+
+    Ok(())
+}
+
+/// 序列化 HTTP 请求为原始字节
+fn serialize_request(req: &Request<Bytes>) -> Vec<u8> {
+    let mut buf = Vec::new();
+    let method = req.method().as_str();
+    let uri = req.uri();
+    let path = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/");
+    buf.extend_from_slice(format!("{} {} HTTP/1.1\r\n", method, path).as_bytes());
+
+    for (name, value) in req.headers() {
+        buf.extend_from_slice(name.as_str().as_bytes());
+        buf.extend_from_slice(b": ");
+        buf.extend_from_slice(value.as_bytes());
+        buf.extend_from_slice(b"\r\n");
+    }
+
+    buf.extend_from_slice(b"\r\n");
+    buf.extend_from_slice(req.body());
+    buf
 }
 
 // ── SHA-1 简易实现 ──

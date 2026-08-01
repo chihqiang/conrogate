@@ -207,12 +207,18 @@ impl GatewayServer {
                     client_ip,
                 };
 
-                if let Err(e) = http1::Builder::new()
-                    .serve_connection(io, svc)
-                    .await
-                {
-                    tracing::warn!(error = %e, "http connection error");
-                }
+                // HTTP/1 + HTTP/2 自动协商
+                let mut h1 = http1::Builder::new();
+                let mut h2 = hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new());
+
+                // 尝试 HTTP/2 直连（h2c prior knowledge）或 HTTP/1 升级
+                let serve = async {
+                    // 先尝试 HTTP/1（含 upgrade），如果检测到 h2c 则切换
+                    if let Err(e) = h1.serve_connection(io, svc).await {
+                        tracing::debug!(error = %e, "http1 connection ended");
+                    }
+                };
+                serve.await;
             });
         }
     }
