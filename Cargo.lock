@@ -601,12 +601,14 @@ name = "conrogate-plugin-auth"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "conrogate-contract",
  "conrogate-plugin",
  "http",
  "jsonwebtoken",
  "serde",
  "serde_json",
+ "tokio",
  "tracing",
 ]
 

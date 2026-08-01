@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: conrogate-pg
+    environment:
+      POSTGRES_USER: conrogate
+      POSTGRES_PASSWORD: conrogate_dev
+      POSTGRES_DB: conrogate
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "conrogate"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: conrogate-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+volumes:
+  pgdata:
+  redisdata:

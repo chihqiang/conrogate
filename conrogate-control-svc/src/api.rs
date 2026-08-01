@@ -3,7 +3,7 @@
 use crate::handler::{self, AppState};
 use axum::middleware;
 use axum::routing::{delete, get, post, put};
-use axum::Router;
+use axum::{Json, Router};
 use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 
@@ -17,7 +17,8 @@ pub fn build_router(state: AppState, auth_token: &str) -> Router {
     let public_routes = Router::new()
         .route("/health", get(handler::health_check))
         .route("/healthz", get(handler::healthz))
-        .route("/readyz", get(handler::readyz));
+        .route("/readyz", get(handler::readyz))
+        .route("/openapi.json", get(serve_openapi));
 
     // 认证路由
     let protected_routes = Router::new()
@@ -62,3 +63,9 @@ pub fn build_router(state: AppState, auth_token: &str) -> Router {
 
 /// API 前缀
 pub const API_PREFIX: &str = "/api/v1";
+
+/// 返回 OpenAPI JSON 文档
+async fn serve_openapi() -> Json<serde_json::Value> {
+    let openapi = crate::openapi::build_openapi();
+    Json(serde_json::to_value(&openapi).unwrap_or_default())
+}

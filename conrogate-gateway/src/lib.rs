@@ -11,3 +11,4 @@ pub mod telemetry;
 pub mod discovery;
 pub mod health;
 pub mod handler_registry;
+pub mod task_manager;
