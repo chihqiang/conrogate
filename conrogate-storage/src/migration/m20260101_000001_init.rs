@@ -1,0 +1,533 @@
+//! 初始迁移：创建全部表 + 索引。
+
+use sea_orm_migration::prelude::*;
+use sea_orm_migration::MigrationName;
+
+pub struct Migration;
+
+impl MigrationName for Migration {
+    fn name(&self) -> &str {
+        "m20260101_000001_init"
+    }
+}
+
+#[derive(DeriveIden)]
+enum Routes {
+    Table,
+    Id,
+    Name,
+    Protocol,
+    MatchConditions,
+    Priority,
+    UpstreamId,
+    HostHeader,
+    AllowRetryNonIdempotent,
+    Enabled,
+    CreatedAt,
+    UpdatedAt,
+    DeletedAt,
+}
+
+#[derive(DeriveIden)]
+enum Upstreams {
+    Table,
+    Id,
+    Name,
+    Algorithm,
+    RetryEnabled,
+    CreatedAt,
+    UpdatedAt,
+    DeletedAt,
+}
+
+#[derive(DeriveIden)]
+enum UpstreamNodes {
+    Table,
+    Id,
+    UpstreamId,
+    Address,
+    Weight,
+    Enabled,
+    CreatedAt,
+    UpdatedAt,
+    DeletedAt,
+}
+
+#[derive(DeriveIden)]
+enum RoutePluginBindings {
+    Table,
+    Id,
+    RouteId,
+    PluginName,
+    Config,
+    #[sea_orm(iden = "order")]
+    Order,
+    Blocking,
+    Enabled,
+    CreatedAt,
+    UpdatedAt,
+    DeletedAt,
+}
+
+#[derive(DeriveIden)]
+enum ConfigVersions {
+    Table,
+    Id,
+    Version,
+    BaseVersion,
+    PublishType,
+    ContentHash,
+    SnapshotContent,
+    CreatedBy,
+    Remark,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum MetricAggregates {
+    Table,
+    Id,
+    Ts,
+    BucketSec,
+    RouteId,
+    GateId,
+    Qps,
+    TotalRequests,
+    AvgLatencyMs,
+    P50Ms,
+    P90Ms,
+    P99Ms,
+    Status2xx,
+    Status3xx,
+    Status4xx,
+    Status5xx,
+    Sessions,
+    BytesIn,
+    BytesOut,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum GatewayEvents {
+    Table,
+    Id,
+    Ts,
+    EventType,
+    RouteId,
+    UpstreamId,
+    TraceId,
+    Detail,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum AuditLogs {
+    Table,
+    Id,
+    Ts,
+    Operator,
+    Action,
+    Resource,
+    ResourceId,
+    Detail,
+    TraceId,
+    CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum NodeApplications {
+    Table,
+    Id,
+    GateId,
+    Version,
+    AppliedAt,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum InstalledPlugins {
+    Table,
+    Id,
+    Name,
+    Version,
+    ApiVersion,
+    Kind,
+    Status,
+    PackageHash,
+    Manifest,
+    InstalledAt,
+    ActivatedAt,
+    DeletedAt,
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        // ── 1. upstreams ──
+        manager
+            .create_table(
+                Table::create()
+                    .table(Upstreams::Table)
+                    .col(
+                        ColumnDef::new(Upstreams::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(Upstreams::Name).string().not_null())
+                    .col(ColumnDef::new(Upstreams::Algorithm).small_integer().not_null().default(0))
+                    .col(ColumnDef::new(Upstreams::RetryEnabled).boolean().not_null().default(true))
+                    .col(ColumnDef::new(Upstreams::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(ColumnDef::new(Upstreams::UpdatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(ColumnDef::new(Upstreams::DeletedAt).timestamp_with_time_zone().null())
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_upstreams_name")
+                    .table(Upstreams::Table)
+                    .col(Upstreams::Name)
+                    .to_owned(),
+            )
+            .await?;
+
+        // ── 2. upstream_nodes ──
+        manager
+            .create_table(
+                Table::create()
+                    .table(UpstreamNodes::Table)
+                    .col(
+                        ColumnDef::new(UpstreamNodes::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(UpstreamNodes::UpstreamId).big_integer().not_null())
+                    .col(ColumnDef::new(UpstreamNodes::Address).string().not_null())
+                    .col(ColumnDef::new(UpstreamNodes::Weight).integer().not_null().default(1))
+                    .col(ColumnDef::new(UpstreamNodes::Enabled).boolean().not_null().default(true))
+                    .col(ColumnDef::new(UpstreamNodes::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(ColumnDef::new(UpstreamNodes::UpdatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(ColumnDef::new(UpstreamNodes::DeletedAt).timestamp_with_time_zone().null())
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_nodes_upstream")
+                            .from(UpstreamNodes::Table, UpstreamNodes::UpstreamId)
+                            .to(Upstreams::Table, Upstreams::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // ── 3. routes ──
+        manager
+            .create_table(
+                Table::create()
+                    .table(Routes::Table)
+                    .col(
+                        ColumnDef::new(Routes::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(Routes::Name).string().not_null())
+                    .col(ColumnDef::new(Routes::Protocol).small_integer().not_null().default(0))
+                    .col(ColumnDef::new(Routes::MatchConditions).json().not_null())
+                    .col(ColumnDef::new(Routes::Priority).integer().not_null().default(10))
+                    .col(ColumnDef::new(Routes::UpstreamId).big_integer().null())
+                    .col(ColumnDef::new(Routes::HostHeader).string().null())
+                    .col(ColumnDef::new(Routes::AllowRetryNonIdempotent).boolean().not_null().default(false))
+                    .col(ColumnDef::new(Routes::Enabled).boolean().not_null().default(true))
+                    .col(ColumnDef::new(Routes::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(ColumnDef::new(Routes::UpdatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(ColumnDef::new(Routes::DeletedAt).timestamp_with_time_zone().null())
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_routes_upstream")
+                            .from(Routes::Table, Routes::UpstreamId)
+                            .to(Upstreams::Table, Upstreams::Id)
+                            .on_delete(ForeignKeyAction::SetNull),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // ── 4. route_plugin_bindings ──
+        manager
+            .create_table(
+                Table::create()
+                    .table(RoutePluginBindings::Table)
+                    .col(
+                        ColumnDef::new(RoutePluginBindings::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(RoutePluginBindings::RouteId).big_integer().not_null())
+                    .col(ColumnDef::new(RoutePluginBindings::PluginName).string().not_null())
+                    .col(ColumnDef::new(RoutePluginBindings::Config).json().not_null().default("{}"))
+                    .col(ColumnDef::new(RoutePluginBindings::Order).integer().not_null().default(0))
+                    .col(ColumnDef::new(RoutePluginBindings::Blocking).boolean().not_null().default(false))
+                    .col(ColumnDef::new(RoutePluginBindings::Enabled).boolean().not_null().default(true))
+                    .col(ColumnDef::new(RoutePluginBindings::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(ColumnDef::new(RoutePluginBindings::UpdatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(ColumnDef::new(RoutePluginBindings::DeletedAt).timestamp_with_time_zone().null())
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_bindings_route")
+                            .from(RoutePluginBindings::Table, RoutePluginBindings::RouteId)
+                            .to(Routes::Table, Routes::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        // ── 5. config_versions ──
+        manager
+            .create_table(
+                Table::create()
+                    .table(ConfigVersions::Table)
+                    .col(
+                        ColumnDef::new(ConfigVersions::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(ConfigVersions::Version).big_integer().not_null())
+                    .col(ColumnDef::new(ConfigVersions::BaseVersion).big_integer().not_null().default(0))
+                    .col(ColumnDef::new(ConfigVersions::PublishType).small_integer().not_null().default(0))
+                    .col(ColumnDef::new(ConfigVersions::ContentHash).string().not_null())
+                    .col(ColumnDef::new(ConfigVersions::SnapshotContent).json().not_null())
+                    .col(ColumnDef::new(ConfigVersions::CreatedBy).string().null())
+                    .col(ColumnDef::new(ConfigVersions::Remark).string().null())
+                    .col(ColumnDef::new(ConfigVersions::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_config_versions_version")
+                    .table(ConfigVersions::Table)
+                    .col(ConfigVersions::Version)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+
+        // ── 6. metric_aggregates ──
+        manager
+            .create_table(
+                Table::create()
+                    .table(MetricAggregates::Table)
+                    .col(
+                        ColumnDef::new(MetricAggregates::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(MetricAggregates::Ts).timestamp_with_time_zone().not_null())
+                    .col(ColumnDef::new(MetricAggregates::BucketSec).integer().not_null().default(10))
+                    .col(ColumnDef::new(MetricAggregates::RouteId).big_integer().null())
+                    .col(ColumnDef::new(MetricAggregates::GateId).string().not_null())
+                    .col(ColumnDef::new(MetricAggregates::Qps).integer().not_null().default(0))
+                    .col(ColumnDef::new(MetricAggregates::TotalRequests).big_integer().not_null().default(0))
+                    .col(ColumnDef::new(MetricAggregates::AvgLatencyMs).double().not_null().default(0.0))
+                    .col(ColumnDef::new(MetricAggregates::P50Ms).integer().not_null().default(0))
+                    .col(ColumnDef::new(MetricAggregates::P90Ms).integer().not_null().default(0))
+                    .col(ColumnDef::new(MetricAggregates::P99Ms).integer().not_null().default(0))
+                    .col(ColumnDef::new(MetricAggregates::Status2xx).big_integer().not_null().default(0))
+                    .col(ColumnDef::new(MetricAggregates::Status3xx).big_integer().not_null().default(0))
+                    .col(ColumnDef::new(MetricAggregates::Status4xx).big_integer().not_null().default(0))
+                    .col(ColumnDef::new(MetricAggregates::Status5xx).big_integer().not_null().default(0))
+                    .col(ColumnDef::new(MetricAggregates::Sessions).big_integer().not_null().default(0))
+                    .col(ColumnDef::new(MetricAggregates::BytesIn).big_integer().not_null().default(0))
+                    .col(ColumnDef::new(MetricAggregates::BytesOut).big_integer().not_null().default(0))
+                    .col(ColumnDef::new(MetricAggregates::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_metrics_ts_gate_route")
+                    .table(MetricAggregates::Table)
+                    .col(MetricAggregates::Ts)
+                    .col(MetricAggregates::GateId)
+                    .col(MetricAggregates::RouteId)
+                    .to_owned(),
+            )
+            .await?;
+
+        // ── 7. gateway_events ──
+        manager
+            .create_table(
+                Table::create()
+                    .table(GatewayEvents::Table)
+                    .col(
+                        ColumnDef::new(GatewayEvents::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(GatewayEvents::Ts).timestamp_with_time_zone().not_null())
+                    .col(ColumnDef::new(GatewayEvents::EventType).string().not_null())
+                    .col(ColumnDef::new(GatewayEvents::RouteId).big_integer().null())
+                    .col(ColumnDef::new(GatewayEvents::UpstreamId).big_integer().null())
+                    .col(ColumnDef::new(GatewayEvents::TraceId).string().null())
+                    .col(ColumnDef::new(GatewayEvents::Detail).json().null())
+                    .col(ColumnDef::new(GatewayEvents::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_events_ts_type")
+                    .table(GatewayEvents::Table)
+                    .col(GatewayEvents::Ts)
+                    .col(GatewayEvents::EventType)
+                    .to_owned(),
+            )
+            .await?;
+
+        // ── 8. audit_logs ──
+        manager
+            .create_table(
+                Table::create()
+                    .table(AuditLogs::Table)
+                    .col(
+                        ColumnDef::new(AuditLogs::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(AuditLogs::Ts).timestamp_with_time_zone().not_null())
+                    .col(ColumnDef::new(AuditLogs::Operator).string().null())
+                    .col(ColumnDef::new(AuditLogs::Action).string().not_null())
+                    .col(ColumnDef::new(AuditLogs::Resource).string().not_null())
+                    .col(ColumnDef::new(AuditLogs::ResourceId).big_integer().null())
+                    .col(ColumnDef::new(AuditLogs::Detail).json().null())
+                    .col(ColumnDef::new(AuditLogs::TraceId).string().null())
+                    .col(ColumnDef::new(AuditLogs::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_audit_ts_action")
+                    .table(AuditLogs::Table)
+                    .col(AuditLogs::Ts)
+                    .col(AuditLogs::Action)
+                    .to_owned(),
+            )
+            .await?;
+
+        // ── 9. node_applications ──
+        manager
+            .create_table(
+                Table::create()
+                    .table(NodeApplications::Table)
+                    .col(
+                        ColumnDef::new(NodeApplications::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(NodeApplications::GateId).string().not_null())
+                    .col(ColumnDef::new(NodeApplications::Version).big_integer().not_null().default(0))
+                    .col(ColumnDef::new(NodeApplications::AppliedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(ColumnDef::new(NodeApplications::UpdatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_node_apps_gate_id")
+                    .table(NodeApplications::Table)
+                    .col(NodeApplications::GateId)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+
+        // ── 10. installed_plugins ──
+        manager
+            .create_table(
+                Table::create()
+                    .table(InstalledPlugins::Table)
+                    .col(
+                        ColumnDef::new(InstalledPlugins::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(ColumnDef::new(InstalledPlugins::Name).string().not_null())
+                    .col(ColumnDef::new(InstalledPlugins::Version).string().not_null())
+                    .col(ColumnDef::new(InstalledPlugins::ApiVersion).integer().not_null().default(1))
+                    .col(ColumnDef::new(InstalledPlugins::Kind).small_integer().not_null().default(0))
+                    .col(ColumnDef::new(InstalledPlugins::Status).small_integer().not_null().default(0))
+                    .col(ColumnDef::new(InstalledPlugins::PackageHash).string().null())
+                    .col(ColumnDef::new(InstalledPlugins::Manifest).json().not_null().default("{}"))
+                    .col(ColumnDef::new(InstalledPlugins::InstalledAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(ColumnDef::new(InstalledPlugins::ActivatedAt).timestamp_with_time_zone().null())
+                    .col(ColumnDef::new(InstalledPlugins::DeletedAt).timestamp_with_time_zone().null())
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_plugins_name")
+                    .table(InstalledPlugins::Table)
+                    .col(InstalledPlugins::Name)
+                    .to_owned(),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        // 按依赖逆序删除
+        let tables = [
+            "installed_plugins",
+            "node_applications",
+            "audit_logs",
+            "gateway_events",
+            "metric_aggregates",
+            "config_versions",
+            "route_plugin_bindings",
+            "routes",
+            "upstream_nodes",
+            "upstreams",
+        ];
+        for table in tables {
+            manager.drop_table(Table::drop().table(Alias::new(table)).to_owned()).await?;
+        }
+        Ok(())
+    }
+}

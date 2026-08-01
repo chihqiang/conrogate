@@ -1,0 +1,50 @@
+//! 数据库连接池管理。
+
+use conrogate_contract::config::DbConfig;
+use conrogate_contract::ConrogateError;
+use sea_orm::{ConnectOptions, Database, DatabaseConnection};
+use std::time::Duration;
+
+/// 主库连接池（读写）
+pub async fn create_main_pool(db_config: &DbConfig) -> Result<DatabaseConnection, ConrogateError> {
+    let url = db_config.database_url();
+    let mut opt = ConnectOptions::new(url);
+    opt.connect_timeout(db_config.connect_timeout)
+        .max_connections(db_config.max_connections)
+        .min_connections(1)
+        .sqlx_logging(false);
+    let db = Database::connect(opt)
+        .await
+        .map_err(|e| ConrogateError::Init(format!("main db pool failed: {e}")))?;
+    tracing::info!("main db pool connected");
+    Ok(db)
+}
+
+/// 只读库连接池（gate 组件使用）
+pub async fn create_read_pool(db_config: &DbConfig) -> Result<DatabaseConnection, ConrogateError> {
+    let url = if db_config.read_host.is_empty() {
+        db_config.database_url()
+    } else {
+        format!(
+            "postgres://{}:{}@{}:{}/{}?ssl-mode={}",
+            db_config.username,
+            db_config.password,
+            db_config.read_host,
+            db_config.port,
+            db_config.name,
+            db_config.ssl_mode
+        )
+    };
+
+    let mut opt = ConnectOptions::new(url);
+    opt.connect_timeout(db_config.connect_timeout)
+        .max_connections(db_config.max_connections)
+        .min_connections(1)
+        .sqlx_logging(false);
+
+    let db = Database::connect(opt)
+        .await
+        .map_err(|e| ConrogateError::Init(format!("read db pool failed: {e}")))?;
+    tracing::info!("read db pool connected");
+    Ok(db)
+}
