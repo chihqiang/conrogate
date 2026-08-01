@@ -15,7 +15,9 @@ pub fn build_router(state: AppState, auth_token: &str) -> Router {
 
     // 公开路由（不需要认证）
     let public_routes = Router::new()
-        .route("/health", get(handler::health_check));
+        .route("/health", get(handler::health_check))
+        .route("/healthz", get(handler::healthz))
+        .route("/readyz", get(handler::readyz));
 
     // 认证路由
     let protected_routes = Router::new()

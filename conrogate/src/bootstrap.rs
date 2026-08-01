@@ -217,8 +217,58 @@ async fn start_control_plane(
     }
 }
 
-/// 写入演示数据
-async fn seed_demo_data(_db: &Arc<sea_orm::DatabaseConnection>) -> anyhow::Result<()> {
-    tracing::info!("seed demo data not yet implemented");
+/// 写入演示数据：1 个 echo 上游 + 1 个演示路由
+async fn seed_demo_data(main_db: &Arc<sea_orm::DatabaseConnection>) -> anyhow::Result<()> {
+    use conrogate_contract::dto::*;
+    use conrogate_contract::storage::*;
+    use conrogate_contract::protocol::{PathMatch, ProtocolId, RouteMatchConditions};
+    use conrogate_contract::balancer::BalancerAlgorithm;
+
+    let upstream_repo = conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new(
+        (**main_db).clone(),
+    );
+    let route_repo = conrogate_storage::repository::route_repo::RouteRepoImpl::new(
+        (**main_db).clone(),
+    );
+
+    // 检查是否已有数据
+    let existing = ReadOnlyUpstreamRepo::list_all(&upstream_repo).await
+        .unwrap_or_default();
+    if !existing.is_empty() {
+        tracing::info!("demo data already exists, skipping seed");
+        return Ok(());
+    }
+
+    // 创建 echo 上游（指向内置 echo 服务 127.0.0.1:9090）
+    let upstream = upstream_repo.create(CreateUpstreamDto {
+        name: "echo-upstream".into(),
+        algorithm: BalancerAlgorithm::RoundRobin,
+        retry_enabled: Some(false),
+        nodes: vec![CreateUpstreamNodeDto {
+            address: "127.0.0.1:9090".into(),
+            weight: Some(1),
+            enabled: Some(true),
+        }],
+    }).await?;
+
+    // 创建演示路由
+    let _route = route_repo.create(CreateRouteDto {
+        name: "demo-route".into(),
+        protocol: ProtocolId::Http,
+        match_conditions: RouteMatchConditions {
+            path: PathMatch::Prefix("/demo/".into()),
+            methods: None,
+            host: None,
+            headers: vec![],
+            query_params: vec![],
+        },
+        priority: Some(10),
+        upstream_id: Some(upstream.id),
+        host_header: None,
+        allow_retry_non_idempotent: Some(false),
+        enabled: Some(true),
+    }).await?;
+
+    tracing::info!(upstream_id = upstream.id, "demo data seeded: echo-upstream + demo-route");
     Ok(())
 }

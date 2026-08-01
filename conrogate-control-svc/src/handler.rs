@@ -368,6 +368,23 @@ pub async fn health_check() -> Json<serde_json::Value> {
     Json(serde_json::json!({"status": "ok"}))
 }
 
+pub async fn healthz() -> Json<serde_json::Value> {
+    Json(serde_json::json!({"status": "ok"}))
+}
+
+pub async fn readyz(
+    State(state): State<AppState>,
+) -> Json<serde_json::Value> {
+    // 检查 DB 连接：尝试列出节点
+    match state.svc.list_nodes().await {
+        Ok(_) => Json(serde_json::json!({"status": "ok"})),
+        Err(e) => Json(serde_json::json!({
+            "status": "error",
+            "error": e.to_string()
+        })),
+    }
+}
+
 // ── 错误转换 ──
 
 fn to_error(e: ConrogateError) -> (StatusCode, String) {
