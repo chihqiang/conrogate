@@ -42,7 +42,7 @@ impl ConfigVersionRepo for ConfigVersionRepoImpl {
         let snapshot_json = serde_json::to_value(snapshot)
             .map_err(|e| ConrogateError::DataMapping(e.to_string()))?;
 
-        let content_hash = format!("sha256:{:x}", simple_hash(&snapshot_json.to_string()));
+        let content_hash = format!("sha256:{}", sha256_hash(&snapshot_json.to_string()));
         let now = chrono::Utc::now();
 
         let active = config_versions::ActiveModel {
@@ -183,10 +183,12 @@ impl ConfigVersionRepo for ConfigVersionRepoImpl {
     }
 }
 
-fn simple_hash(s: &str) -> u128 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    s.hash(&mut hasher);
-    hasher.finish() as u128
+/// 计算字符串的 SHA-256 哈希（返回 64 位十六进制字符串）
+fn sha256_hash(s: &str) -> String {
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(s.as_bytes());
+    let result = hasher.finalize();
+    // 转为十六进制字符串
+    hex::encode(result)
 }

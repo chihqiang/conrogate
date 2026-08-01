@@ -65,6 +65,39 @@ async fn main() -> anyhow::Result<()> {
     server.reload_routes(routes);
     server.reload_upstreams(upstreams);
 
+    // ── 4a. 节点心跳上报后台任务（分离模式）──
+    let control_url = &config.gate.refresh.control_api_url;
+    let control_token = config.gate.refresh.control_api_token.clone();
+    let gate_id = config.common.instance_id.clone();
+    if !control_url.is_empty() {
+        let url = control_url.clone();
+        tokio::spawn(async move {
+            let client = hyper_util::client::legacy::Client::builder(
+                hyper_util::rt::TokioExecutor::new(),
+            )
+            .build(hyper_util::client::legacy::connect::HttpConnector::new());
+            let heartbeat_interval = std::time::Duration::from_secs(30);
+            loop {
+                tokio::time::sleep(heartbeat_interval).await;
+                let hb = conrogate_contract::dto::Heartbeat {
+                    gate_id: gate_id.clone(),
+                    version: 0,
+                    timestamp: chrono::Utc::now(),
+                };
+                let body = serde_json::to_vec(&hb).unwrap_or_default();
+                let req = http::Request::builder()
+                    .method("POST")
+                    .uri(format!("{}/api/v1/reports/heartbeat", url))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", format!("Bearer {}", control_token))
+                    .body(http_body_util::Full::new(bytes::Bytes::from(body)))
+                    .unwrap();
+                let _ = client.request(req).await;
+                tracing::debug!("heartbeat sent");
+            }
+        });
+    }
+
     // ── 5. 启动数据面监听 ──
     server.run().await.map_err(|e| anyhow::anyhow!("gateway server error: {e}"))?;
 

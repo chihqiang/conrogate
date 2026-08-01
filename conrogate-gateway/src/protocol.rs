@@ -184,6 +184,23 @@ impl HttpProtocolHandler {
         // 1a. XFF 信任链：解析真实客户端 IP
         let real_ip = self.resolve_real_ip(&client_ip, &headers);
 
+        // 1b. WebSocket 升级检测
+        let upgrade_req = Request::builder()
+            .method(method.clone())
+            .uri(uri.clone())
+            .version(parts.version)
+            .body(body.clone())
+            .unwrap();
+        if crate::upgrade::is_upgrade_request(&upgrade_req) {
+            // 构造 101 握手响应
+            let resp = crate::upgrade::build_upgrade_response(&upgrade_req);
+            tracing::info!(
+                trace_id = %trace_id,
+                "websocket upgrade request, returning 101"
+            );
+            return Ok(resp);
+        }
+
         // 2. 路由匹配
         let route = self
             .svc

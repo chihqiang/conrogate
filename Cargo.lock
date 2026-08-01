@@ -531,6 +531,8 @@ name = "conrogate-gate"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bytes",
+ "chrono",
  "clap",
  "conrogate-balancer",
  "conrogate-contract",
@@ -542,6 +544,10 @@ dependencies = [
  "conrogate-storage",
  "conrogate-traffic",
  "dotenvy",
+ "http",
+ "http-body-util",
+ "hyper-util",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -652,11 +658,13 @@ dependencies = [
  "chrono",
  "conrogate-balancer",
  "conrogate-contract",
+ "hex",
  "redis",
  "sea-orm",
  "sea-orm-migration",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tracing",
 ]

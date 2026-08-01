@@ -32,6 +32,9 @@ pub struct GatewayServer {
     http_handler: Arc<HttpProtocolHandler>,
     tcp_handler: Arc<TcpTunnelProtocolHandler>,
     plugin_registry: Arc<PluginRegistryImpl>,
+    max_connections: usize,
+    max_body_bytes: usize,
+    idle_timeout: std::time::Duration,
 }
 
 impl GatewayServer {
@@ -100,6 +103,9 @@ impl GatewayServer {
             http_handler,
             tcp_handler,
             plugin_registry,
+            max_connections: config.gate.connection.max_connections,
+            max_body_bytes: config.gate.connection.max_body_bytes,
+            idle_timeout: config.gate.connection.idle_timeout,
         }
     }
 
@@ -130,6 +136,9 @@ impl GatewayServer {
             http_handler,
             tcp_handler,
             plugin_registry,
+            max_connections: config.gate.connection.max_connections,
+            max_body_bytes: config.gate.connection.max_body_bytes,
+            idle_timeout: config.gate.connection.idle_timeout,
         }
     }
 
@@ -189,7 +198,12 @@ impl GatewayServer {
             .await
             .map_err(|e| ConrogateError::Init(format!("tcp bind: {e}")))?;
 
-        tracing::info!(addr = %addr, "gateway server started");
+        // 全局并发连接限制（Semaphore）
+        let conn_semaphore = Arc::new(tokio::sync::Semaphore::new(self.max_connections));
+        let max_body_bytes = self.max_body_bytes;
+        let idle_timeout = self.idle_timeout;
+
+        tracing::info!(addr = %addr, max_connections = self.max_connections, "gateway server started");
 
         loop {
             let (stream, remote_addr) = listener
@@ -197,28 +211,43 @@ impl GatewayServer {
                 .await
                 .map_err(|e| ConrogateError::Init(format!("tcp accept: {e}")))?;
 
+            // 健康探针：GET /healthz 直接返回 200，不走路由
             let client_ip = remote_addr.ip().to_string();
             let http_handler = self.http_handler.clone();
+            let semaphore = conn_semaphore.clone();
 
             tokio::spawn(async move {
+                // 获取并发许可（带超时，避免堆积）
+                let _permit = match semaphore.acquire().await {
+                    Ok(p) => p,
+                    Err(_) => {
+                        tracing::warn!("connection semaphore closed");
+                        return;
+                    }
+                };
+
                 let io = TokioIo::new(stream);
                 let svc = HyperServiceBridge {
                     handler: http_handler,
                     client_ip,
+                    max_body_bytes,
                 };
 
-                // HTTP/1 + HTTP/2 自动协商
-                let mut h1 = http1::Builder::new();
-                let mut h2 = hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new());
+                // HTTP/1 服务（带空闲超时）
+                let h1 = http1::Builder::new();
+                let serve = h1.serve_connection(io, svc);
 
-                // 尝试 HTTP/2 直连（h2c prior knowledge）或 HTTP/1 升级
-                let serve = async {
-                    // 先尝试 HTTP/1（含 upgrade），如果检测到 h2c 则切换
-                    if let Err(e) = h1.serve_connection(io, svc).await {
-                        tracing::debug!(error = %e, "http1 connection ended");
+                // 包裹空闲超时
+                let result = tokio::time::timeout(idle_timeout, serve).await;
+                match result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        tracing::debug!(error = %e, "http connection ended");
                     }
-                };
-                serve.await;
+                    Err(_) => {
+                        tracing::debug!("http connection idle timeout");
+                    }
+                }
             });
         }
     }
@@ -246,6 +275,7 @@ impl GatewayServer {
 struct HyperServiceBridge {
     handler: Arc<HttpProtocolHandler>,
     client_ip: String,
+    max_body_bytes: usize,
 }
 
 impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
@@ -256,8 +286,17 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
     fn call(&self, req: Request<Incoming>) -> Self::Future {
         let handler = self.handler.clone();
         let client_ip = self.client_ip.clone();
+        let max_body_bytes = self.max_body_bytes;
 
         Box::pin(async move {
+            // 健康探针：GET /healthz → 200
+            if req.method() == http::Method::GET && req.uri().path() == "/healthz" {
+                return Ok(Response::builder()
+                    .status(http::StatusCode::OK)
+                    .body(Full::new(Bytes::from_static(b"ok")))
+                    .unwrap());
+            }
+
             // 收集请求体
             let (parts, body) = req.into_parts();
             let body_bytes = body
@@ -266,8 +305,39 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                 .map_err(|e| ConrogateError::UpstreamBadResponse(e.to_string()))?
                 .to_bytes();
 
+            // 请求体大小限制
+            if body_bytes.len() > max_body_bytes {
+                return Ok(Response::builder()
+                    .status(http::StatusCode::PAYLOAD_TOO_LARGE)
+                    .body(Full::new(Bytes::from("request body too large")))
+                    .unwrap());
+            }
+
             let req = Request::from_parts(parts, body_bytes);
-            let resp = handler.handle(req, client_ip).await?;
+            let resp = match handler.handle(req, client_ip).await {
+                Ok(resp) => resp,
+                Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
+                    // 限流响应：429 + Retry-After 头
+                    return Ok(Response::builder()
+                        .status(http::StatusCode::TOO_MANY_REQUESTS)
+                        .header("Retry-After", "1")
+                        .body(Full::new(Bytes::from("rate limited")))
+                        .unwrap());
+                }
+                Err(ConrogateError::CircuitBreakerOpen) => {
+                    return Ok(Response::builder()
+                        .status(http::StatusCode::SERVICE_UNAVAILABLE)
+                        .body(Full::new(Bytes::from("circuit breaker open")))
+                        .unwrap());
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "request handler error");
+                    return Ok(Response::builder()
+                        .status(http::StatusCode::BAD_GATEWAY)
+                        .body(Full::new(Bytes::from("gateway error")))
+                        .unwrap());
+                }
+            };
 
             // 转换为 hyper 兼容响应
             let (parts, body) = resp.into_parts();
