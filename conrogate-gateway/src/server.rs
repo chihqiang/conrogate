@@ -68,15 +68,22 @@ impl GatewayServer {
 
         // 插件注册表 + 注册内置插件
         let plugin_registry = Arc::new(PluginRegistryImpl::new());
-        plugin_registry
-            .register(Arc::new(conrogate_plugin_log::LogPlugin::new()))
-            .await;
-        plugin_registry
-            .register(Arc::new(conrogate_plugin_cors::CorsPlugin::new()))
-            .await;
-        plugin_registry
-            .register(Arc::new(conrogate_plugin_auth::AuthPlugin::new()))
-            .await;
+        let log_plugin = Arc::new(conrogate_plugin_log::LogPlugin::new());
+        let cors_plugin = Arc::new(conrogate_plugin_cors::CorsPlugin::new());
+        let auth_plugin = Arc::new(conrogate_plugin_auth::AuthPlugin::new());
+        plugin_registry.register(log_plugin.clone()).await;
+        plugin_registry.register(cors_plugin.clone()).await;
+        plugin_registry.register(auth_plugin.clone()).await;
+        // 调用插件 init() 生命周期钩子
+        for p in [&*log_plugin, &*cors_plugin, &*auth_plugin] as [&dyn conrogate_contract::plugin::Plugin; 3] {
+            if let Err(e) = p.init(&serde_json::Value::Null).await {
+                if p.is_blocking() {
+                    tracing::error!(plugin = p.name(), error = %e, "blocking plugin init failed, skipping registration");
+                } else {
+                    tracing::warn!(plugin = p.name(), error = %e, "non-blocking plugin init failed, disabled");
+                }
+            }
+        }
 
         let svc = Arc::new(ServiceContext {
             routes: route_matcher.clone(),
@@ -395,6 +402,17 @@ impl GatewayServer {
     pub fn plugin_registry(&self) -> &Arc<PluginRegistryImpl> {
         &self.plugin_registry
     }
+
+    /// 优雅停机：调用所有插件的 shutdown()
+    pub async fn shutdown_plugins(&self) {
+        let plugins = self.plugin_registry.list_all();
+        for p in &plugins {
+            if let Err(e) = p.shutdown().await {
+                tracing::warn!(plugin = p.name(), error = %e, "plugin shutdown failed");
+            }
+        }
+        tracing::info!("all plugins shut down");
+    }
 }
 
 /// hyper Service 桥接器
@@ -404,6 +422,29 @@ struct HyperServiceBridge {
     route_matcher: Arc<RouteMatcher>,
     client_ip: String,
     max_body_bytes: usize,
+}
+
+/// 构造 JSON 错误响应体
+fn json_error(code: i32, msg: &str) -> Bytes {
+    let trace_id = format!("{:032x}", std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0));
+    let body = serde_json::json!({
+        "code": code,
+        "msg": msg,
+        "trace_id": trace_id
+    });
+    Bytes::from(serde_json::to_vec(&body).unwrap_or_default())
+}
+
+/// 构造 JSON 错误响应
+fn error_response(status: http::StatusCode, code: i32, msg: &str) -> Response<Full<Bytes>> {
+    Response::builder()
+        .status(status)
+        .header("Content-Type", "application/json")
+        .body(Full::new(json_error(code, msg)))
+        .unwrap()
 }
 
 impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
@@ -429,10 +470,11 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
             // 就绪探针：GET /readyz → 200（路由缓存非空）/ 503（路由为空）
             if req.method() == http::Method::GET && req.uri().path() == "/readyz" {
                 if route_matcher.is_empty() {
-                    return Ok(Response::builder()
-                        .status(http::StatusCode::SERVICE_UNAVAILABLE)
-                        .body(Full::new(Bytes::from_static(b"not ready: no routes loaded")))
-                        .unwrap());
+                    return Ok(error_response(
+                        http::StatusCode::SERVICE_UNAVAILABLE,
+                        50001,
+                        "not ready: no routes loaded",
+                    ));
                 }
                 return Ok(Response::builder()
                     .status(http::StatusCode::OK)
@@ -457,24 +499,26 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                     let resp = match handler.handle_stream(parts, body, route.clone(), client_ip).await {
                         Ok(resp) => resp,
                         Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
-                            return Ok(Response::builder()
-                                .status(http::StatusCode::TOO_MANY_REQUESTS)
-                                .header("Retry-After", "1")
-                                .body(Full::new(Bytes::from("rate limited")))
-                                .unwrap());
+                            return Ok(error_response(
+                                http::StatusCode::TOO_MANY_REQUESTS,
+                                40008,
+                                "rate limited",
+                            ));
                         }
                         Err(ConrogateError::CircuitBreakerOpen) => {
-                            return Ok(Response::builder()
-                                .status(http::StatusCode::SERVICE_UNAVAILABLE)
-                                .body(Full::new(Bytes::from("circuit breaker open")))
-                                .unwrap());
+                            return Ok(error_response(
+                                http::StatusCode::SERVICE_UNAVAILABLE,
+                                40007,
+                                "circuit breaker open",
+                            ));
                         }
                         Err(e) => {
                             tracing::warn!(error = %e, "stream handler error");
-                            return Ok(Response::builder()
-                                .status(http::StatusCode::BAD_GATEWAY)
-                                .body(Full::new(Bytes::from("gateway error")))
-                                .unwrap());
+                            return Ok(error_response(
+                                http::StatusCode::BAD_GATEWAY,
+                                40006,
+                                "gateway error",
+                            ));
                         }
                     };
                     let (parts, resp_body) = resp.into_parts();
@@ -491,35 +535,37 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
 
             // 请求体大小限制
             if body_bytes.len() > max_body_bytes {
-                return Ok(Response::builder()
-                    .status(http::StatusCode::PAYLOAD_TOO_LARGE)
-                    .body(Full::new(Bytes::from("request body too large")))
-                    .unwrap());
+                return Ok(error_response(
+                    http::StatusCode::PAYLOAD_TOO_LARGE,
+                    10007,
+                    "request body too large",
+                ));
             }
 
             let req = Request::from_parts(parts, body_bytes);
             let resp = match handler.handle(req, client_ip).await {
                 Ok(resp) => resp,
                 Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
-                    // 限流响应：429 + Retry-After 头
-                    return Ok(Response::builder()
-                        .status(http::StatusCode::TOO_MANY_REQUESTS)
-                        .header("Retry-After", "1")
-                        .body(Full::new(Bytes::from("rate limited")))
-                        .unwrap());
+                    return Ok(error_response(
+                        http::StatusCode::TOO_MANY_REQUESTS,
+                        40008,
+                        "rate limited",
+                    ));
                 }
                 Err(ConrogateError::CircuitBreakerOpen) => {
-                    return Ok(Response::builder()
-                        .status(http::StatusCode::SERVICE_UNAVAILABLE)
-                        .body(Full::new(Bytes::from("circuit breaker open")))
-                        .unwrap());
+                    return Ok(error_response(
+                        http::StatusCode::SERVICE_UNAVAILABLE,
+                        40007,
+                        "circuit breaker open",
+                    ));
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "request handler error");
-                    return Ok(Response::builder()
-                        .status(http::StatusCode::BAD_GATEWAY)
-                        .body(Full::new(Bytes::from("gateway error")))
-                        .unwrap());
+                    return Ok(error_response(
+                        http::StatusCode::BAD_GATEWAY,
+                        40006,
+                        "gateway error",
+                    ));
                 }
             };
 

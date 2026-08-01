@@ -186,6 +186,25 @@ impl ControlService {
         self.binding_repo.list_by_route(route_id).await
     }
 
+    pub async fn update_plugin_binding(
+        &self,
+        route_id: u64,
+        plugin_name: &str,
+        dto: UpdatePluginBindingDto,
+        operator: Option<&str>,
+    ) -> Result<PluginBindingDto, ConrogateError> {
+        let binding = self.binding_repo.update(route_id, plugin_name, dto).await?;
+        self.audit.log(
+            operator,
+            "update",
+            "plugin_binding",
+            Some(binding.id),
+            serde_json::to_value(&binding).unwrap_or_default(),
+            None,
+        ).await;
+        Ok(binding)
+    }
+
     // ── 配置版本 ──
 
     pub async fn publish_config(

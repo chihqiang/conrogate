@@ -34,6 +34,11 @@ impl PluginRegistryImpl {
         self.plugins.read().unwrap().keys().cloned().collect()
     }
 
+    /// 列出全部已注册插件
+    pub fn list_all(&self) -> Vec<Arc<dyn Plugin>> {
+        self.plugins.read().unwrap().values().cloned().collect()
+    }
+
     /// 返回 requires_body=true 的已注册插件名集合
     pub fn body_required_plugin_names(&self) -> std::collections::HashSet<String> {
         self.plugins

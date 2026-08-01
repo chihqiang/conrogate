@@ -5,6 +5,7 @@ pub mod auth;
 pub mod audit;
 pub mod handler;
 pub mod openapi;
+pub mod response;
 pub mod service;
 
 pub use api::build_router;

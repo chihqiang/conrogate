@@ -2,7 +2,7 @@
 
 use crate::handler::{self, AppState};
 use axum::middleware;
-use axum::routing::{delete, get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use tower_http::trace::TraceLayer;
 
@@ -23,13 +23,13 @@ pub fn build_router(state: AppState, auth_token: &str) -> Router {
     let protected_routes = Router::new()
         // ── 路由管理 ──
         .route("/routes", post(handler::create_route).get(handler::list_routes))
-        .route("/routes/:id", get(handler::get_route).put(handler::update_route).delete(handler::delete_route))
+        .route("/routes/:id", get(handler::get_route).put(handler::update_route).patch(handler::patch_route).delete(handler::delete_route))
         // ── 上游管理 ──
         .route("/upstreams", post(handler::create_upstream).get(handler::list_upstreams))
         .route("/upstreams/:id", get(handler::get_upstream).put(handler::update_upstream).delete(handler::delete_upstream))
         // ── 插件绑定 ──
         .route("/routes/:id/plugins", post(handler::bind_plugin).get(handler::list_plugin_bindings))
-        .route("/routes/:id/plugins/:plugin_name", delete(handler::unbind_plugin))
+        .route("/routes/:id/plugins/:plugin_name", put(handler::update_plugin_binding).delete(handler::unbind_plugin))
         // ── 配置版本 ──
         .route("/config/publish", post(handler::publish_config))
         .route("/config/rollback", post(handler::rollback_config))
