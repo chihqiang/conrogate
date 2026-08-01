@@ -1,0 +1,13 @@
+[package]
+name = "conrogate-balancer"
+description = "Conrogate 负载均衡算法：RoundRobin / Weighted / LeastConnections / ConsistentHash"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+conrogate-contract = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+rand = { workspace = true }
+tracing = { workspace = true }

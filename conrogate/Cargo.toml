@@ -1,0 +1,28 @@
+[package]
+name = "conrogate"
+description = "Conrogate 合并二进制（数据面 + 控制面同进程）"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "conrogate"
+path = "src/main.rs"
+
+[dependencies]
+conrogate-contract = { workspace = true }
+conrogate-storage = { workspace = true }
+conrogate-gateway = { workspace = true }
+conrogate-control-svc = { workspace = true }
+conrogate-balancer = { workspace = true }
+conrogate-traffic = { workspace = true }
+conrogate-plugin = { workspace = true }
+conrogate-plugin-log = { workspace = true }
+conrogate-plugin-cors = { workspace = true }
+conrogate-plugin-auth = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+dotenvy = { workspace = true }
+anyhow.workspace = true

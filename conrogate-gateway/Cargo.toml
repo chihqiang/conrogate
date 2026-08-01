@@ -1,0 +1,26 @@
+[package]
+name = "conrogate-gateway"
+description = "Conrogate 网关核心：路由匹配、协议适配、代理转发、连接池"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+conrogate-contract = { workspace = true }
+conrogate-balancer = { workspace = true }
+conrogate-traffic = { workspace = true }
+conrogate-plugin = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+bytes = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }

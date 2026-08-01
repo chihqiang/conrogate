@@ -1,0 +1,21 @@
+[package]
+name = "conrogate-control"
+description = "Conrogate 控制面专用二进制"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "conrogate-control"
+path = "src/main.rs"
+
+[dependencies]
+conrogate-contract = { workspace = true }
+conrogate-storage = { workspace = true }
+conrogate-control-svc = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+dotenvy = { workspace = true }
+anyhow.workspace = true

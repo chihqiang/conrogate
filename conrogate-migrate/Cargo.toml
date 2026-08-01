@@ -1,0 +1,20 @@
+[package]
+name = "conrogate-migrate"
+description = "Conrogate 数据库迁移工具"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "conrogate-migrate"
+path = "src/main.rs"
+
+[dependencies]
+conrogate-storage = { workspace = true }
+conrogate-contract = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+dotenvy = { workspace = true }
+anyhow.workspace = true

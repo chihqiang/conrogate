@@ -1,0 +1,102 @@
+[workspace]
+resolver = "2"
+members = [
+    # 契约层
+    "conrogate-contract",
+    # 持久化层
+    "conrogate-storage",
+    # 领域组件
+    "conrogate-balancer",
+    "conrogate-traffic",
+    "conrogate-plugin",
+    # 网关核心
+    "conrogate-gateway",
+    # 控制面
+    "conrogate-control-svc",
+    # 官方插件
+    "conrogate-plugin-log",
+    "conrogate-plugin-cors",
+    "conrogate-plugin-auth",
+    # 二进制
+    "conrogate-migrate",
+    "conrogate-gate",
+    "conrogate-control",
+    "conrogate",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/conrogate/conrogate"
+authors = ["Conrogate Team"]
+
+[workspace.dependencies]
+# 异步运行时
+tokio = { version = "1.40", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+# 错误处理
+thiserror = "1.0"
+anyhow = "1.0"
+# 命令行
+clap = { version = "4.5", features = ["derive"] }
+# 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+# HTTP 核心
+http = "1.1"
+http-body-util = "0.1"
+hyper = { version = "1.4", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
+hyper-rustls = { version = "0.27", features = ["http2"] }
+# 控制面框架
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors", "limit"] }
+utoipa = "5.0"
+utoipa-axum = "0.1"
+# 数据库
+sea-orm = { version = "1.1", features = [
+    "sqlx-postgres",
+    "runtime-tokio-rustls",
+    "macros",
+    "with-json",
+    "with-chrono",
+] }
+sea-orm-migration = { version = "1.1", features = [
+    "sqlx-postgres",
+    "runtime-tokio-rustls",
+] }
+# 日志链路
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+# 基础工具
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.10", features = ["v4", "serde"] }
+rand = "0.8"
+ipnet = { version = "2.10", features = ["serde"] }
+jsonwebtoken = "9.3"
+futures = "0.3"
+async-trait = "0.1"
+bytes = "1.7"
+# 配置加载
+dotenvy = "0.15"
+# 集群共享状态
+redis = { version = "0.27", features = ["tokio-comp"] }
+
+# 内部 crate 依赖
+conrogate-contract = { path = "conrogate-contract" }
+conrogate-storage = { path = "conrogate-storage" }
+conrogate-balancer = { path = "conrogate-balancer" }
+conrogate-traffic = { path = "conrogate-traffic" }
+conrogate-plugin = { path = "conrogate-plugin" }
+conrogate-gateway = { path = "conrogate-gateway" }
+conrogate-control-svc = { path = "conrogate-control-svc" }
+conrogate-plugin-log = { path = "conrogate-plugin-log" }
+conrogate-plugin-cors = { path = "conrogate-plugin-cors" }
+conrogate-plugin-auth = { path = "conrogate-plugin-auth" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

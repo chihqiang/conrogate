@@ -1,0 +1,13 @@
+[package]
+name = "conrogate-plugin"
+description = "Conrogate 插件框架：注册表、管线执行器、加载器"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+conrogate-contract = { workspace = true }
+conrogate-traffic = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

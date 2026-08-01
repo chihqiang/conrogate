@@ -1,0 +1,18 @@
+[package]
+name = "conrogate-storage"
+description = "Conrogate 持久化层：SeaORM Entity、迁移、仓储实现"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+conrogate-contract = { workspace = true }
+conrogate-balancer = { workspace = true }
+sea-orm = { workspace = true }
+sea-orm-migration = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }

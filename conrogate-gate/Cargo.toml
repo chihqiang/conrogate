@@ -1,0 +1,27 @@
+[package]
+name = "conrogate-gate"
+description = "Conrogate 数据面专用二进制"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "conrogate-gate"
+path = "src/main.rs"
+
+[dependencies]
+conrogate-contract = { workspace = true }
+conrogate-storage = { workspace = true }
+conrogate-gateway = { workspace = true }
+conrogate-balancer = { workspace = true }
+conrogate-traffic = { workspace = true }
+conrogate-plugin = { workspace = true }
+conrogate-plugin-log = { workspace = true }
+conrogate-plugin-cors = { workspace = true }
+conrogate-plugin-auth = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+dotenvy = { workspace = true }
+anyhow.workspace = true

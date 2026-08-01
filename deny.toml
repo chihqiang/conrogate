@@ -1,0 +1,38 @@
+# cargo deny 配置文件
+# 用途：CI 阶段检查依赖的安全漏洞、许可证合规、重复版本
+# 运行方式：cargo install cargo-deny && cargo deny check
+# 非编译必须——不影响 cargo build / cargo test
+
+# 检查依赖是否有已知安全漏洞（RustSec 数据库）
+[advisories]
+db-urls = ["https://rustsec.org/advisories/"]
+vulnerability = "deny"      # 有漏洞 → 拒绝
+unmaintained = "warn"       # 不再维护 → 警告
+yanked = "deny"             # 已撤回 → 拒绝
+ignore = []
+
+# 检查所有依赖的许可证是否在白名单内
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+# 检测重复版本的依赖（同一个 crate 出现两个不同版本）
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+# 禁止从非 crates.io 的 git 源拉依赖
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
