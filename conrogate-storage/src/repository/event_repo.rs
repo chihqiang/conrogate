@@ -5,8 +5,7 @@ use crate::entity::gateway_events::{self, Entity as EventEntity};
 use conrogate_contract::dto::{EventQuery, EventRow, PaginatedResult};
 use conrogate_contract::storage::EventRepo;
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, RelationTrait};
-use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 
 pub struct EventRepoImpl {
     db: DatabaseConnection,

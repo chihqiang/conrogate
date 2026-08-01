@@ -31,6 +31,7 @@ pub struct GatewayServer {
     route_matcher: Arc<RouteMatcher>,
     upstream_selector: Arc<UpstreamSelectorImpl>,
     http_handler: Arc<HttpProtocolHandler>,
+    #[allow(dead_code)]
     tcp_handler: Arc<TcpTunnelProtocolHandler>,
     plugin_registry: Arc<PluginRegistryImpl>,
     max_connections: usize,

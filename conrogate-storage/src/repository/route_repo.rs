@@ -5,7 +5,7 @@ use crate::entity::routes::{self, Entity as RouteEntity};
 use conrogate_contract::dto::{CreateRouteDto, PaginatedResult, RouteDto, UpdateRouteDto};
 use conrogate_contract::storage::{ReadOnlyRouteRepo, RouteRepo};
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, sea_query::Expr, RelationTrait};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, sea_query::Expr};
 
 pub struct RouteRepoImpl {
     db: DatabaseConnection,

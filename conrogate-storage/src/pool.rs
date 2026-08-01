@@ -3,7 +3,6 @@
 use conrogate_contract::config::DbConfig;
 use conrogate_contract::ConrogateError;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
-use std::time::Duration;
 
 /// 数据库连接类型别名
 pub type DbConn = DatabaseConnection;

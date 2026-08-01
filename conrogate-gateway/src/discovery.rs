@@ -3,7 +3,7 @@
 use conrogate_contract::discovery::ServiceDiscovery;
 use conrogate_contract::dto::{UpstreamDto, UpstreamNodeDto};
 use conrogate_contract::ConrogateError;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 /// 静态服务发现：从内存中的上游配置解析节点
 pub struct StaticDiscovery {

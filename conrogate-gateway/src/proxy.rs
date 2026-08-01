@@ -8,7 +8,6 @@ use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
-use hyper_util::rt::TokioIo;
 use std::time::Duration;
 use tokio::net::TcpStream;
 

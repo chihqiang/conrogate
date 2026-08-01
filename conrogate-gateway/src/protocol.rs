@@ -5,7 +5,7 @@ use conrogate_contract::plugin::{HttpContext, PluginContext, PluginOutcome, Plug
 use conrogate_contract::protocol::{ProtocolId, RouteMatchInfo};
 use conrogate_contract::ConrogateError;
 use bytes::Bytes;
-use http::{Method, Request, Response, StatusCode};
+use http::{Request, Response, StatusCode};
 use hyper::body::Incoming;
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;

@@ -104,7 +104,7 @@ impl RedisConfigCache {
 #[async_trait::async_trait]
 impl ConfigCache for RedisConfigCache {
     async fn get_version(&self) -> Result<Option<u64>, ConrogateError> {
-        let mut conn = self.redis.get_async_connection().await
+        let mut conn = self.redis.get_multiplexed_async_connection().await
             .map_err(|e| ConrogateError::Internal(format!("redis get_connection: {e}")))?;
         let v: Option<String> = redis::cmd("GET").arg(Self::VERSION_KEY).query_async(&mut conn).await
             .map_err(|e| ConrogateError::Internal(format!("redis GET version: {e}")))?;
@@ -124,7 +124,7 @@ impl ConfigCache for RedisConfigCache {
             None => return Ok(None),
         };
 
-        let mut conn = self.redis.get_async_connection().await
+        let mut conn = self.redis.get_multiplexed_async_connection().await
             .map_err(|e| ConrogateError::Internal(format!("redis get_connection: {e}")))?;
         let json: Option<String> = redis::cmd("GET")
             .arg(Self::snapshot_key(version))
@@ -146,7 +146,7 @@ impl ConfigCache for RedisConfigCache {
         version: u64,
         snapshot: &ConfigSnapshot,
     ) -> Result<(), ConrogateError> {
-        let mut conn = self.redis.get_async_connection().await
+        let mut conn = self.redis.get_multiplexed_async_connection().await
             .map_err(|e| ConrogateError::Internal(format!("redis get_connection: {e}")))?;
 
         let json = serde_json::to_string(snapshot)

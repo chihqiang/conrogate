@@ -5,8 +5,7 @@ use crate::entity::audit_logs::{self, Entity as AuditEntity};
 use conrogate_contract::dto::{AuditLogQuery, AuditLogRow, PaginatedResult};
 use conrogate_contract::storage::AuditLogRepo;
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, RelationTrait};
-use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 
 pub struct AuditLogRepoImpl {
     db: DatabaseConnection,

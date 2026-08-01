@@ -5,8 +5,7 @@ use crate::entity::route_plugin_bindings::{self, Entity as BindingEntity};
 use conrogate_contract::dto::{BindPluginDto, PluginBindingDto, UpdatePluginBindingDto};
 use conrogate_contract::storage::{PluginBindingRepo, ReadOnlyPluginBindingRepo};
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, RelationTrait};
-use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set, sea_query::Expr};
 
 pub struct PluginBindingRepoImpl {
     db: DatabaseConnection,

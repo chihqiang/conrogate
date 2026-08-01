@@ -6,7 +6,7 @@ use conrogate_contract::dto::InstalledPluginDto;
 use conrogate_contract::plugin::PluginStatus;
 use conrogate_contract::storage::InstalledPluginRepo;
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, RelationTrait};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use sea_orm::sea_query::Expr;
 
 fn status_to_i16(s: PluginStatus) -> i16 {

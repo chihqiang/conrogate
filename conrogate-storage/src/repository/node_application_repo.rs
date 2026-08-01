@@ -5,8 +5,7 @@ use crate::entity::node_applications::{self, Entity as NodeAppEntity};
 use conrogate_contract::dto::NodeApplicationRow;
 use conrogate_contract::storage::NodeApplicationRepo;
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, RelationTrait};
-use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set};
 
 pub struct NodeApplicationRepoImpl {
     db: DatabaseConnection,

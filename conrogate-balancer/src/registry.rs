@@ -1,6 +1,6 @@
 //! 负载均衡器注册表。
 
-use conrogate_contract::balancer::{BalancerAlgorithm, BalancerRegistry, LoadBalancer};
+use conrogate_contract::balancer::BalancerRegistry;
 use std::sync::Arc;
 
 /// 创建注册表并注册全部 4 种默认算法

@@ -3,7 +3,7 @@
 //! 合并模式装配流程。
 
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 
 /// 启动全部组件，返回停机信号发送端
 pub async fn run(
@@ -15,7 +15,7 @@ pub async fn run(
     let main_db = conrogate_storage::pool::create_main_pool(&config.db).await?;
     let read_db = conrogate_storage::pool::create_read_pool(&config.db).await?;
     let main_db = Arc::new(main_db);
-    let read_db = Arc::new(read_db);
+    let _read_db = Arc::new(read_db);
 
       // ── 3. [auto_migrate] 自动迁移（PG advisory lock 串行化）──
       if config.node.auto_migrate {
@@ -125,7 +125,7 @@ pub async fn run(
     ));
 
     // ── 16. ServiceContext ──
-    let svc = Arc::new(conrogate_contract::gateway::ServiceContext {
+    let _svc = Arc::new(conrogate_contract::gateway::ServiceContext {
         routes: route_matcher.clone(),
         balancer: upstream_selector.clone(),
         traffic,
@@ -153,7 +153,7 @@ pub async fn run(
 
     // ── 19. 启动控制面 ──
     if config.control.listen.enabled {
-        let control_db = main_db.clone();
+        let _control_db = main_db.clone();
         let control_config = config.control.clone();
         let redis_url = config.gate.refresh.config_cache_redis_url.clone();
         let repos = ControlRepos {

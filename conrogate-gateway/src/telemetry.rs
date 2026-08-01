@@ -57,6 +57,7 @@ struct MetricBucket {
 }
 
 impl MetricBucket {
+    #[allow(dead_code)]
     fn new() -> Self {
         Self {
             total_requests: 0,

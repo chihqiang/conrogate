@@ -4,7 +4,6 @@ use conrogate_contract::balancer::{BalancerAlgorithm, LoadBalancer};
 use conrogate_contract::dto::UpstreamNodeDto;
 use conrogate_contract::ConrogateError;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
 
 pub struct RoundRobin {
     counter: AtomicUsize,

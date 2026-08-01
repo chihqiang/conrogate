@@ -3,7 +3,7 @@
 //! 支持 HS256/HS384/HS512 对称签名 + issuer/audience 校验 + 过期检查。
 
 use conrogate_contract::{
-    plugin::{Plugin, PluginContext, PluginOutcome, PluginKind, PluginResponse},
+    plugin::{Plugin, PluginContext, PluginOutcome, PluginKind},
     protocol::ProtocolId,
     ConrogateError,
 };
@@ -69,7 +69,7 @@ impl Default for AuthPlugin {
 }
 
 /// JWT Claims
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]#[allow(dead_code)]
 struct Claims {
     /// 签发者 (iss)
     iss: Option<String>,

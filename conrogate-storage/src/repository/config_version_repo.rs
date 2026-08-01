@@ -5,8 +5,7 @@ use crate::entity::config_versions::{self, Entity as ConfigVersionEntity};
 use conrogate_contract::dto::*;
 use conrogate_contract::storage::ConfigVersionRepo;
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, RelationTrait};
-use sea_orm::sea_query::Expr;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set};
 
 pub struct ConfigVersionRepoImpl {
     db: DatabaseConnection,

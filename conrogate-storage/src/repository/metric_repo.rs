@@ -5,7 +5,7 @@ use crate::entity::metric_aggregates::{self, Entity as MetricEntity};
 use conrogate_contract::dto::{MetricQuery, MetricRow, OverviewMetric};
 use conrogate_contract::storage::MetricRepo;
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, RelationTrait};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use sea_orm::sea_query::Expr;
 
 pub struct MetricRepoImpl {

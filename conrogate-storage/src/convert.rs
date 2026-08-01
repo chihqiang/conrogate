@@ -51,13 +51,6 @@ fn i16_to_algorithm(v: i16) -> BalancerAlgorithm {
 
 // ── PublishType 映射 ──
 
-fn publish_type_to_i16(p: PublishType) -> i16 {
-    match p {
-        PublishType::Publish => 0,
-        PublishType::Rollback => 1,
-    }
-}
-
 fn i16_to_publish_type(v: i16) -> PublishType {
     match v {
         1 => PublishType::Rollback,

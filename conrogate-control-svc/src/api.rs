@@ -2,9 +2,8 @@
 
 use crate::handler::{self, AppState};
 use axum::middleware;
-use axum::routing::{delete, get, post, put};
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
-use std::sync::Arc;
 use tower_http::trace::TraceLayer;
 
 /// 构建控制面 API 路由
