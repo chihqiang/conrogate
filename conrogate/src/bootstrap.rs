@@ -1,6 +1,6 @@
 //! Bootstrap 装配：将所有组件组装并启动。
 //!
-//! 见 docs/01-architecture.md §8 装配流程。
+//! 合并模式装配流程。
 
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
@@ -17,11 +17,19 @@ pub async fn run(
     let main_db = Arc::new(main_db);
     let read_db = Arc::new(read_db);
 
-    // ── 3. [auto_migrate] 自动迁移 ──
-    if config.node.auto_migrate {
-        tracing::info!("auto_migrate enabled, running migrations");
-        conrogate_storage::migration::run_migrations(&config.db).await?;
-    }
+      // ── 3. [auto_migrate] 自动迁移（PG advisory lock 串行化）──
+      if config.node.auto_migrate {
+          tracing::info!("auto_migrate enabled, running migrations");
+          // PG advisory lock 防止多实例并发迁移
+          use sea_orm::ConnectionTrait;
+          let lock_result = main_db.execute_unprepared("SELECT pg_advisory_lock(20260101)").await;
+          if lock_result.is_err() {
+              tracing::warn!("failed to acquire advisory lock, proceeding anyway");
+          }
+          let result = conrogate_storage::migration::run_migrations(&config.db).await;
+          let _ = main_db.execute_unprepared("SELECT pg_advisory_unlock(20260101)").await;
+          result?;
+      }
 
     // ── 4. [seed_demo] 演示数据 ──
     if config.node.seed_demo {
@@ -125,7 +133,8 @@ pub async fn run(
                 gate: gate_config,
                 ..conrogate_contract::config::Config::default()
             },
-        );
+        )
+        .await;
         // 注意：GatewayServer::from_config 内部会创建自己的 ServiceContext，
         // 实际生产中应注入外部 svc，此处简化为独立构建
         if let Err(e) = server.run().await {
@@ -153,18 +162,24 @@ pub async fn run(
         });
     }
 
-    // ── 20. 后台任务 ──
-    let _metric_agg = tokio::spawn(async move {
+    // ── 20. 后台任务（TaskManager 逆序取消）──
+    let mut task_manager = conrogate_gateway::task_manager::TaskManager::new();
+    let metric_repo_clone = metric_repo.clone();
+    task_manager.spawn("metric-aggregator", async move {
         let mut aggregator = conrogate_gateway::telemetry::MetricAggregator::new(
             metric_rx,
             10,
-        );
+        ).with_metric_repo(metric_repo_clone);
         aggregator.run(std::time::Duration::from_secs(10)).await;
     });
+    tracing::info!("background tasks started");
 
     // 等待停机信号
     let _ = shutdown_rx.await;
     gate_handle.abort();
+    // 逆序取消后台任务（带超时）
+    task_manager.shutdown(std::time::Duration::from_secs(30)).await;
+    tracing::info!("shutdown complete");
 
     Ok(shutdown_tx)
 }

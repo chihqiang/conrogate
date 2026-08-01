@@ -5,6 +5,9 @@ use conrogate_contract::ConrogateError;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 use std::time::Duration;
 
+/// 数据库连接类型别名
+pub type DbConn = DatabaseConnection;
+
 /// 主库连接池（读写）
 pub async fn create_main_pool(db_config: &DbConfig) -> Result<DatabaseConnection, ConrogateError> {
     let url = db_config.database_url();

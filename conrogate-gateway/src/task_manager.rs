@@ -1,6 +1,4 @@
 //! TaskManager：后台任务注册 + 逆序取消。
-//!
-//! 见 docs/14-lifecycle.md §6。
 
 use std::sync::Arc;
 use tokio::task::JoinHandle;

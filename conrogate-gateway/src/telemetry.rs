@@ -32,12 +32,14 @@ impl TelemetryReport for TelemetryReportImpl {
     }
 }
 
-/// 指标聚合器：收集单条指标，按时间桶聚合
+/// 指标聚合器：收集单条指标，按时间桶聚合，批量落库
 pub struct MetricAggregator {
     metric_rx: mpsc::Receiver<MetricRow>,
     // (gate_id, route_id, bucket_ts) → 聚合数据
     buckets: std::collections::HashMap<(String, Option<u64>, chrono::DateTime<chrono::Utc>), MetricBucket>,
     bucket_sec: u32,
+    /// 落库通道
+    metric_repo: Option<Arc<dyn conrogate_contract::storage::MetricRepo>>,
 }
 
 #[derive(Default)]
@@ -116,7 +118,14 @@ impl MetricAggregator {
             metric_rx,
             buckets: std::collections::HashMap::new(),
             bucket_sec,
+            metric_repo: None,
         }
+    }
+
+    /// 设置落库仓储
+    pub fn with_metric_repo(mut self, repo: Arc<dyn conrogate_contract::storage::MetricRepo>) -> Self {
+        self.metric_repo = Some(repo);
+        self
     }
 
     /// 运行聚合循环
@@ -132,17 +141,27 @@ impl MetricAggregator {
                     self.buckets.entry(key).or_default().add(&row);
                 }
                 _ = flush_timer.tick() => {
-                    // flush 聚合数据（实际入库由控制面完成）
+                    // flush 聚合数据并落库
                     let now = chrono::Utc::now();
                     let cutoff = Self::align_to_bucket(now, self.bucket_sec);
                     let keys_to_flush: Vec<_> = self.buckets.keys()
                         .filter(|(_, _, ts)| *ts < cutoff)
                         .cloned()
                         .collect();
+                    let mut rows_to_flush = Vec::new();
                     for key in keys_to_flush {
                         if let Some(bucket) = self.buckets.remove(&key) {
                             let row = bucket.to_metric_row(&key.0, key.1, key.2, self.bucket_sec);
                             tracing::debug!(?row.route_id, qps = row.qps, "metric bucket flushed");
+                            rows_to_flush.push(row);
+                        }
+                    }
+                    // 批量落库
+                    if !rows_to_flush.is_empty() {
+                        if let Some(ref repo) = self.metric_repo {
+                            if let Err(e) = repo.upsert_batch(&rows_to_flush).await {
+                                tracing::warn!(error = %e, "metric batch insert failed");
+                            }
                         }
                     }
                 }
