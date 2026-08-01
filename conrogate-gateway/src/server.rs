@@ -36,6 +36,7 @@ pub struct GatewayServer {
     max_connections: usize,
     max_body_bytes: usize,
     idle_timeout: std::time::Duration,
+    config_cache: Option<Arc<dyn conrogate_contract::storage::ConfigCache>>,
 }
 
 impl GatewayServer {
@@ -114,6 +115,7 @@ impl GatewayServer {
             max_connections: config.gate.connection.max_connections,
             max_body_bytes: config.gate.connection.max_body_bytes,
             idle_timeout: config.gate.connection.idle_timeout,
+            config_cache: None,
         }
     }
 
@@ -147,6 +149,7 @@ impl GatewayServer {
             max_connections: config.gate.connection.max_connections,
             max_body_bytes: config.gate.connection.max_body_bytes,
             idle_timeout: config.gate.connection.idle_timeout,
+            config_cache: None,
         }
     }
 
@@ -155,7 +158,25 @@ impl GatewayServer {
         config: Config,
         read_db: Arc<conrogate_storage::pool::DbConn>,
     ) -> Self {
-        let server = Self::from_config(config).await;
+        // 提取 Redis 配置（在 config 被 move 之前）
+        let redis_url = config.gate.rate_limit.cluster_store.as_ref()
+            .filter(|s| !s.redis_url.is_empty())
+            .map(|s| s.redis_url.clone());
+        let poll_interval = config.gate.refresh.config_poll_interval.as_secs().max(1);
+        let mut server = Self::from_config(config).await;
+
+        // 尝试创建 Redis 配置缓存
+        if let Some(ref url) = redis_url {
+            match conrogate_storage::config_cache::RedisConfigCache::new(url) {
+                Ok(cache) => {
+                    tracing::info!("Redis config cache initialized for Pub/Sub");
+                    server.config_cache = Some(Arc::new(cache));
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Redis config cache init failed, using poll-only mode");
+                }
+            }
+        }
 
         // 加载初始路由 + 上游 + 插件绑定
         let route_repo = conrogate_storage::repository::route_repo::RouteRepoImpl::new((*read_db).clone());
@@ -183,10 +204,43 @@ impl GatewayServer {
         let selector = server.upstream_selector.clone();
         let registry = server.plugin_registry.clone();
         let db = read_db.clone();
+        let config_cache = server.config_cache.clone();
+        let poll_dur = std::time::Duration::from_secs(poll_interval);
         tokio::spawn(async move {
-            let poll_interval = std::time::Duration::from_secs(10);
+            // 尝试从 Redis ConfigCache 订阅配置变更通知
+            let mut sub_rx: Option<tokio::sync::watch::Receiver<u64>> = None;
+            if let Some(ref cache) = config_cache {
+                match cache.subscribe_changes().await {
+                    Ok(Some(rx)) => {
+                        tracing::info!("subscribed to Redis Pub/Sub config change notifications");
+                        sub_rx = Some(rx);
+                    }
+                    Ok(None) => {
+                        tracing::info!("ConfigCache does not support Pub/Sub, using poll-only mode");
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "subscribe_changes failed, using poll-only mode");
+                    }
+                }
+            }
+
             loop {
-                tokio::time::sleep(poll_interval).await;
+                // 如果有 Pub/Sub 订阅，等待通知或超时后轮询
+                if let Some(ref mut rx) = sub_rx {
+                    let timeout = tokio::time::sleep(poll_dur);
+                    tokio::select! {
+                        _ = rx.changed() => {
+                            tracing::debug!("config change notification received, reloading");
+                        }
+                        _ = timeout => {
+                            // 超时后也做一次轮询（兜底）
+                        }
+                    }
+                } else {
+                    // 无 Pub/Sub，纯轮询
+                    tokio::time::sleep(poll_dur).await;
+                }
+
                 let r = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(
                     &conrogate_storage::repository::route_repo::RouteRepoImpl::new((*db).clone()),
                 ).await.unwrap_or_default();
@@ -310,6 +364,7 @@ impl GatewayServer {
                             route_matcher,
                             client_ip,
                             max_body_bytes,
+                            idle_timeout,
                         };
                         let h1 = http1::Builder::new();
                         let result = if let Some(acc) = tls_acc {
@@ -422,6 +477,14 @@ struct HyperServiceBridge {
     route_matcher: Arc<RouteMatcher>,
     client_ip: String,
     max_body_bytes: usize,
+    idle_timeout: std::time::Duration,
+}
+
+/// WebSocket 升级信息（存入响应扩展）
+#[derive(Clone)]
+pub struct WsUpgradeInfo {
+    pub upstream_addr: String,
+    pub trace_id: String,
 }
 
 /// 构造 JSON 错误响应体
@@ -457,6 +520,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
         let route_matcher = self.route_matcher.clone();
         let client_ip = self.client_ip.clone();
         let max_body_bytes = self.max_body_bytes;
+        let idle_timeout = self.idle_timeout;
 
         Box::pin(async move {
             // 健康探针：GET /healthz → 200
@@ -568,6 +632,23 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                     ));
                 }
             };
+
+            // WebSocket 升级检测：101 响应 + X-WS-Upstream-Addr 头
+            if resp.status() == http::StatusCode::SWITCHING_PROTOCOLS {
+                if let Some(upstream_addr) = resp.headers().get("X-WS-Upstream-Addr").and_then(|v| v.to_str().ok()).map(|s| s.to_string()) {
+                    let trace_id = resp.headers().get("X-WS-Trace-Id").and_then(|v| v.to_str().ok()).map(|s| s.to_string()).unwrap_or_default();
+                    // 清除扩展头（不透传给客户端）
+                    let mut clean_resp = resp;
+                    clean_resp.headers_mut().remove("X-WS-Upstream-Addr");
+                    clean_resp.headers_mut().remove("X-WS-Trace-Id");
+                    // 将上游地址和 trace_id 存入响应扩展，由 serve_connection 层提取
+                    clean_resp.extensions_mut().insert(WsUpgradeInfo {
+                        upstream_addr,
+                        trace_id,
+                    });
+                    return Ok(Response::from_parts(clean_resp.into_parts().0, Full::new(Bytes::new())));
+                }
+            }
 
             // 转换为 hyper 兼容响应
             let (parts, body) = resp.into_parts();

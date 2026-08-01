@@ -38,6 +38,12 @@ pub fn build_router(state: AppState, auth_token: &str) -> Router {
         // ── 指标 ──
         .route("/metrics", get(handler::query_metrics))
         .route("/metrics/overview", get(handler::overview_metrics))
+        // ── Insights 聚合查询 ──
+        .route("/insights/overview", get(handler::insights_overview))
+        .route("/insights/qps", get(handler::insights_qps))
+        .route("/insights/latency", get(handler::insights_latency))
+        .route("/insights/status-codes", get(handler::insights_status_codes))
+        .route("/insights/top-routes", get(handler::insights_top_routes))
         // ── 事件 ──
         .route("/events", get(handler::query_events))
         // ── 审计 ──

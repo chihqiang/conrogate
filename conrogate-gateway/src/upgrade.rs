@@ -5,7 +5,6 @@ use http::{Method, Request, Response, StatusCode};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-
 /// 检查是否为 WebSocket 升级请求
 pub fn is_upgrade_request(req: &Request<Bytes>) -> bool {
     if req.method() != Method::GET {
@@ -53,19 +52,22 @@ pub fn build_upgrade_response(req: &Request<Bytes>) -> Response<Bytes> {
 /// WebSocket 双向转发：连接上游 + 透传字节流
 ///
 /// 流程：connect upstream → send upgrade request → read 101 response → bidirectional copy
-pub async fn forward_websocket(
+pub async fn forward_websocket<C>(
     upstream_addr: &str,
-    client: TcpStream,
+    client: C,
     upgrade_req: Request<Bytes>,
     timeout: Duration,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    C: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin,
+{
     // 1. 连接上游（带超时）
     let upstream = tokio::time::timeout(timeout, TcpStream::connect(upstream_addr))
         .await
         .map_err(|_| "upstream connect timeout")??;
 
     // 2. 将升级请求发送到上游
-    let (mut client_r, mut client_w) = client.into_split();
+    let (mut client_r, mut client_w) = tokio::io::split(client);
     let (mut upstream_r, mut upstream_w) = upstream.into_split();
 
     // 序列化 HTTP 升级请求并发送到上游

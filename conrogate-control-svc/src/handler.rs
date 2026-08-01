@@ -331,6 +331,58 @@ pub async fn overview_metrics(
     }
 }
 
+// ── Insights 聚合查询 ──
+
+pub async fn insights_overview(
+    State(state): State<AppState>,
+    Query(q): Query<OverviewQuery>,
+) -> Response {
+    match state.svc.overview_metrics(q.range_min.unwrap_or(5)).await {
+        Ok(data) => response::ok(data),
+        Err(e) => response::err(e),
+    }
+}
+
+pub async fn insights_qps(
+    State(state): State<AppState>,
+    Query(q): Query<OverviewQuery>,
+) -> Response {
+    match state.svc.insights_qps(q.range_min.unwrap_or(5)).await {
+        Ok(data) => response::ok(data),
+        Err(e) => response::err(e),
+    }
+}
+
+pub async fn insights_latency(
+    State(state): State<AppState>,
+    Query(q): Query<OverviewQuery>,
+) -> Response {
+    match state.svc.insights_latency(q.range_min.unwrap_or(5)).await {
+        Ok(data) => response::ok(data),
+        Err(e) => response::err(e),
+    }
+}
+
+pub async fn insights_status_codes(
+    State(state): State<AppState>,
+    Query(q): Query<OverviewQuery>,
+) -> Response {
+    match state.svc.insights_status_codes(q.range_min.unwrap_or(5)).await {
+        Ok(data) => response::ok(data),
+        Err(e) => response::err(e),
+    }
+}
+
+pub async fn insights_top_routes(
+    State(state): State<AppState>,
+    Query(q): Query<OverviewQuery>,
+) -> Response {
+    match state.svc.insights_top_routes(q.range_min.unwrap_or(5)).await {
+        Ok(data) => response::ok(data),
+        Err(e) => response::err(e),
+    }
+}
+
 // ── 事件 ──
 
 pub async fn query_events(

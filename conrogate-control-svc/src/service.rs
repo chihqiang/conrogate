@@ -308,6 +308,52 @@ impl ControlService {
         self.metric_repo.overview(range_min).await
     }
 
+    // ── Insights 聚合查询 ──
+
+    pub async fn insights_qps(&self, range_min: u32) -> Result<serde_json::Value, ConrogateError> {
+        let rows = self.metric_repo.query(&MetricQuery { range_min, route_id: None, gate_id: None }).await?;
+        let series: Vec<serde_json::Value> = rows.iter().map(|r| serde_json::json!({
+            "ts": r.ts, "qps": r.qps, "route_id": r.route_id
+        })).collect();
+        Ok(serde_json::json!({ "series": series }))
+    }
+
+    pub async fn insights_latency(&self, range_min: u32) -> Result<serde_json::Value, ConrogateError> {
+        let rows = self.metric_repo.query(&MetricQuery { range_min, route_id: None, gate_id: None }).await?;
+        let p50: f64 = if rows.is_empty() { 0.0 } else { rows.iter().map(|r| r.p50_ms as f64).sum::<f64>() / rows.len() as f64 };
+        let p90: f64 = if rows.is_empty() { 0.0 } else { rows.iter().map(|r| r.p90_ms as f64).sum::<f64>() / rows.len() as f64 };
+        let p99: f64 = if rows.is_empty() { 0.0 } else { rows.iter().map(|r| r.p99_ms as f64).sum::<f64>() / rows.len() as f64 };
+        let avg: f64 = if rows.is_empty() { 0.0 } else { rows.iter().map(|r| r.avg_latency_ms).sum::<f64>() / rows.len() as f64 };
+        Ok(serde_json::json!({ "avg_ms": avg, "p50_ms": p50, "p90_ms": p90, "p99_ms": p99 }))
+    }
+
+    pub async fn insights_status_codes(&self, range_min: u32) -> Result<serde_json::Value, ConrogateError> {
+        let rows = self.metric_repo.query(&MetricQuery { range_min, route_id: None, gate_id: None }).await?;
+        let s2xx: u64 = rows.iter().map(|r| r.status_2xx).sum();
+        let s3xx: u64 = rows.iter().map(|r| r.status_3xx).sum();
+        let s4xx: u64 = rows.iter().map(|r| r.status_4xx).sum();
+        let s5xx: u64 = rows.iter().map(|r| r.status_5xx).sum();
+        Ok(serde_json::json!({ "2xx": s2xx, "3xx": s3xx, "4xx": s4xx, "5xx": s5xx }))
+    }
+
+    pub async fn insights_top_routes(&self, range_min: u32) -> Result<serde_json::Value, ConrogateError> {
+        let rows = self.metric_repo.query(&MetricQuery { range_min, route_id: None, gate_id: None }).await?;
+        use std::collections::HashMap;
+        let mut by_route: HashMap<u64, u64> = HashMap::new();
+        for r in &rows {
+            if let Some(rid) = r.route_id {
+                *by_route.entry(rid).or_insert(0) += r.total_requests;
+            }
+        }
+        let mut top: Vec<(u64, u64)> = by_route.into_iter().collect();
+        top.sort_by(|a, b| b.1.cmp(&a.1));
+        top.truncate(10);
+        let result: Vec<serde_json::Value> = top.iter().map(|(rid, reqs)| serde_json::json!({
+            "route_id": rid, "total_requests": reqs
+        })).collect();
+        Ok(serde_json::json!({ "top_routes": result }))
+    }
+
     // ── 事件查询 ──
 
     pub async fn query_events(&self, filter: EventQuery, page: u32, page_size: u32) -> Result<PaginatedResult<EventRow>, ConrogateError> {
