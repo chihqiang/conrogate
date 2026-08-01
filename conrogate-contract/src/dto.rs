@@ -282,14 +282,14 @@ pub struct RouteSnapshot {
 
 // ── 查询参数 ──
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct MetricQuery {
     pub range_min: u32,
     pub route_id: Option<u64>,
     pub gate_id: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct EventQuery {
     pub event_type: Option<String>,
     pub route_id: Option<u64>,
@@ -297,7 +297,7 @@ pub struct EventQuery {
     pub ts_to: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct AuditLogQuery {
     pub operator: Option<String>,
     pub action: Option<String>,
