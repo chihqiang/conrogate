@@ -14,3 +14,5 @@ pub mod handler_registry;
 pub mod task_manager;
 pub mod logging;
 pub mod tls;
+pub mod dns_cache;
+pub mod health_check;

@@ -89,6 +89,8 @@ bytes = "1.7"
 dotenvy = "0.15"
 # 集群共享状态
 redis = { version = "0.27", features = ["tokio-comp"] }
+# 正则匹配
+regex = "1.10"
 
 # 内部 crate 依赖
 conrogate-contract = { path = "conrogate-contract" }

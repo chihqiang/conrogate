@@ -3,6 +3,8 @@
 //! 仅运行数据面（路由→插件→负载均衡→转发），不监听控制面端口。
 //! 配置来源：Redis 缓存（优先）/ HTTP 从 control 拉取 / 直连 DB 只读。
 
+mod http_config_loader;
+
 use clap::Parser;
 use std::sync::Arc;
 
@@ -117,7 +119,27 @@ async fn main() -> anyhow::Result<()> {
 async fn run_without_db(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
     tracing::info!("starting gate without db (http config mode)");
 
+    let control_url = config.gate.refresh.control_api_url.clone();
+    let control_token = config.gate.refresh.control_api_token.clone();
     let server = conrogate_gateway::server::GatewayServer::from_config(config).await;
+
+    // 从 control HTTP API 拉取初始配置
+    if !control_url.is_empty() {
+        let loader = http_config_loader::HttpConfigLoader::new(&control_url, &control_token);
+        match loader.load_routes().await {
+            Ok(routes) => {
+                let upstreams = loader.load_upstreams().await.unwrap_or_default();
+                let bindings = loader.load_all_plugin_bindings(&routes).await.unwrap_or_default();
+                server.reload_routes_with_bindings(routes, bindings);
+                server.reload_upstreams(upstreams);
+                tracing::info!("config loaded from control HTTP API");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to load config from HTTP, starting with empty routes");
+            }
+        }
+    }
+
     server.run().await.map_err(|e| anyhow::anyhow!("gateway server error: {e}"))?;
 
     Ok(())

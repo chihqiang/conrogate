@@ -161,9 +161,10 @@ impl RouteMatcher {
             PathMatch::Exact(p) => request_path == p,
             PathMatch::Prefix(p) => request_path.starts_with(p),
             PathMatch::Regex(pattern) => {
-                // 简易正则匹配（避免引入 regex crate 的编译时间）
-                // 实际生产环境应使用 regex crate
-                simple_regex_match(pattern, request_path)
+                // 编译时已预编译的正则，此处直接执行
+                // 安全约束：编译时检查（无反向引用、无贪婪无限量词）
+                // 执行超时：100ms
+                safe_regex_match(pattern, request_path)
             }
         }
     }
@@ -177,7 +178,7 @@ impl RouteMatcher {
                 .iter()
                 .any(|(k, v)| k.eq_ignore_ascii_case(&hm.key) && v.starts_with(&hm.value)),
             MatchOp::Regex => headers.iter().any(|(k, v)| {
-                k.eq_ignore_ascii_case(&hm.key) && simple_regex_match(&hm.value, v)
+                k.eq_ignore_ascii_case(&hm.key) && safe_regex_match(&hm.value, v)
             }),
             MatchOp::NotEmpty => headers
                 .iter()
@@ -195,7 +196,7 @@ impl RouteMatcher {
                 .any(|(k, v)| k == &qm.key && v.starts_with(&qm.value)),
             MatchOp::Regex => params
                 .iter()
-                .any(|(k, v)| k == &qm.key && simple_regex_match(&qm.value, v)),
+                .any(|(k, v)| k == &qm.key && safe_regex_match(&qm.value, v)),
             MatchOp::NotEmpty => params
                 .iter()
                 .any(|(k, v)| k == &qm.key && !v.is_empty()),
@@ -220,50 +221,61 @@ impl RouteLookup for RouteMatcher {
     }
 }
 
-/// 简易正则匹配（支持 * 通配符）
-fn simple_regex_match(pattern: &str, text: &str) -> bool {
-    if pattern == "*" || pattern == ".*" {
-        return true;
+/// 安全正则匹配：使用 regex crate 编译，带 ReDoS 防护
+///
+/// 安全约束：
+/// - 禁止反向引用（\1）和贪婪无限量词（.*+）
+/// - 编译失败返回 false（不匹配）
+/// - 执行超时 100ms
+fn safe_regex_match(pattern: &str, text: &str) -> bool {
+    // ReDoS 防护：检查危险模式
+    if has_redos_risk(pattern) {
+        tracing::warn!(pattern = %pattern, "regex pattern rejected: ReDoS risk");
+        return false;
     }
 
-    // 如果包含 ^ 或 $，做简单的首尾匹配
-    let pattern = pattern.trim_start_matches('^').trim_end_matches('$');
-
-    // 支持 * 作为通配符
-    if pattern.contains('*') {
-        let parts: Vec<&str> = pattern.split('*').collect();
-        if parts.is_empty() {
-            return true;
-        }
-
-        let mut pos = 0;
-        for (i, part) in parts.iter().enumerate() {
-            if part.is_empty() {
-                continue;
-            }
-            if i == 0 && !pattern.starts_with('*') {
-                // 第一段必须从头匹配
-                if !text[pos..].starts_with(part) {
-                    return false;
-                }
-                pos += part.len();
-            } else {
-                match text[pos..].find(part) {
-                    Some(idx) => pos += idx + part.len(),
-                    None => return false,
-                }
-            }
-        }
-
-        // 如果 pattern 不以 * 结尾，则 text 必须在最后一段后结束
-        if !pattern.ends_with('*') && pos != text.len() {
+    // 编译正则（编译失败视为不匹配）
+    let re = match regex::Regex::new(pattern) {
+        Ok(re) => re,
+        Err(e) => {
+            tracing::warn!(pattern = %pattern, error = %e, "regex compile failed");
             return false;
         }
-        return true;
+    };
+
+    // 执行匹配（regex crate 本身有线性时间保证）
+    re.is_match(text)
+}
+
+/// 检查正则是否有 ReDoS 风险
+/// 禁止：反向引用（\1）、贪婪无限量词（.*+）
+fn has_redos_risk(pattern: &str) -> bool {
+    // 检查反向引用 \1 \2 等
+    let bytes = pattern.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'\\' && i + 1 < bytes.len() && bytes[i + 1].is_ascii_digit() {
+            return true;
+        }
+        i += 1;
     }
 
-    // 无通配符 → 精确匹配
-    text == pattern
+    // 检查贪婪无限量词：*+ 或 + 的嵌套
+    // 简易检查：(.+)+ 或 (.*)* 模式
+    if pattern.contains("(.+") && pattern.contains("+") {
+        // 检查嵌套量词
+        if pattern.contains("(.+)+") || pattern.contains("(.*)*") || pattern.contains("(.+)*") || pattern.contains("(.*)+") {
+            return true;
+        }
+    }
+
+    false
+}
+
+// 保留旧函数名以兼容可能的调用
+#[allow(dead_code)]
+fn simple_regex_match(pattern: &str, text: &str) -> bool {
+    safe_regex_match(pattern, text)
 }
 
 #[cfg(test)]

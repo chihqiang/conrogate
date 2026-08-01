@@ -1,4 +1,4 @@
-//! 限流器实现：固定窗口 / 滑动窗口 / 令牌桶。
+//! 限流器实现：固定窗口 / 滑动窗口 / 令牌桶（含 Redis 集群模式）。
 
 use conrogate_contract::traffic::{LimitAlgorithm, Limiter};
 use conrogate_contract::ConrogateError;
@@ -109,6 +109,8 @@ impl Limiter for SlidingWindowLimiter {
 
 pub struct TokenBucketLimiter {
     buckets: Mutex<HashMap<String, TokenBucket>>,
+    /// Redis 集群共享计数（可选）
+    redis: Option<RedisClusterStore>,
 }
 
 struct TokenBucket {
@@ -118,11 +120,71 @@ struct TokenBucket {
     last_refill: Instant,
 }
 
+/// Redis 集群共享计数存储
+pub struct RedisClusterStore {
+    redis_url: String,
+    /// Lua 脚本：原子性 INCR + EXPIRE
+    script: String,
+}
+
+impl RedisClusterStore {
+    pub fn new(redis_url: &str) -> Self {
+        Self {
+            redis_url: redis_url.to_string(),
+            script: r#"
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+if current > tonumber(ARGV[2]) then
+    return 0
+end
+return 1
+"#.to_string(),
+        }
+    }
+
+    /// 尝试从 Redis 获取令牌（fail-closed：Redis 不可用时拒绝请求）
+    pub async fn acquire(&self, key: &str, limit: u32, window: Duration) -> Result<(), ConrogateError> {
+        let client = match redis::Client::open(self.redis_url.as_str()) {
+            Ok(c) => c,
+            Err(_) => return Err(ConrogateError::Limited),
+        };
+        let mut conn = match client.get_multiplexed_async_connection().await {
+            Ok(c) => c,
+            Err(_) => return Err(ConrogateError::Limited), // fail-closed
+        };
+        let redis_key = format!("rl:{key}");
+        let window_secs = window.as_secs().max(1);
+        let result: i32 = redis::cmd("EVAL")
+            .arg(&self.script)
+            .arg(1)
+            .arg(&redis_key)
+            .arg(window_secs)
+            .arg(limit)
+            .query_async(&mut conn)
+            .await
+            .map_err(|_| ConrogateError::Limited)?;
+        if result == 1 {
+            Ok(())
+        } else {
+            Err(ConrogateError::RateLimited)
+        }
+    }
+}
+
 impl TokenBucketLimiter {
     pub fn new() -> Self {
         Self {
             buckets: Mutex::new(HashMap::new()),
+            redis: None,
         }
+    }
+
+    /// 启用 Redis 集群共享计数模式
+    pub fn with_redis(mut self, redis_url: &str) -> Self {
+        self.redis = Some(RedisClusterStore::new(redis_url));
+        self
     }
 }
 
@@ -139,6 +201,12 @@ impl Limiter for TokenBucketLimiter {
     }
 
     async fn acquire(&self, key: &str, limit: u32, window: Duration) -> Result<(), ConrogateError> {
+        // 集群模式：使用 Redis 原子性 INCR + EXPIRE
+        if let Some(ref redis_store) = self.redis {
+            return redis_store.acquire(key, limit, window).await;
+        }
+
+        // 单机模式：进程内令牌桶
         let mut buckets = self.buckets.lock().unwrap();
         let now = Instant::now();
 
