@@ -127,6 +127,13 @@ pub trait Plugin: Send + Sync {
     /// 是否阻断性：true 时抛错/Terminate 将终止请求链路
     fn is_blocking(&self) -> bool;
 
+    /// 是否需要读取请求体：true 时网关以缓冲模式载入 body 供插件访问；
+    /// false 时网关以流式模式透传 body，不载入内存。
+    /// 默认 false — 大多数插件（鉴权、CORS、日志）只需 header 信息。
+    fn requires_body(&self) -> bool {
+        false
+    }
+
     /// 插件配置校验（安装/绑定时执行）
     fn validate_config(&self, config: &Value) -> Result<(), ConrogateError>;
 

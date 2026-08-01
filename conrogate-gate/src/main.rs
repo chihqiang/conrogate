@@ -52,17 +52,26 @@ async fn main() -> anyhow::Result<()> {
     // ── 2. 加载初始配置 ──
     let route_repo = conrogate_storage::repository::route_repo::RouteRepoImpl::new((*read_db).clone());
     let upstream_repo = conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*read_db).clone());
+    let binding_repo = conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new((*read_db).clone());
 
     let routes = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(&route_repo).await
         .unwrap_or_default();
     let upstreams = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(&upstream_repo).await
         .unwrap_or_default();
+    // 加载插件绑定
+    let mut all_bindings = Vec::new();
+    for route in &routes {
+        let rb = conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
+            &binding_repo, route.id,
+        ).await.unwrap_or_default();
+        all_bindings.extend(rb);
+    }
 
     // ── 3. 创建 GatewayServer（注册插件 + 装配 ServiceContext）──
     let server = conrogate_gateway::server::GatewayServer::from_config(config.clone()).await;
 
     // ── 4. 加载路由 + 上游 ──
-    server.reload_routes(routes);
+    server.reload_routes_with_bindings(routes, all_bindings);
     server.reload_upstreams(upstreams);
 
     // ── 4a. 节点心跳上报后台任务（分离模式）──

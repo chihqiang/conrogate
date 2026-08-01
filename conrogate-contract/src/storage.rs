@@ -89,6 +89,9 @@ pub trait ConfigVersionRepo: Send + Sync {
     async fn find_by_version(&self, version: u64) -> Result<Option<ConfigVersionDto>, ConrogateError>;
     async fn latest_version(&self) -> Result<Option<ConfigVersionDto>, ConrogateError>;
 
+    /// 按版本号获取配置快照内容（用于回滚后写 Redis 缓存）
+    async fn get_snapshot_by_version(&self, version: u64) -> Result<Option<ConfigSnapshot>, ConrogateError>;
+
     async fn rollback(
         &self,
         target_version: u64,

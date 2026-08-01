@@ -77,17 +77,39 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // ── 4. 组装 ControlService ──
-    let svc = Arc::new(conrogate_control_svc::ControlService::new(
-        route_repo,
-        upstream_repo,
-        binding_repo,
-        config_repo,
-        metric_repo,
-        event_repo,
-        audit_repo,
-        node_app_repo,
-        plugin_repo,
-    ));
+    // Redis 配置缓存（可选）
+    let config_cache: Option<Arc<dyn conrogate_contract::storage::ConfigCache>> =
+        if !config.gate.refresh.config_cache_redis_url.is_empty() {
+            match conrogate_storage::config_cache::RedisConfigCache::new(
+                &config.gate.refresh.config_cache_redis_url,
+            ) {
+                Ok(cache) => {
+                    tracing::info!("Redis config cache enabled");
+                    Some(Arc::new(cache))
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Redis config cache init failed, falling back to no cache");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+    let svc = Arc::new(
+        conrogate_control_svc::ControlService::new(
+            route_repo,
+            upstream_repo,
+            binding_repo,
+            config_repo,
+            metric_repo,
+            event_repo,
+            audit_repo,
+            node_app_repo,
+            plugin_repo,
+        )
+        .with_config_cache(config_cache),
+    );
 
     // ── 5. 组装 axum 路由 + 中间件 ──
     let app_state = conrogate_control_svc::AppState { svc };

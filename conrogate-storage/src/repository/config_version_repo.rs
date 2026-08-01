@@ -146,6 +146,23 @@ impl ConfigVersionRepo for ConfigVersionRepoImpl {
             .ok_or(ConrogateError::DataMapping("insert returned no model".into()))
     }
 
+    async fn get_snapshot_by_version(&self, version: u64) -> Result<Option<ConfigSnapshot>, ConrogateError> {
+        let model = ConfigVersionEntity::find()
+            .filter(config_versions::Column::Version.eq(version as i64))
+            .one(&self.db)
+            .await
+            .map_err(|_| ConrogateError::DatabaseInternal)?;
+
+        match model {
+            Some(m) => {
+                let snap: ConfigSnapshot = serde_json::from_value(m.snapshot_content)
+                    .map_err(|e| ConrogateError::DataMapping(e.to_string()))?;
+                Ok(Some(snap))
+            }
+            None => Ok(None),
+        }
+    }
+
     async fn diff(&self, from: u64, to: u64) -> Result<ConfigDiff, ConrogateError> {
         let from_model = ConfigVersionEntity::find()
             .filter(config_versions::Column::Version.eq(from as i64))

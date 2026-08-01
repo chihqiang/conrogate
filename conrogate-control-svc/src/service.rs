@@ -18,6 +18,8 @@ pub struct ControlService {
     pub node_app_repo: Arc<dyn NodeApplicationRepo>,
     pub plugin_repo: Arc<dyn InstalledPluginRepo>,
     pub audit: AuditService,
+    /// 配置缓存（Redis 优先，可选）
+    config_cache: Option<Arc<dyn ConfigCache>>,
 }
 
 impl ControlService {
@@ -44,7 +46,14 @@ impl ControlService {
             node_app_repo,
             plugin_repo,
             audit,
+            config_cache: None,
         }
+    }
+
+    /// 注入配置缓存（Redis 优先）；传入 None 可清除缓存
+    pub fn with_config_cache(mut self, cache: Option<Arc<dyn ConfigCache>>) -> Self {
+        self.config_cache = cache;
+        self
     }
 
     // ── 路由管理 ──
@@ -203,6 +212,17 @@ impl ControlService {
 
         let version = self.config_repo.publish(base_version, &snapshot, operator, remark).await?;
 
+        // 写 Redis 配置缓存（失败不阻断发布，仅告警）
+        if let Some(ref cache) = self.config_cache {
+            if let Err(e) = cache.put_snapshot(version.version, &snapshot).await {
+                tracing::warn!(
+                    version = version.version,
+                    error = %e,
+                    "failed to write config snapshot to Redis cache"
+                );
+            }
+        }
+
         self.audit.log(
             operator,
             "publish",
@@ -217,6 +237,27 @@ impl ControlService {
 
     pub async fn rollback_config(&self, target_version: u64, operator: Option<&str>) -> Result<ConfigVersionDto, ConrogateError> {
         let version = self.config_repo.rollback(target_version, operator).await?;
+
+        // 写 Redis 配置缓存（失败不阻断回滚，仅告警）
+        if let Some(ref cache) = self.config_cache {
+            match self.config_repo.get_snapshot_by_version(version.version).await? {
+                Some(snapshot) => {
+                    if let Err(e) = cache.put_snapshot(version.version, &snapshot).await {
+                        tracing::warn!(
+                            version = version.version,
+                            error = %e,
+                            "failed to write rollback snapshot to Redis cache"
+                        );
+                    }
+                }
+                None => {
+                    tracing::warn!(
+                        version = version.version,
+                        "snapshot not found for Redis cache after rollback"
+                    );
+                }
+            }
+        }
 
         self.audit.log(
             operator,

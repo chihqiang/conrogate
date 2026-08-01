@@ -34,6 +34,17 @@ impl PluginRegistryImpl {
         self.plugins.read().unwrap().keys().cloned().collect()
     }
 
+    /// 返回 requires_body=true 的已注册插件名集合
+    pub fn body_required_plugin_names(&self) -> std::collections::HashSet<String> {
+        self.plugins
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|(_, p)| p.requires_body())
+            .map(|(k, _)| k.clone())
+            .collect()
+    }
+
     /// 绑定插件到路由
     pub fn bind(&self, route_id: u64, plugin_name: &str) {
         let mut bindings = self.bindings.write().unwrap();

@@ -23,6 +23,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
+use conrogate_contract::protocol::{ProtocolId, RouteMatchInfo};
 
 /// 网关服务
 pub struct GatewayServer {
@@ -149,21 +150,31 @@ impl GatewayServer {
     ) -> Self {
         let server = Self::from_config(config).await;
 
-        // 加载初始路由 + 上游
+        // 加载初始路由 + 上游 + 插件绑定
         let route_repo = conrogate_storage::repository::route_repo::RouteRepoImpl::new((*read_db).clone());
         let upstream_repo = conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*read_db).clone());
+        let binding_repo = conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new((*read_db).clone());
 
         let routes = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(&route_repo).await
             .unwrap_or_default();
         let upstreams = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(&upstream_repo).await
             .unwrap_or_default();
+        let mut all_bindings = Vec::new();
+        for route in &routes {
+            let rb = conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
+                &binding_repo, route.id,
+            ).await.unwrap_or_default();
+            all_bindings.extend(rb);
+        }
 
-        server.route_matcher.load(routes);
+        let body_required = server.plugin_registry.body_required_plugin_names();
+        server.route_matcher.load_with_bindings(routes, all_bindings, &body_required);
         server.upstream_selector.load_upstreams(upstreams);
 
         // 启动配置热加载后台任务
         let matcher = server.route_matcher.clone();
         let selector = server.upstream_selector.clone();
+        let registry = server.plugin_registry.clone();
         let db = read_db.clone();
         tokio::spawn(async move {
             let poll_interval = std::time::Duration::from_secs(10);
@@ -175,8 +186,18 @@ impl GatewayServer {
                 let u = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(
                     &conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*db).clone()),
                 ).await.unwrap_or_default();
+                // 加载插件绑定
+                let mut bindings = Vec::new();
+                for route in &r {
+                    let rb = conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
+                        &conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new((*db).clone()),
+                        route.id,
+                    ).await.unwrap_or_default();
+                    bindings.extend(rb);
+                }
                 if !r.is_empty() || !u.is_empty() {
-                    matcher.load(r);
+                    let body_req = registry.body_required_plugin_names();
+                    matcher.load_with_bindings(r, bindings, &body_req);
                     selector.load_upstreams(u);
                     tracing::debug!("config hot-reloaded from DB");
                 }
@@ -248,6 +269,7 @@ impl GatewayServer {
 
                     let client_ip = remote_addr.ip().to_string();
                     let http_handler = self.http_handler.clone();
+                    let route_matcher = self.route_matcher.clone();
                     let semaphore = conn_semaphore.clone();
                     let tls_acc = tls_acceptor.clone();
 
@@ -263,6 +285,7 @@ impl GatewayServer {
 
                         let svc = HyperServiceBridge {
                             handler: http_handler,
+                            route_matcher,
                             client_ip,
                             max_body_bytes,
                         };
@@ -338,6 +361,17 @@ impl GatewayServer {
         tracing::info!("routes reloaded");
     }
 
+    /// 热加载路由 + 插件绑定（含 requires_body 静态判定）
+    pub fn reload_routes_with_bindings(
+        &self,
+        routes: Vec<conrogate_contract::dto::RouteDto>,
+        bindings: Vec<conrogate_contract::dto::PluginBindingDto>,
+    ) {
+        let body_required = self.plugin_registry.body_required_plugin_names();
+        self.route_matcher.load_with_bindings(routes, bindings, &body_required);
+        tracing::info!("routes reloaded with bindings");
+    }
+
     /// 热加载上游
     pub fn reload_upstreams(&self, upstreams: Vec<conrogate_contract::dto::UpstreamDto>) {
         self.upstream_selector.load_upstreams(upstreams);
@@ -354,6 +388,7 @@ impl GatewayServer {
 #[derive(Clone)]
 struct HyperServiceBridge {
     handler: Arc<HttpProtocolHandler>,
+    route_matcher: Arc<RouteMatcher>,
     client_ip: String,
     max_body_bytes: usize,
 }
@@ -365,6 +400,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
 
     fn call(&self, req: Request<Incoming>) -> Self::Future {
         let handler = self.handler.clone();
+        let route_matcher = self.route_matcher.clone();
         let client_ip = self.client_ip.clone();
         let max_body_bytes = self.max_body_bytes;
 
@@ -377,8 +413,63 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                     .unwrap());
             }
 
-            // 收集请求体
+            // 就绪探针：GET /readyz → 200（路由缓存非空）/ 503（路由为空）
+            if req.method() == http::Method::GET && req.uri().path() == "/readyz" {
+                if route_matcher.is_empty() {
+                    return Ok(Response::builder()
+                        .status(http::StatusCode::SERVICE_UNAVAILABLE)
+                        .body(Full::new(Bytes::from_static(b"not ready: no routes loaded")))
+                        .unwrap());
+                }
+                return Ok(Response::builder()
+                    .status(http::StatusCode::OK)
+                    .body(Full::new(Bytes::from_static(b"ready")))
+                    .unwrap());
+            }
+
+            // 拆分请求：先匹配路由，判定是否需要缓冲 body
             let (parts, body) = req.into_parts();
+            let match_info = RouteMatchInfo::from_http_request(
+                &parts.method,
+                &parts.uri,
+                &parts.headers,
+            );
+
+            // 尝试路由匹配
+            let matched_route = route_matcher.match_route(ProtocolId::Http, &match_info);
+
+            // 流式模式：路由命中且无 requires_body 插件 → 不 collect body，直接透传
+            if let Some(ref route) = matched_route {
+                if !route.requires_body {
+                    let resp = match handler.handle_stream(parts, body, route.clone(), client_ip).await {
+                        Ok(resp) => resp,
+                        Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
+                            return Ok(Response::builder()
+                                .status(http::StatusCode::TOO_MANY_REQUESTS)
+                                .header("Retry-After", "1")
+                                .body(Full::new(Bytes::from("rate limited")))
+                                .unwrap());
+                        }
+                        Err(ConrogateError::CircuitBreakerOpen) => {
+                            return Ok(Response::builder()
+                                .status(http::StatusCode::SERVICE_UNAVAILABLE)
+                                .body(Full::new(Bytes::from("circuit breaker open")))
+                                .unwrap());
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "stream handler error");
+                            return Ok(Response::builder()
+                                .status(http::StatusCode::BAD_GATEWAY)
+                                .body(Full::new(Bytes::from("gateway error")))
+                                .unwrap());
+                        }
+                    };
+                    let (parts, resp_body) = resp.into_parts();
+                    return Ok(Response::from_parts(parts, Full::new(resp_body)));
+                }
+            }
+
+            // 缓冲模式：路由未命中或需 requires_body 插件 → collect body
             let body_bytes = body
                 .collect()
                 .await

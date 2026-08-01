@@ -278,6 +278,8 @@ pub struct RouteSnapshot {
     pub host_header: Option<String>,
     pub allow_retry_non_idempotent: bool,
     pub plugin_chain: Vec<PluginBindingDto>,
+    /// 该路由是否有 requires_body 插件 → true 时网关以缓冲模式处理请求体
+    pub requires_body: bool,
 }
 
 // ── 查询参数 ──

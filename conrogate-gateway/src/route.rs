@@ -30,15 +30,39 @@ impl RouteMatcher {
         }
     }
 
-    /// 从路由 DTO 列表加载路由表
+    /// 从路由 DTO 列表加载路由表（无插件绑定 → requires_body=false）
     pub fn load(&self, dtos: Vec<RouteDto>) {
+        self.load_with_bindings(dtos, vec![], &Default::default())
+    }
+
+    /// 从路由 DTO 列表 + 插件绑定加载路由表，并根据 `body_required_plugins` 静态判定每条路由的 body 模式
+    pub fn load_with_bindings(
+        &self,
+        dtos: Vec<RouteDto>,
+        bindings: Vec<conrogate_contract::dto::PluginBindingDto>,
+        body_required_plugins: &std::collections::HashSet<String>,
+    ) {
         let mut routes = self.routes.write().unwrap();
         routes.clear();
+
+        // 按 route_id 分组绑定
+        let mut binding_map: HashMap<u64, Vec<conrogate_contract::dto::PluginBindingDto>> = HashMap::new();
+        for b in bindings {
+            if b.enabled {
+                binding_map.entry(b.route_id).or_default().push(b);
+            }
+        }
 
         for dto in dtos {
             if !dto.enabled {
                 continue;
             }
+
+            let route_bindings = binding_map.remove(&dto.id).unwrap_or_default();
+            // 静态判定：该路由是否有 requires_body 插件
+            let requires_body = route_bindings
+                .iter()
+                .any(|b| body_required_plugins.contains(&b.plugin_name));
 
             let entry = RouteEntry {
                 conditions: dto.match_conditions.clone(),
@@ -49,7 +73,8 @@ impl RouteMatcher {
                     upstream_id: dto.upstream_id,
                     host_header: dto.host_header.clone(),
                     allow_retry_non_idempotent: dto.allow_retry_non_idempotent,
-                    plugin_chain: vec![],
+                    plugin_chain: route_bindings,
+                    requires_body,
                 },
             };
 
@@ -63,6 +88,12 @@ impl RouteMatcher {
         for entries in routes.values_mut() {
             entries.sort_by(|a, b| b.priority.cmp(&a.priority));
         }
+    }
+
+    /// 检查路由表是否为空（用于就绪探针）
+    pub fn is_empty(&self) -> bool {
+        let routes = self.routes.read().unwrap();
+        routes.values().all(|v| v.is_empty())
     }
 
     /// 匹配路由

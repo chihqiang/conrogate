@@ -12,6 +12,9 @@ use hyper_util::rt::TokioIo;
 use std::time::Duration;
 use tokio::net::TcpStream;
 
+/// 统一请求体类型：BoxBody 兼容缓冲模式（Full<Bytes>）和流式模式（Incoming）
+pub type ReqBody = http_body_util::combinators::BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>>;
+
 /// 代理转发结果
 pub struct ProxyResult {
     pub status: http::StatusCode,
@@ -19,16 +22,37 @@ pub struct ProxyResult {
     pub body: Bytes,
 }
 
-/// 转发 HTTP 请求到上游节点
+/// 转发 HTTP 请求到上游节点（缓冲模式：body 已在内存中）
 pub async fn forward_http(
-    client: &Client<hyper_util::client::legacy::connect::HttpConnector, Full<Bytes>>,
+    client: &Client<HttpConnector, ReqBody>,
     node: &UpstreamNodeDto,
-    req: Request<Full<Bytes>>,
+    req: Request<ReqBody>,
+    timeout: Duration,
+) -> Result<ProxyResult, ConrogateError> {
+    forward_internal(client, node, req, timeout).await
+}
+
+/// 转发 HTTP 请求到上游节点（流式模式：body 以 BoxBody 包装 Incoming，不提前 collect）
+pub async fn forward_http_stream(
+    client: &Client<HttpConnector, ReqBody>,
+    node: &UpstreamNodeDto,
+    req: Request<ReqBody>,
+    timeout: Duration,
+) -> Result<ProxyResult, ConrogateError> {
+    // 流式与缓冲走同一条 client.request() 路径
+    // 区别在 body 类型：Incoming 会按帧流式发送，不提前载入内存
+    forward_internal(client, node, req, timeout).await
+}
+
+/// 内部转发逻辑
+async fn forward_internal(
+    client: &Client<HttpConnector, ReqBody>,
+    node: &UpstreamNodeDto,
+    req: Request<ReqBody>,
     timeout: Duration,
 ) -> Result<ProxyResult, ConrogateError> {
     let addr = format!("http://{}", node.address);
 
-    // 构建到上游的请求
     let (method, uri, headers, body) = (
         req.method().clone(),
         req.uri().clone(),
@@ -36,7 +60,6 @@ pub async fn forward_http(
         req.into_body(),
     );
 
-    // 替换 URI 的 host 部分
     let path_and_query = uri
         .path_and_query()
         .map(|p| p.as_str())
@@ -73,16 +96,19 @@ pub async fn forward_http(
     })
 }
 
-/// 转发 HTTP 请求到上游节点（流式透传模式，不缓冲完整 body）
-pub async fn forward_http_stream(
-    client: &Client<HttpConnector, Full<Bytes>>,
-    node: &UpstreamNodeDto,
-    req: Request<Full<Bytes>>,
-    timeout: Duration,
-) -> Result<ProxyResult, ConrogateError> {
-    // 流式模式下 body 已经是 Full<Bytes>，hyper 会按帧流式发送
-    // 与 forward_http 的区别：不提前 collect body，直接交给 hyper 的连接池流式发送
-    forward_http(client, node, req, timeout).await
+/// 将 Bytes 包装为 ReqBody（缓冲模式）
+pub fn body_from_bytes(bytes: Bytes) -> ReqBody {
+    use http_body_util::combinators::BoxBody;
+    // Full<Bytes> 的 Error = Infallible，需要 map_err 统一为 BoxError
+    BoxBody::new(Full::new(bytes).map_err(|e| match e {}))
+}
+
+/// 将 Incoming 包装为 ReqBody（流式模式）
+pub fn body_from_incoming(incoming: Incoming) -> ReqBody {
+    use http_body_util::combinators::BoxBody;
+    BoxBody::new(incoming.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(e)
+    }))
 }
 
 /// 转发 TCP 隧道连接

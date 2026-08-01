@@ -71,6 +71,14 @@ pub async fn run(
         .unwrap_or_default();
     let upstreams = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(&*upstream_repo).await
         .unwrap_or_default();
+    // 加载插件绑定（用于 requires_body 静态判定）
+    let mut all_bindings = Vec::new();
+    for route in &routes {
+        let rb = conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
+            &*binding_repo, route.id,
+        ).await.unwrap_or_default();
+        all_bindings.extend(rb);
+    }
 
     // ── 6. BalancerRegistry ──
     let balancer_registry = conrogate_balancer::registry::create_default_registry();
@@ -106,7 +114,8 @@ pub async fn run(
 
     // ── 14. RouteMatcher ──
     let route_matcher = Arc::new(conrogate_gateway::route::RouteMatcher::new());
-    route_matcher.load(routes);
+    let body_required = plugin_registry.body_required_plugin_names();
+    route_matcher.load_with_bindings(routes, all_bindings, &body_required);
 
     // ── 15. TelemetryReport ──
     let (metric_tx, metric_rx) = mpsc::channel(100_000);
@@ -146,6 +155,7 @@ pub async fn run(
     if config.control.listen.enabled {
         let control_db = main_db.clone();
         let control_config = config.control.clone();
+        let redis_url = config.gate.refresh.config_cache_redis_url.clone();
         let repos = ControlRepos {
             route_repo: route_repo.clone(),
             upstream_repo: upstream_repo.clone(),
@@ -158,7 +168,7 @@ pub async fn run(
             plugin_repo: plugin_repo.clone(),
         };
         let _control_handle = tokio::spawn(async move {
-            start_control_plane(control_config, repos).await;
+            start_control_plane(control_config, repos, redis_url).await;
         });
     }
 
@@ -210,18 +220,39 @@ struct ControlRepos {
 async fn start_control_plane(
     control_config: conrogate_contract::config::ControlConfig,
     repos: ControlRepos,
+    redis_url: String,
 ) {
-    let svc = Arc::new(conrogate_control_svc::ControlService::new(
-        repos.route_repo,
-        repos.upstream_repo,
-        repos.binding_repo,
-        repos.config_repo,
-        repos.metric_repo,
-        repos.event_repo,
-        repos.audit_repo,
-        repos.node_app_repo,
-        repos.plugin_repo,
-    ));
+    // Redis 配置缓存（可选）
+    let config_cache: Option<Arc<dyn conrogate_contract::storage::ConfigCache>> =
+        if !redis_url.is_empty() {
+            match conrogate_storage::config_cache::RedisConfigCache::new(&redis_url) {
+                Ok(cache) => {
+                    tracing::info!(redis_url = %redis_url, "control plane: Redis config cache enabled");
+                    Some(Arc::new(cache))
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "control plane: Redis config cache init failed");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+    let svc = Arc::new(
+        conrogate_control_svc::ControlService::new(
+            repos.route_repo,
+            repos.upstream_repo,
+            repos.binding_repo,
+            repos.config_repo,
+            repos.metric_repo,
+            repos.event_repo,
+            repos.audit_repo,
+            repos.node_app_repo,
+            repos.plugin_repo,
+        )
+        .with_config_cache(config_cache),
+    );
 
     let app_state = conrogate_control_svc::AppState { svc };
     let router = conrogate_control_svc::build_router(app_state, &control_config.auth.token);
