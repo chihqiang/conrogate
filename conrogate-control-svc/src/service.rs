@@ -6,6 +6,9 @@ use conrogate_contract::storage::*;
 use conrogate_contract::ConrogateError;
 use std::sync::Arc;
 
+/// 单批上报条数上限（docs/12：批量大小上限 1000 条/批）
+const REPORT_BATCH_LIMIT: usize = 1000;
+
 /// 控制面服务
 pub struct ControlService {
     pub route_repo: Arc<dyn RouteRepo>,
@@ -419,10 +422,40 @@ impl ControlService {
     }
 
     pub async fn receive_metrics(&self, batch: MetricsBatch) -> Result<(), ConrogateError> {
+        if batch.metrics.len() > REPORT_BATCH_LIMIT {
+            return Err(ConrogateError::BadRequest(format!(
+                "批量上报超过上限 {} 条，实际 {} 条",
+                REPORT_BATCH_LIMIT,
+                batch.metrics.len()
+            )));
+        }
+        if batch.bucket_sec != 10 && batch.bucket_sec != 60 {
+            return Err(ConrogateError::BadRequest(format!(
+                "bucket_sec 仅支持 10/60，实际 {}",
+                batch.bucket_sec
+            )));
+        }
         self.metric_repo.upsert_batch(&batch.metrics).await
     }
 
     pub async fn receive_events(&self, batch: EventsBatch) -> Result<(), ConrogateError> {
-        self.event_repo.insert_batch(&batch.events).await
+        if batch.events.len() > REPORT_BATCH_LIMIT {
+            return Err(ConrogateError::BadRequest(format!(
+                "批量上报超过上限 {} 条，实际 {} 条",
+                REPORT_BATCH_LIMIT,
+                batch.events.len()
+            )));
+        }
+        // 幂等去重：trace_id + ts + event_type（无 trace_id 的事件不参与去重）
+        let mut seen = std::collections::HashSet::new();
+        let deduped: Vec<EventRow> = batch
+            .events
+            .into_iter()
+            .filter(|e| match &e.trace_id {
+                Some(tid) => seen.insert((tid.clone(), e.ts, e.event_type.clone())),
+                None => true,
+            })
+            .collect();
+        self.event_repo.insert_batch(&deduped).await
     }
 }

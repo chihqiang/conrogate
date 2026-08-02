@@ -136,29 +136,51 @@ async fn run(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// 无 DB 模式启动（仅 HTTP 拉取配置）
+/// 无 DB 模式启动（仅 HTTP 拉取配置 + 定时轮询热加载）
 async fn run_without_db(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
     tracing::info!("starting gate without db (http config mode)");
 
     let control_url = config.gate.refresh.control_api_url.clone();
     let control_token = config.gate.refresh.control_api_token.clone();
-    let server = conrogate_gateway::server::GatewayServer::from_config(config).await;
+    let poll_interval = config.gate.refresh.config_poll_interval;
+    let server = Arc::new(conrogate_gateway::server::GatewayServer::from_config(config).await);
 
-    // 从 control HTTP API 拉取初始配置
-    if !control_url.is_empty() {
-        let loader = http_config_loader::HttpConfigLoader::new(&control_url, &control_token);
+    async fn reload_from_http(
+        server: &conrogate_gateway::server::GatewayServer,
+        loader: &http_config_loader::HttpConfigLoader,
+    ) {
         match loader.load_routes().await {
             Ok(routes) => {
                 let upstreams = loader.load_upstreams().await.unwrap_or_default();
                 let bindings = loader.load_all_plugin_bindings(&routes).await.unwrap_or_default();
                 server.reload_routes_with_bindings(routes, bindings);
                 server.reload_upstreams(upstreams);
-                tracing::info!("config loaded from control HTTP API");
+                tracing::debug!("config hot-reloaded from control HTTP API");
             }
             Err(e) => {
-                tracing::warn!(error = %e, "failed to load config from HTTP, starting with empty routes");
+                tracing::warn!(error = %e, "failed to reload config from HTTP, keeping current config");
             }
         }
+    }
+
+    if !control_url.is_empty() {
+        let loader = http_config_loader::HttpConfigLoader::new(&control_url, &control_token);
+        reload_from_http(&server, &loader).await;
+
+        let poll_server = server.clone();
+        tokio::spawn(async move {
+            let poll_loader = http_config_loader::HttpConfigLoader::new(&control_url, &control_token);
+            loop {
+                tokio::time::sleep(poll_interval).await;
+                reload_from_http(&poll_server, &poll_loader).await;
+            }
+        });
+        tracing::info!(
+            interval_ms = poll_interval.as_millis(),
+            "config polling started (HTTP mode)"
+        );
+    } else {
+        tracing::warn!("control_api_url is empty, no config loaded");
     }
 
     server.run().await.map_err(|e| anyhow::anyhow!("gateway server error: {e}"))?;

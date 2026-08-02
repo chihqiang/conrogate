@@ -30,6 +30,7 @@ impl MetricRepo for MetricRepoImpl {
             // 先尝试查找已有记录
             let existing = MetricEntity::find()
                 .filter(metric_aggregates::Column::Ts.eq(row.ts))
+                .filter(metric_aggregates::Column::BucketSec.eq(row.bucket_sec as i32))
                 .filter(metric_aggregates::Column::GateId.eq(&row.gate_id))
                 .filter(metric_aggregates::Column::RouteId.eq(row.route_id.map(|v| v as i64)))
                 .one(&self.db)
@@ -46,6 +47,7 @@ impl MetricRepo for MetricRepoImpl {
                     .col_expr(metric_aggregates::Column::Status4xx, Expr::value(row.status_4xx as i64))
                     .col_expr(metric_aggregates::Column::Status5xx, Expr::value(row.status_5xx as i64))
                     .filter(metric_aggregates::Column::Ts.eq(row.ts))
+                    .filter(metric_aggregates::Column::BucketSec.eq(row.bucket_sec as i32))
                     .filter(metric_aggregates::Column::GateId.eq(&row.gate_id))
                     .filter(metric_aggregates::Column::RouteId.eq(row.route_id.map(|v| v as i64)))
                     .exec(&self.db)

@@ -5,7 +5,8 @@ use crate::entity::gateway_events::{self, Entity as EventEntity};
 use conrogate_contract::dto::{EventQuery, EventRow, PaginatedResult};
 use conrogate_contract::storage::EventRepo;
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 
 pub struct EventRepoImpl {
     db: DatabaseConnection,
@@ -23,13 +24,20 @@ impl EventRepo for EventRepoImpl {
         if events.is_empty() {
             return Ok(());
         }
-        for row in events {
-            let active = convert::event_row_to_active_model(row);
-            active
-                .insert(&self.db)
-                .await
-                .map_err(|e| ConrogateError::DataMapping(e.to_string()))?;
-        }
+        let actives: Vec<_> = events.iter().map(convert::event_row_to_active_model).collect();
+        EventEntity::insert_many(actives)
+            .on_conflict(
+                OnConflict::columns([
+                    gateway_events::Column::TraceId,
+                    gateway_events::Column::Ts,
+                    gateway_events::Column::EventType,
+                ])
+                .do_nothing()
+                .to_owned(),
+            )
+            .exec(&self.db)
+            .await
+            .map_err(|e| ConrogateError::DataMapping(e.to_string()))?;
         Ok(())
     }
 

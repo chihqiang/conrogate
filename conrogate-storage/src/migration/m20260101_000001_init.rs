@@ -176,7 +176,7 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Upstreams::Name).string().not_null())
-                    .col(ColumnDef::new(Upstreams::Algorithm).small_integer().not_null().default(0))
+                    .col(ColumnDef::new(Upstreams::Algorithm).small_integer().not_null().default(1))
                     .col(ColumnDef::new(Upstreams::RetryEnabled).boolean().not_null().default(true))
                     .col(ColumnDef::new(Upstreams::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
                     .col(ColumnDef::new(Upstreams::UpdatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
@@ -225,6 +225,17 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_upstream_nodes_upstream")
+                    .table(UpstreamNodes::Table)
+                    .col(UpstreamNodes::UpstreamId)
+                    .col(UpstreamNodes::Enabled)
+                    .to_owned(),
+            )
+            .await?;
+
         // ── 3. routes ──
         manager
             .create_table(
@@ -238,7 +249,7 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Routes::Name).string().not_null())
-                    .col(ColumnDef::new(Routes::Protocol).small_integer().not_null().default(0))
+                    .col(ColumnDef::new(Routes::Protocol).small_integer().not_null().default(1))
                     .col(ColumnDef::new(Routes::MatchConditions).json().not_null())
                     .col(ColumnDef::new(Routes::Priority).integer().not_null().default(10))
                     .col(ColumnDef::new(Routes::UpstreamId).big_integer().null())
@@ -259,6 +270,22 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        manager
+            .get_connection()
+            .execute_unprepared("CREATE UNIQUE INDEX idx_routes_name ON routes (name) WHERE deleted_at IS NULL")
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_routes_protocol_enabled")
+                    .table(Routes::Table)
+                    .col(Routes::Protocol)
+                    .col(Routes::Enabled)
+                    .to_owned(),
+            )
+            .await?;
+
         // ── 4. route_plugin_bindings ──
         manager
             .create_table(
@@ -274,8 +301,8 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(RoutePluginBindings::RouteId).big_integer().not_null())
                     .col(ColumnDef::new(RoutePluginBindings::PluginName).string().not_null())
                     .col(ColumnDef::new(RoutePluginBindings::Config).json().not_null().default("{}"))
-                    .col(ColumnDef::new(RoutePluginBindings::Order).integer().not_null().default(0))
-                    .col(ColumnDef::new(RoutePluginBindings::Blocking).boolean().not_null().default(false))
+                    .col(ColumnDef::new(RoutePluginBindings::Order).integer().not_null().default(1))
+                    .col(ColumnDef::new(RoutePluginBindings::Blocking).boolean().not_null().default(true))
                     .col(ColumnDef::new(RoutePluginBindings::Enabled).boolean().not_null().default(true))
                     .col(ColumnDef::new(RoutePluginBindings::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
                     .col(ColumnDef::new(RoutePluginBindings::UpdatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
@@ -288,6 +315,13 @@ impl MigrationTrait for Migration {
                             .on_delete(ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
+            )
+            .await?;
+
+        manager
+            .get_connection()
+            .execute_unprepared(
+                "CREATE UNIQUE INDEX uk_route_plugin ON route_plugin_bindings (route_id, plugin_name) WHERE deleted_at IS NULL",
             )
             .await?;
 
@@ -304,7 +338,7 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(ConfigVersions::Version).big_integer().not_null())
-                    .col(ColumnDef::new(ConfigVersions::BaseVersion).big_integer().not_null().default(0))
+                    .col(ColumnDef::new(ConfigVersions::BaseVersion).big_integer().null())
                     .col(ColumnDef::new(ConfigVersions::PublishType).small_integer().not_null().default(0))
                     .col(ColumnDef::new(ConfigVersions::ContentHash).string().not_null())
                     .col(ColumnDef::new(ConfigVersions::SnapshotContent).json().not_null())
@@ -341,7 +375,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(MetricAggregates::Ts).timestamp_with_time_zone().not_null())
                     .col(ColumnDef::new(MetricAggregates::BucketSec).integer().not_null().default(10))
                     .col(ColumnDef::new(MetricAggregates::RouteId).big_integer().null())
-                    .col(ColumnDef::new(MetricAggregates::GateId).string().not_null())
+                    .col(ColumnDef::new(MetricAggregates::GateId).string().null())
                     .col(ColumnDef::new(MetricAggregates::Qps).integer().not_null().default(0))
                     .col(ColumnDef::new(MetricAggregates::TotalRequests).big_integer().not_null().default(0))
                     .col(ColumnDef::new(MetricAggregates::AvgLatencyMs).double().not_null().default(0.0))
@@ -363,11 +397,23 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_metrics_ts_gate_route")
+                    .name("uk_metric_aggregate")
                     .table(MetricAggregates::Table)
                     .col(MetricAggregates::Ts)
-                    .col(MetricAggregates::GateId)
+                    .col(MetricAggregates::BucketSec)
                     .col(MetricAggregates::RouteId)
+                    .col(MetricAggregates::GateId)
+                    .unique()
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_metric_ts")
+                    .table(MetricAggregates::Table)
+                    .col(MetricAggregates::Ts)
                     .to_owned(),
             )
             .await?;
@@ -398,10 +444,23 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_events_ts_type")
+                    .name("idx_events_type_ts")
                     .table(GatewayEvents::Table)
+                    .col(GatewayEvents::EventType)
+                    .col(GatewayEvents::Ts)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_index(
+                Index::create()
+                    .name("uk_event_dedup")
+                    .table(GatewayEvents::Table)
+                    .col(GatewayEvents::TraceId)
                     .col(GatewayEvents::Ts)
                     .col(GatewayEvents::EventType)
+                    .unique()
                     .to_owned(),
             )
             .await?;
@@ -433,10 +492,9 @@ impl MigrationTrait for Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_audit_ts_action")
+                    .name("idx_audit_ts")
                     .table(AuditLogs::Table)
                     .col(AuditLogs::Ts)
-                    .col(AuditLogs::Action)
                     .to_owned(),
             )
             .await?;

@@ -13,38 +13,40 @@ use serde_json;
 
 // ── 协议枚举映射 ──
 
+// docs/13：protocol 编号 1=http 2=websocket 3=tcp_tunnel
 pub(crate) fn protocol_to_i16(p: ProtocolId) -> i16 {
     match p {
-        ProtocolId::Http => 0,
-        ProtocolId::WebSocket => 1,
-        ProtocolId::TcpTunnel => 2,
+        ProtocolId::Http => 1,
+        ProtocolId::WebSocket => 2,
+        ProtocolId::TcpTunnel => 3,
     }
 }
 
 fn i16_to_protocol(v: i16) -> ProtocolId {
     match v {
-        1 => ProtocolId::WebSocket,
-        2 => ProtocolId::TcpTunnel,
+        2 => ProtocolId::WebSocket,
+        3 => ProtocolId::TcpTunnel,
         _ => ProtocolId::Http,
     }
 }
 
 // ── 算法枚举映射 ──
 
+// docs/13：algorithm 编号 1=round_robin 2=weighted_round_robin 3=least_connections 4=consistent_hash
 pub(crate) fn algorithm_to_i16(a: BalancerAlgorithm) -> i16 {
     match a {
-        BalancerAlgorithm::RoundRobin => 0,
-        BalancerAlgorithm::WeightedRoundRobin => 1,
-        BalancerAlgorithm::LeastConnections => 2,
-        BalancerAlgorithm::ConsistentHash => 3,
+        BalancerAlgorithm::RoundRobin => 1,
+        BalancerAlgorithm::WeightedRoundRobin => 2,
+        BalancerAlgorithm::LeastConnections => 3,
+        BalancerAlgorithm::ConsistentHash => 4,
     }
 }
 
 fn i16_to_algorithm(v: i16) -> BalancerAlgorithm {
     match v {
-        1 => BalancerAlgorithm::WeightedRoundRobin,
-        2 => BalancerAlgorithm::LeastConnections,
-        3 => BalancerAlgorithm::ConsistentHash,
+        2 => BalancerAlgorithm::WeightedRoundRobin,
+        3 => BalancerAlgorithm::LeastConnections,
+        4 => BalancerAlgorithm::ConsistentHash,
         _ => BalancerAlgorithm::RoundRobin,
     }
 }
