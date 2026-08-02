@@ -378,6 +378,34 @@ impl ControlService {
         self.plugin_repo.list(status).await
     }
 
+    /// 更新插件状态（Admin 专属操作）
+    pub async fn update_plugin_status(&self, name: &str, status: conrogate_contract::plugin::PluginStatus, operator: Option<&str>) -> Result<(), ConrogateError> {
+        self.plugin_repo.update_status(name, status).await?;
+        self.audit.log(
+            operator,
+            "update_status",
+            "plugin",
+            None,
+            serde_json::json!({"name": name, "status": format!("{:?}", status)}),
+            None,
+        ).await;
+        Ok(())
+    }
+
+    /// 卸载插件（Admin 专属操作）
+    pub async fn delete_plugin(&self, name: &str, operator: Option<&str>) -> Result<(), ConrogateError> {
+        self.plugin_repo.soft_delete(name).await?;
+        self.audit.log(
+            operator,
+            "delete",
+            "plugin",
+            None,
+            serde_json::json!({"name": name}),
+            None,
+        ).await;
+        Ok(())
+    }
+
     pub async fn receive_heartbeat(&self, heartbeat: Heartbeat) -> Result<(), ConrogateError> {
         self.node_app_repo.upsert(&heartbeat.gate_id, heartbeat.version).await
     }

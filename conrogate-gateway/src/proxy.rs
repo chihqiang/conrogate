@@ -111,12 +111,18 @@ pub fn body_from_incoming(incoming: Incoming) -> ReqBody {
 }
 
 /// 转发 TCP 隧道连接
+///
+/// `max_bytes_per_sec`: 每秒最大字节数（None = 不限制）
 pub async fn forward_tcp(
     node: &UpstreamNodeDto,
     inbound: TcpStream,
     timeout: Duration,
+    max_bytes_per_sec: Option<u64>,
 ) -> Result<(), ConrogateError> {
-    let upstream = tokio::time::timeout(timeout, TcpStream::connect(&node.address))
+    // 使用 DNS 缓存解析地址
+    let addrs = crate::dns_cache::global_resolver().resolve(&node.address).await
+        .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("DNS resolve: {e}")))?;
+    let upstream = tokio::time::timeout(timeout, TcpStream::connect(&addrs[..]))
         .await
         .map_err(|_| ConrogateError::UpstreamTimeout)?
         .map_err(|e| ConrogateError::UpstreamConnectFailed(e.to_string()))?;
@@ -124,16 +130,48 @@ pub async fn forward_tcp(
     let (mut ri, mut wi) = inbound.into_split();
     let (mut ro, mut wo) = upstream.into_split();
 
-    // 双向转发
+    // 双向转发（可选带宽限制）
     let c2s = async {
-        tokio::io::copy(&mut ri, &mut wo).await
+        throttled_copy(&mut ri, &mut wo, max_bytes_per_sec).await
     };
     let s2c = async {
-        tokio::io::copy(&mut ro, &mut wi).await
+        throttled_copy(&mut ro, &mut wi, max_bytes_per_sec).await
     };
 
     tokio::try_join!(c2s, s2c)
         .map_err(|e| ConrogateError::UpstreamConnectFailed(e.to_string()))?;
 
+    Ok(())
+}
+
+/// 带限速的字节流拷贝
+async fn throttled_copy<R, W>(
+    reader: &mut R,
+    writer: &mut W,
+    max_bytes_per_sec: Option<u64>,
+) -> std::io::Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = reader.read(&mut buf).await?;
+        if n == 0 {
+            break;
+        }
+        writer.write_all(&buf[..n]).await?;
+        writer.flush().await?;
+        // 带宽限制：按实际传输字节数计算休眠时间
+        if let Some(bps) = max_bytes_per_sec {
+            if bps > 0 {
+                let sleep_us = (n as u64 * 1_000_000) / bps;
+                if sleep_us > 0 {
+                    tokio::time::sleep(std::time::Duration::from_micros(sleep_us)).await;
+                }
+            }
+        }
+    }
     Ok(())
 }

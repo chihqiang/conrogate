@@ -97,3 +97,11 @@ impl Default for DnsResolver {
         Self::new()
     }
 }
+
+/// 全局 DNS 解析器（进程级单例）
+static GLOBAL_RESOLVER: std::sync::OnceLock<DnsResolver> = std::sync::OnceLock::new();
+
+/// 获取全局 DNS 解析器
+pub fn global_resolver() -> &'static DnsResolver {
+    GLOBAL_RESOLVER.get_or_init(DnsResolver::new)
+}

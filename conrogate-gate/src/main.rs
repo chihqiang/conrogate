@@ -39,10 +39,17 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(
         host = %config.gate.listen.host,
         port = config.gate.listen.port,
+        config_source = %config.gate.refresh.config_source,
         "starting conrogate-gate (data plane only)"
     );
 
-    // ── 1. 只读 DB 连接池 ──
+    // ── 1. 配置源选择：http 模式不直连 DB ──
+    if config.gate.refresh.config_source == "http" {
+        tracing::info!("config_source=http, using HTTP config loader only");
+        return run_without_db(config).await;
+    }
+
+    // ── 2. 只读 DB 连接池（config_source=db 时使用）──
     let read_db = match conrogate_storage::pool::create_read_pool(&config.db).await {
         Ok(db) => Arc::new(db),
         Err(e) => {

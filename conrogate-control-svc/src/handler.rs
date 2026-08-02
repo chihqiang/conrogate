@@ -160,6 +160,23 @@ pub async fn delete_upstream(
     }
 }
 
+/// PATCH 局部更新上游：从路径取 id，body 中字段可选
+pub async fn patch_upstream(
+    Extension(role): Extension<Role>,
+    State(state): State<AppState>,
+    Path(id): Path<u64>,
+    Json(mut dto): Json<UpdateUpstreamDto>,
+) -> Response {
+    if let Err(e) = require_role(&role, Role::Operator) {
+        return response::err(e);
+    }
+    dto.id = id;
+    match state.svc.update_upstream(dto, None).await {
+        Ok(data) => response::ok(data),
+        Err(e) => response::err(e),
+    }
+}
+
 pub async fn get_upstream(
     State(state): State<AppState>,
     Path(id): Path<u64>,
@@ -259,20 +276,15 @@ pub async fn publish_config(
     }
 }
 
-#[derive(serde::Deserialize)]
-pub struct RollbackQuery {
-    pub target_version: u64,
-}
-
 pub async fn rollback_config(
     Extension(role): Extension<Role>,
     State(state): State<AppState>,
-    Query(q): Query<RollbackQuery>,
+    Path(version): Path<u64>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.rollback_config(q.target_version, None).await {
+    match state.svc.rollback_config(version, None).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -452,6 +464,76 @@ pub async fn receive_events(
     }
 }
 
+// ── 插件管理（Admin 专属）──
+
+/// 查询已安装插件（所有角色可查）
+pub async fn list_plugins(
+    State(state): State<AppState>,
+    Query(q): Query<PluginStatusQuery>,
+) -> Response {
+    let status = q.status.as_deref().and_then(|s| match s.to_lowercase().as_str() {
+        "installed" => Some(conrogate_contract::plugin::PluginStatus::Installed),
+        "active" => Some(conrogate_contract::plugin::PluginStatus::Active),
+        "disabled" => Some(conrogate_contract::plugin::PluginStatus::Disabled),
+        "uninstalled" => Some(conrogate_contract::plugin::PluginStatus::Uninstalled),
+        _ => None,
+    });
+    match state.svc.list_plugins(status).await {
+        Ok(data) => response::ok(data),
+        Err(e) => response::err(e),
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct PluginStatusQuery {
+    pub status: Option<String>,
+}
+
+/// 激活插件（Admin 专属）
+pub async fn activate_plugin(
+    Extension(role): Extension<Role>,
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Response {
+    if let Err(e) = require_role(&role, Role::Admin) {
+        return response::err(e);
+    }
+    match state.svc.update_plugin_status(&name, conrogate_contract::plugin::PluginStatus::Active, None).await {
+        Ok(_) => response::ok_empty(),
+        Err(e) => response::err(e),
+    }
+}
+
+/// 禁用插件（Admin 专属）
+pub async fn disable_plugin(
+    Extension(role): Extension<Role>,
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Response {
+    if let Err(e) = require_role(&role, Role::Admin) {
+        return response::err(e);
+    }
+    match state.svc.update_plugin_status(&name, conrogate_contract::plugin::PluginStatus::Disabled, None).await {
+        Ok(_) => response::ok_empty(),
+        Err(e) => response::err(e),
+    }
+}
+
+/// 卸载插件（Admin 专属）
+pub async fn delete_plugin(
+    Extension(role): Extension<Role>,
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Response {
+    if let Err(e) = require_role(&role, Role::Admin) {
+        return response::err(e);
+    }
+    match state.svc.delete_plugin(&name, None).await {
+        Ok(_) => response::ok_empty(),
+        Err(e) => response::err(e),
+    }
+}
+
 // ── 健康检查 ──
 
 pub async fn health_check() -> Response {
@@ -465,12 +547,40 @@ pub async fn healthz() -> Response {
 pub async fn readyz(
     State(state): State<AppState>,
 ) -> Response {
-    match state.svc.list_nodes().await {
-        Ok(_) => response::ok(serde_json::json!({"status": "ok"})),
+    // 1. 检查 DB 连通性
+    if let Err(e) = state.svc.list_nodes().await {
+        let body = serde_json::json!({
+            "code": 50001,
+            "msg": format!("not ready: {e}"),
+            "data": null,
+            "trace_id": format!("{:x}", std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)),
+        });
+        return (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response();
+    }
+    // 2. 检查路由是否已加载
+    match state.svc.list_routes(1, 1).await {
+        Ok(routes) if routes.total > 0 => {
+            response::ok(serde_json::json!({"status": "ok"}))
+        }
+        Ok(_) => {
+            let body = serde_json::json!({
+                "code": 50001,
+                "msg": "not ready: no routes loaded",
+                "data": null,
+                "trace_id": format!("{:x}", std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0)),
+            });
+            (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response()
+        }
         Err(e) => {
             let body = serde_json::json!({
                 "code": 50001,
-                "msg": format!("not ready: {e}"),
+                "msg": format!("not ready: route check failed: {e}"),
                 "data": null,
                 "trace_id": format!("{:x}", std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)

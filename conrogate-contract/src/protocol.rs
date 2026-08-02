@@ -53,7 +53,7 @@ pub enum PathMatch {
 }
 
 /// 通用匹配操作符
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MatchOp {
     Exact,

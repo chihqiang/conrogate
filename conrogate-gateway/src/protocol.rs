@@ -186,22 +186,8 @@ impl HttpProtocolHandler {
         // 1a. XFF 信任链：解析真实客户端 IP
         let real_ip = self.resolve_real_ip(&client_ip, &headers);
 
-        // 1b. WebSocket 升级检测
-        let upgrade_req = Request::builder()
-            .method(method.clone())
-            .uri(uri.clone())
-            .version(parts.version)
-            .body(body.clone())
-            .unwrap();
-        if crate::upgrade::is_upgrade_request(&upgrade_req) {
-            // 构造 101 握手响应
-            let resp = crate::upgrade::build_upgrade_response(&upgrade_req);
-            tracing::info!(
-                trace_id = %trace_id,
-                "websocket upgrade request, returning 101"
-            );
-            return Ok(resp);
-        }
+        // 记录请求开始时间（用于延迟统计）
+        let start = std::time::Instant::now();
 
         // 2. 路由匹配
         let route = self
@@ -258,10 +244,27 @@ impl HttpProtocolHandler {
         }
 
         // 6. 流量治理检查（使用配置的 QPS）
-        let _ = self.svc
+        if let Err(e) = self.svc
             .traffic
             .check_rate_limit(route.id, &real_ip)
-            .await;
+            .await
+        {
+            // 上报限流事件到遥测
+            self.svc.telemetry.record_event(
+                conrogate_contract::dto::EventRow {
+                    ts: chrono::Utc::now(),
+                    event_type: "rate_limited".into(),
+                    route_id: Some(route.id),
+                    upstream_id: None,
+                    trace_id: Some(trace_id.clone()),
+                    detail: serde_json::json!({
+                        "client_ip": real_ip,
+                        "reason": e.to_string(),
+                    }),
+                }
+            ).await;
+            return Err(e);
+        }
 
         // 7. 选择上游节点
         let node = self.svc.balancer.select_upstream(&route).await?;
@@ -271,6 +274,30 @@ impl HttpProtocolHandler {
             .traffic
             .check_circuit_breaker(route.id, node.upstream_id)
             .await?;
+
+        // 8a. WebSocket 升级检测（路由匹配 + 上游选择完成后）
+        let upgrade_req = Request::builder()
+            .method(method.clone())
+            .uri(uri.clone())
+            .version(parts.version)
+            .body(body.clone())
+            .unwrap();
+        if crate::upgrade::is_upgrade_request(&upgrade_req) {
+            let mut resp = crate::upgrade::build_upgrade_response(&upgrade_req);
+            // 设置上游地址头，供 HyperServiceBridge 提取并执行 WS 转发
+            if let Ok(v) = node.address.parse() {
+                resp.headers_mut().insert("X-WS-Upstream-Addr", v);
+            }
+            if let Ok(v) = trace_id.parse() {
+                resp.headers_mut().insert("X-WS-Trace-Id", v);
+            }
+            tracing::info!(
+                trace_id = %trace_id,
+                upstream = %node.address,
+                "websocket upgrade request, returning 101 with upstream addr"
+            );
+            return Ok(resp);
+        }
 
         // 9. 构造上游请求（处理 Header）
         let path_and_query = uri
@@ -392,7 +419,7 @@ impl HttpProtocolHandler {
         let success = proxy_result.is_ok();
         self.svc
             .traffic
-            .record_result(route.id, node.upstream_id, success)
+            .record_result(route.id, node.upstream_id, node.id, success)
             .await;
 
         let proxy_result = proxy_result?;
@@ -433,10 +460,11 @@ impl HttpProtocolHandler {
             .execute_after_response(&mut plugin_ctx, &mut plugin_resp, &plugins)
             .await?;
 
-        // 14. 遥测：记录指标
+        // 14. 遥测：记录指标（含实际延迟）
         let is_2xx = proxy_result.status.as_u16() >= 200 && proxy_result.status.as_u16() < 300;
         let is_4xx = proxy_result.status.as_u16() >= 400 && proxy_result.status.as_u16() < 500;
         let is_5xx = proxy_result.status.as_u16() >= 500;
+        let latency_ms = start.elapsed().as_millis() as f64;
 
         self.svc.telemetry.record_metric(
             conrogate_contract::dto::MetricRow {
@@ -446,10 +474,10 @@ impl HttpProtocolHandler {
                 gate_id: String::new(),
                 qps: 1,
                 total_requests: 1,
-                avg_latency_ms: 0.0,
-                p50_ms: 0,
-                p90_ms: 0,
-                p99_ms: 0,
+                avg_latency_ms: latency_ms,
+                p50_ms: latency_ms as u32,
+                p90_ms: latency_ms as u32,
+                p99_ms: latency_ms as u32,
                 status_2xx: if is_2xx { 1 } else { 0 },
                 status_3xx: 0,
                 status_4xx: if is_4xx { 1 } else { 0 },
@@ -486,6 +514,9 @@ impl HttpProtocolHandler {
 
         // XFF 信任链
         let real_ip = self.resolve_real_ip(&client_ip, &headers);
+
+        // 记录请求开始时间（用于延迟统计）
+        let start = std::time::Instant::now();
 
         // 构造插件上下文（body = None：流式模式不将 body 载入内存）
         let mut plugin_ctx = PluginContext {
@@ -533,10 +564,27 @@ impl HttpProtocolHandler {
         }
 
         // 流量治理检查
-        let _ = self.svc
+        if let Err(e) = self.svc
             .traffic
             .check_rate_limit(route.id, &real_ip)
-            .await;
+            .await
+        {
+            // 上报限流事件到遥测
+            self.svc.telemetry.record_event(
+                conrogate_contract::dto::EventRow {
+                    ts: chrono::Utc::now(),
+                    event_type: "rate_limited".into(),
+                    route_id: Some(route.id),
+                    upstream_id: None,
+                    trace_id: Some(trace_id.clone()),
+                    detail: serde_json::json!({
+                        "client_ip": real_ip,
+                        "reason": e.to_string(),
+                    }),
+                }
+            ).await;
+            return Err(e);
+        }
 
         // 选择上游节点
         let node = self.svc.balancer.select_upstream(&route).await?;
@@ -546,6 +594,28 @@ impl HttpProtocolHandler {
             .traffic
             .check_circuit_breaker(route.id, node.upstream_id)
             .await?;
+
+        // WebSocket 升级检测（路由匹配 + 上游选择完成后）
+        let upgrade_check_req = Request::builder()
+            .method(method.clone())
+            .uri(uri.clone())
+            .body(Bytes::new())
+            .unwrap();
+        if crate::upgrade::is_upgrade_request(&upgrade_check_req) {
+            let mut resp = crate::upgrade::build_upgrade_response(&upgrade_check_req);
+            if let Ok(v) = node.address.parse() {
+                resp.headers_mut().insert("X-WS-Upstream-Addr", v);
+            }
+            if let Ok(v) = trace_id.parse() {
+                resp.headers_mut().insert("X-WS-Trace-Id", v);
+            }
+            tracing::info!(
+                trace_id = %trace_id,
+                upstream = %node.address,
+                "websocket upgrade request (stream), returning 101 with upstream addr"
+            );
+            return Ok(resp);
+        }
 
         // 构造上游请求（流式 body）
         let path_and_query = uri
@@ -605,7 +675,7 @@ impl HttpProtocolHandler {
         let success = proxy_result.is_ok();
         self.svc
             .traffic
-            .record_result(route.id, node.upstream_id, success)
+            .record_result(route.id, node.upstream_id, node.id, success)
             .await;
 
         let proxy_result = proxy_result?;
@@ -644,10 +714,11 @@ impl HttpProtocolHandler {
             .execute_after_response(&mut plugin_ctx, &mut plugin_resp, &plugins)
             .await?;
 
-        // 遥测
+        // 遥测（含实际延迟）
         let is_2xx = proxy_result.status.as_u16() >= 200 && proxy_result.status.as_u16() < 300;
         let is_4xx = proxy_result.status.as_u16() >= 400 && proxy_result.status.as_u16() < 500;
         let is_5xx = proxy_result.status.as_u16() >= 500;
+        let latency_ms = start.elapsed().as_millis() as f64;
 
         self.svc.telemetry.record_metric(
             conrogate_contract::dto::MetricRow {
@@ -657,10 +728,10 @@ impl HttpProtocolHandler {
                 gate_id: String::new(),
                 qps: 1,
                 total_requests: 1,
-                avg_latency_ms: 0.0,
-                p50_ms: 0,
-                p90_ms: 0,
-                p99_ms: 0,
+                avg_latency_ms: latency_ms,
+                p50_ms: latency_ms as u32,
+                p90_ms: latency_ms as u32,
+                p99_ms: latency_ms as u32,
                 status_2xx: if is_2xx { 1 } else { 0 },
                 status_3xx: 0,
                 status_4xx: if is_4xx { 1 } else { 0 },
@@ -679,6 +750,10 @@ impl HttpProtocolHandler {
 pub struct TcpTunnelProtocolHandler {
     svc: Arc<ServiceContext>,
     timeout: Duration,
+    /// 连接建立速率上限（0 = 不限制）
+    conn_qps: u32,
+    /// 每连接带宽上限 KB/s（0 = 不限制）
+    bandwidth_kbps: u32,
 }
 
 impl TcpTunnelProtocolHandler {
@@ -686,6 +761,18 @@ impl TcpTunnelProtocolHandler {
         Self {
             svc,
             timeout: Duration::from_secs(30),
+            conn_qps: 0,
+            bandwidth_kbps: 0,
+        }
+    }
+
+    /// 使用配置创建
+    pub fn with_config(svc: Arc<ServiceContext>, timeout: Duration, conn_qps: u32, bandwidth_kbps: u32) -> Self {
+        Self {
+            svc,
+            timeout,
+            conn_qps,
+            bandwidth_kbps,
         }
     }
 
@@ -744,6 +831,16 @@ impl TcpTunnelProtocolHandler {
             .check_rate_limit(route.id, &plugin_ctx.client_ip)
             .await?;
 
+        // 3a. 隧道连接建立速率限流
+        if self.conn_qps > 0 {
+            let conn_key = format!("conn:{listen_addr}");
+            // 使用 traffic 模块的限流接口
+            self.svc
+                .traffic
+                .check_rate_limit(u64::MAX, &conn_key)
+                .await?;
+        }
+
         // 4. 选择上游
         let node = self.svc.balancer.select_upstream(&route).await?;
 
@@ -760,13 +857,18 @@ impl TcpTunnelProtocolHandler {
             "tcp tunnel established"
         );
 
-        let result = crate::proxy::forward_tcp(&node, inbound, self.timeout).await;
+        let max_bytes_per_sec = if self.bandwidth_kbps > 0 {
+            Some((self.bandwidth_kbps as u64) * 1024)
+        } else {
+            None
+        };
+        let result = crate::proxy::forward_tcp(&node, inbound, self.timeout, max_bytes_per_sec).await;
 
         // 7. 记录结果
         let success = result.is_ok();
         self.svc
             .traffic
-            .record_result(route.id, node.upstream_id, success)
+            .record_result(route.id, node.upstream_id, node.id, success)
             .await;
 
         // 8. 插件 on_disconnect

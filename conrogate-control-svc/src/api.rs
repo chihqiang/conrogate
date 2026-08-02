@@ -26,15 +26,15 @@ pub fn build_router(state: AppState, auth_token: &str) -> Router {
         .route("/routes/:id", get(handler::get_route).put(handler::update_route).patch(handler::patch_route).delete(handler::delete_route))
         // ── 上游管理 ──
         .route("/upstreams", post(handler::create_upstream).get(handler::list_upstreams))
-        .route("/upstreams/:id", get(handler::get_upstream).put(handler::update_upstream).delete(handler::delete_upstream))
+        .route("/upstreams/:id", get(handler::get_upstream).put(handler::update_upstream).patch(handler::patch_upstream).delete(handler::delete_upstream))
         // ── 插件绑定 ──
         .route("/routes/:id/plugins", post(handler::bind_plugin).get(handler::list_plugin_bindings))
         .route("/routes/:id/plugins/:plugin_name", put(handler::update_plugin_binding).delete(handler::unbind_plugin))
         // ── 配置版本 ──
-        .route("/config/publish", post(handler::publish_config))
-        .route("/config/rollback", post(handler::rollback_config))
-        .route("/config/versions", get(handler::list_config_versions))
-        .route("/config/diff", get(handler::diff_config))
+        .route("/configs/publish", post(handler::publish_config))
+        .route("/configs/versions", get(handler::list_config_versions))
+        .route("/configs/versions/:version/rollback", post(handler::rollback_config))
+        .route("/configs/diff", get(handler::diff_config))
         // ── 指标 ──
         .route("/metrics", get(handler::query_metrics))
         .route("/metrics/overview", get(handler::overview_metrics))
@@ -45,15 +45,20 @@ pub fn build_router(state: AppState, auth_token: &str) -> Router {
         .route("/insights/status-codes", get(handler::insights_status_codes))
         .route("/insights/top-routes", get(handler::insights_top_routes))
         // ── 事件 ──
-        .route("/events", get(handler::query_events))
+        .route("/insights/events", get(handler::query_events))
         // ── 审计 ──
         .route("/audit-logs", get(handler::query_audit_logs))
         // ── 节点 ──
         .route("/nodes", get(handler::list_nodes))
+        // ── 插件管理（Admin 专属写操作）──
+        .route("/plugins", get(handler::list_plugins))
+        .route("/plugins/:name/activate", post(handler::activate_plugin))
+        .route("/plugins/:name/disable", post(handler::disable_plugin))
+        .route("/plugins/:name", axum::routing::delete(handler::delete_plugin))
         // ── 数据上报（gate → control）──
-        .route("/report/heartbeat", post(handler::receive_heartbeat))
-        .route("/report/metrics", post(handler::receive_metrics))
-        .route("/report/events", post(handler::receive_events))
+        .route("/reports/heartbeat", post(handler::receive_heartbeat))
+        .route("/reports/metrics", post(handler::receive_metrics))
+        .route("/reports/events", post(handler::receive_events))
         .layer(middleware::from_fn_with_state(
             auth_state,
             crate::auth::auth_middleware,

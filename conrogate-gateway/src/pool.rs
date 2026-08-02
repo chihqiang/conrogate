@@ -5,20 +5,36 @@ use conrogate_contract::dto::{RouteSnapshot, UpstreamDto, UpstreamNodeDto};
 use conrogate_contract::gateway::UpstreamSelector;
 use conrogate_contract::ConrogateError;
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
+
+use crate::health::PassiveHealthChecker;
 
 pub struct UpstreamSelectorImpl {
     registry: BalancerRegistry,
     // upstream_id → (algorithm, nodes)
-    upstreams: RwLock<HashMap<u64, (BalancerAlgorithm, Vec<UpstreamNodeDto>)>>,
+    upstreams: Arc<RwLock<HashMap<u64, (BalancerAlgorithm, Vec<UpstreamNodeDto>)>>>,
+    // 被动健康检查器（可选）
+    health_checker: Option<Arc<PassiveHealthChecker>>,
 }
 
 impl UpstreamSelectorImpl {
     pub fn new(registry: BalancerRegistry) -> Self {
         Self {
             registry,
-            upstreams: RwLock::new(HashMap::new()),
+            upstreams: Arc::new(RwLock::new(HashMap::new())),
+            health_checker: None,
         }
+    }
+
+    /// 设置被动健康检查器
+    pub fn with_health_checker(mut self, hc: Arc<PassiveHealthChecker>) -> Self {
+        self.health_checker = Some(hc);
+        self
+    }
+
+    /// 获取上游节点映射的共享引用（用于主动健康检查等）
+    pub fn shared_upstreams(&self) -> Arc<RwLock<HashMap<u64, (BalancerAlgorithm, Vec<UpstreamNodeDto>)>>> {
+        self.upstreams.clone()
     }
 
     /// 加载上游配置
@@ -49,6 +65,19 @@ impl UpstreamSelector for UpstreamSelectorImpl {
 
         let (algorithm, nodes) = self.get_nodes(upstream_id)?;
 
+        // 过滤不健康节点（被动健康检查）
+        let healthy_nodes = if let Some(ref hc) = self.health_checker {
+            let filtered = hc.filter_healthy(&nodes).await;
+            if filtered.is_empty() {
+                // 所有节点都不健康，仍使用全部节点（避尼全部摘除）
+                nodes
+            } else {
+                filtered
+            }
+        } else {
+            nodes
+        };
+
         let balancer = self
             .registry
             .get(algorithm)
@@ -57,6 +86,6 @@ impl UpstreamSelector for UpstreamSelectorImpl {
         // 一致性哈希需要 key（如 client IP 或 session ID）
         let key = route.host_header.as_deref();
 
-        balancer.select(&nodes, key).await
+        balancer.select(&healthy_nodes, key).await
     }
 }

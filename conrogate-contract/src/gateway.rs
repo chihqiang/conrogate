@@ -48,6 +48,7 @@ pub trait TrafficControl: Send + Sync {
         &self,
         route_id: u64,
         upstream_id: u64,
+        node_id: u64,
         success: bool,
     );
 }

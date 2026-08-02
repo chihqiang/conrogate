@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use conrogate_contract::storage::EventRepo;
 
 /// 启动全部组件，返回停机信号发送端
 pub async fn run(
@@ -84,28 +85,41 @@ pub async fn run(
     let balancer_registry = conrogate_balancer::registry::create_default_registry();
 
     // ── 7. PassiveHealthChecker ──
-    let _health_checker = Arc::new(conrogate_gateway::health::PassiveHealthChecker::default());
+    let health_checker = Arc::new(conrogate_gateway::health::PassiveHealthChecker::default());
 
     // ── 8. StaticDiscovery ──
     let discovery = Arc::new(conrogate_gateway::discovery::StaticDiscovery::new());
     discovery.load(upstreams.clone());
 
-    // ── 9. UpstreamSelector ──
-    let upstream_selector = Arc::new(conrogate_gateway::pool::UpstreamSelectorImpl::new(balancer_registry));
+    // ── 9. UpstreamSelector（集成被动健康检查）──
+    let upstream_selector = Arc::new(
+        conrogate_gateway::pool::UpstreamSelectorImpl::new(balancer_registry)
+            .with_health_checker(health_checker.clone()),
+    );
     upstream_selector.load_upstreams(upstreams.clone());
 
+    // ── 9a. ActiveHealthChecker（主动健康探测）──
+    let active_health_checker = Arc::new(conrogate_gateway::health_check::ActiveHealthChecker::default());
+    active_health_checker.clone().spawn_periodic_check(upstream_selector.shared_upstreams());
+
     // ── 10. 限流器 / 熔断器 ──
-    let limiter = Arc::new(conrogate_traffic::limiter::TokenBucketLimiter::new());
+    let limiter = if let Some(ref cluster) = config.gate.rate_limit.cluster_store {
+        tracing::info!(redis_url = %cluster.redis_url, "rate limiter: cluster mode (Redis)");
+        Arc::new(conrogate_traffic::limiter::TokenBucketLimiter::new().with_redis(&cluster.redis_url))
+    } else {
+        Arc::new(conrogate_traffic::limiter::TokenBucketLimiter::new())
+    };
     let breaker_factory = Arc::new(conrogate_traffic::breaker::BreakerFactoryImpl::default());
 
-    // ── 11. TrafficControl ──
-    let traffic = Arc::new(conrogate_gateway::filter::TrafficControlAdapter {
+    // ── 11. TrafficControl（使用配置中的 QPS 阈值 + 被动健康检查）──
+    let traffic = Arc::new(conrogate_gateway::filter::TrafficControlAdapter::with_rate_limit_config(
         limiter,
         breaker_factory,
-    });
+        &config.gate.rate_limit,
+    ).with_health_checker(health_checker.clone()));
 
     // ── 12. PluginRegistry + 注册静态插件 ──
-    let plugin_registry = conrogate_plugin::registry::PluginRegistryImpl::new();
+    let plugin_registry = Arc::new(conrogate_plugin::registry::PluginRegistryImpl::new());
     let log_plugin: Arc<dyn conrogate_contract::plugin::Plugin> = Arc::new(conrogate_plugin_log::LogPlugin::new());
     plugin_registry.register(log_plugin.clone()).await;
 
@@ -119,31 +133,39 @@ pub async fn run(
 
     // ── 15. TelemetryReport ──
     let (metric_tx, metric_rx) = mpsc::channel(100_000);
-    let (event_tx, _event_rx) = mpsc::channel(100_000);
+    let (event_tx, event_rx) = mpsc::channel(100_000);
     let telemetry = Arc::new(conrogate_gateway::telemetry::TelemetryReportImpl::new(
         metric_tx, event_tx,
     ));
 
     // ── 16. ServiceContext ──
-    let _svc = Arc::new(conrogate_contract::gateway::ServiceContext {
+    let svc = Arc::new(conrogate_contract::gateway::ServiceContext {
         routes: route_matcher.clone(),
         balancer: upstream_selector.clone(),
         traffic,
         telemetry,
-        plugins: plugin_executor,
+        plugins: plugin_executor.clone(),
     });
 
     // ── 17-18. 启动数据面（带优雅停机）──
     let gate_config = config.gate.clone();
     let mut gate_shutdown_rx = shutdown_tx.subscribe();
+    let gate_route_matcher = route_matcher.clone();
+    let gate_upstream_selector = upstream_selector.clone();
+    let gate_plugin_registry = plugin_registry.clone();
+    let gate_plugin_executor = plugin_executor.clone();
     let gate_handle = tokio::spawn(async move {
-        let server = conrogate_gateway::server::GatewayServer::from_config(
+        let server = conrogate_gateway::server::GatewayServer::from_components(
             conrogate_contract::config::Config {
                 gate: gate_config.clone(),
                 ..conrogate_contract::config::Config::default()
             },
-        )
-        .await;
+            svc,
+            gate_plugin_registry,
+            gate_route_matcher,
+            gate_upstream_selector,
+            gate_plugin_executor,
+        );
         if let Err(e) = server.run_with_shutdown(async move {
             let _ = gate_shutdown_rx.recv().await;
         }).await {
@@ -181,6 +203,36 @@ pub async fn run(
             10,
         ).with_metric_repo(metric_repo_clone);
         aggregator.run(std::time::Duration::from_secs(10)).await;
+    });
+
+    // 事件消费者：批量读取事件通道并落库
+    let event_repo_clone = event_repo.clone();
+    task_manager.spawn("event-consumer", async move {
+        let mut rx = event_rx;
+        let mut batch = Vec::new();
+        let mut flush_timer = tokio::time::interval(std::time::Duration::from_secs(5));
+        flush_timer.tick().await; // 跳过第一次立即触发
+        loop {
+            tokio::select! {
+                Some(event) = rx.recv() => {
+                    batch.push(event);
+                    if batch.len() >= 100 {
+                        if let Err(e) = event_repo_clone.insert_batch(&batch).await {
+                            tracing::warn!(error = %e, "event batch insert failed");
+                        }
+                        batch.clear();
+                    }
+                }
+                _ = flush_timer.tick() => {
+                    if !batch.is_empty() {
+                        if let Err(e) = event_repo_clone.insert_batch(&batch).await {
+                            tracing::warn!(error = %e, "event batch insert failed");
+                        }
+                        batch.clear();
+                    }
+                }
+            }
+        }
     });
     tracing::info!("background tasks started");
 

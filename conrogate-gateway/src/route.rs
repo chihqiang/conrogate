@@ -10,6 +10,14 @@ use conrogate_contract::ConrogateError;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+// ── 模块级正则缓存（进程级单例）──
+// 配置加载时预编译，运行时直接从缓存读取
+static REGEX_CACHE: std::sync::OnceLock<RwLock<HashMap<String, regex::Regex>>> = std::sync::OnceLock::new();
+
+fn regex_cache() -> &'static RwLock<HashMap<String, regex::Regex>> {
+    REGEX_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
 /// 路由匹配引擎
 pub struct RouteMatcher {
     // 按协议分组存储路由快照
@@ -58,6 +66,15 @@ impl RouteMatcher {
                 continue;
             }
 
+            // 正则预编译验证：编译失败的路由标记为 disabled 并告警
+            if !validate_regex_patterns(&dto.match_conditions) {
+                tracing::warn!(
+                    route_id = dto.id,
+                    "route disabled at load time: regex pattern compilation failed"
+                );
+                continue;
+            }
+
             let route_bindings = binding_map.remove(&dto.id).unwrap_or_default();
             // 静态判定：该路由是否有 requires_body 插件
             let requires_body = route_bindings
@@ -84,9 +101,13 @@ impl RouteMatcher {
                 .push(entry);
         }
 
-        // 每个协议组按 priority 降序排列
+        // 每个协议组按 priority 降序排列，同 priority 时取 id 较小者
         for entries in routes.values_mut() {
-            entries.sort_by(|a, b| b.priority.cmp(&a.priority));
+            entries.sort_by(|a, b| {
+                b.priority
+                    .cmp(&a.priority)
+                    .then(a.snapshot.id.cmp(&b.snapshot.id))
+            });
         }
     }
 
@@ -221,12 +242,65 @@ impl RouteLookup for RouteMatcher {
     }
 }
 
-/// 安全正则匹配：使用 regex crate 编译，带 ReDoS 防护
+/// 预编译验证：检查路由条件中的所有正则模式是否可编译
+/// 在配置加载时调用，编译失败的路由将被跳过（不加入路由表）
+fn validate_regex_patterns(conditions: &RouteMatchConditions) -> bool {
+    // 路径正则
+    if let PathMatch::Regex(ref pattern) = conditions.path {
+        if !try_compile_regex(pattern) {
+            return false;
+        }
+    }
+    // Header 正则
+    for hm in &conditions.headers {
+        if hm.op == MatchOp::Regex && !try_compile_regex(&hm.value) {
+            return false;
+        }
+    }
+    // Query 正则
+    for qm in &conditions.query_params {
+        if qm.op == MatchOp::Regex && !try_compile_regex(&qm.value) {
+            return false;
+        }
+    }
+    true
+}
+
+/// 尝试预编译正则（配置加载时调用）
+/// 成功：缓存编译结果，返回 true
+/// 失败：记录告警，返回 false
+fn try_compile_regex(pattern: &str) -> bool {
+    if has_redos_risk(pattern) {
+        tracing::warn!(pattern = %pattern, "regex pattern rejected: ReDoS risk");
+        return false;
+    }
+    // 检查缓存中是否已有
+    {
+        let cache_read = regex_cache().read().unwrap();
+        if cache_read.get(pattern).is_some() {
+            return true;
+        }
+    }
+    match regex::Regex::new(pattern) {
+        Ok(re) => {
+            let mut cache_write = regex_cache().write().unwrap();
+            cache_write.insert(pattern.to_string(), re);
+            true
+        }
+        Err(e) => {
+            tracing::warn!(pattern = %pattern, error = %e, "regex compile failed");
+            false
+        }
+    }
+}
+
+/// 安全正则匹配：使用 regex crate 编译，带 ReDoS 防护 + 全局缓存
 ///
 /// 安全约束：
 /// - 禁止反向引用（\1）和贪婪无限量词（.*+）
 /// - 编译失败返回 false（不匹配）
-/// - 执行超时 100ms
+/// - 正则在配置加载时预编译并缓存，运行时直接从缓存读取
+/// - 执行超时：依赖 regex crate 的线性时间保证（O(n)），无需显式超时
 fn safe_regex_match(pattern: &str, text: &str) -> bool {
     // ReDoS 防护：检查危险模式
     if has_redos_risk(pattern) {
@@ -234,6 +308,17 @@ fn safe_regex_match(pattern: &str, text: &str) -> bool {
         return false;
     }
 
+    let cache = regex_cache();
+
+    // 尝试从缓存读取（配置加载时已预编译）
+    {
+        let cache_read = cache.read().unwrap();
+        if let Some(re) = cache_read.get(pattern) {
+            return re.is_match(text);
+        }
+    }
+
+    // 缓存未命中（运行时动态正则，如 header/query 中的 Regex 匹配值）
     // 编译正则（编译失败视为不匹配）
     let re = match regex::Regex::new(pattern) {
         Ok(re) => re,
@@ -244,7 +329,13 @@ fn safe_regex_match(pattern: &str, text: &str) -> bool {
     };
 
     // 执行匹配（regex crate 本身有线性时间保证）
-    re.is_match(text)
+    let result = re.is_match(text);
+
+    // 写入缓存
+    let mut cache_write = cache.write().unwrap();
+    cache_write.insert(pattern.to_string(), re);
+
+    result
 }
 
 /// 检查正则是否有 ReDoS 风险

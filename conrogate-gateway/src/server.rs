@@ -33,6 +33,7 @@ pub struct GatewayServer {
     http_handler: Arc<HttpProtocolHandler>,
     tcp_handler: Arc<TcpTunnelProtocolHandler>,
     plugin_registry: Arc<PluginRegistryImpl>,
+    plugin_executor: Arc<PluginPipelineImpl>,
     max_connections: usize,
     max_body_bytes: usize,
     idle_timeout: std::time::Duration,
@@ -51,18 +52,47 @@ impl GatewayServer {
         let registry = create_default_registry();
         let upstream_selector = Arc::new(UpstreamSelectorImpl::new(registry));
 
-        // 流量治理
-        let limiter = Arc::new(TokenBucketLimiter::new());
+        // 流量治理（使用配置中的 QPS 阈值 + Redis 集群限流）
+        let limiter = if let Some(ref cluster) = config.gate.rate_limit.cluster_store {
+            tracing::info!(redis_url = %cluster.redis_url, "rate limiter: cluster mode (Redis)");
+            Arc::new(TokenBucketLimiter::new().with_redis(&cluster.redis_url))
+        } else {
+            Arc::new(TokenBucketLimiter::new())
+        };
         let breaker_factory = Arc::new(BreakerFactoryImpl::new(BreakerConfig::default()));
-        let traffic = Arc::new(crate::filter::TrafficControlAdapter {
+        let traffic = Arc::new(crate::filter::TrafficControlAdapter::with_rate_limit_config(
             limiter,
             breaker_factory,
-        });
+            &config.gate.rate_limit,
+        ));
 
         // 遥测
-        let (metric_tx, _metric_rx) = mpsc::channel(100_000);
-        let (event_tx, _event_rx) = mpsc::channel(100_000);
+        let (metric_tx, metric_rx) = mpsc::channel(100_000);
+        let (event_tx, event_rx) = mpsc::channel(100_000);
         let telemetry = Arc::new(TelemetryReportImpl::new(metric_tx, event_tx));
+
+        // 启动事件/指标消费者（防止通道满后静默丢弃）
+        tokio::spawn(async move {
+            let mut rx = metric_rx;
+            while let Some(metric) = rx.recv().await {
+                tracing::debug!(
+                    route_id = ?metric.route_id,
+                    qps = metric.qps,
+                    latency_ms = metric.avg_latency_ms,
+                    "metric received (no DB backend, logging only)"
+                );
+            }
+        });
+        tokio::spawn(async move {
+            let mut rx = event_rx;
+            while let Some(event) = rx.recv().await {
+                tracing::debug!(
+                    event_type = %event.event_type,
+                    route_id = ?event.route_id,
+                    "event received (no DB backend, logging only)"
+                );
+            }
+        });
 
         // 插件执行器
         let plugin_executor = Arc::new(PluginPipelineImpl::new());
@@ -91,7 +121,7 @@ impl GatewayServer {
             balancer: upstream_selector.clone(),
             traffic,
             telemetry,
-            plugins: plugin_executor,
+            plugins: plugin_executor.clone(),
         });
 
         let timeout = std::time::Duration::from_millis(
@@ -103,7 +133,12 @@ impl GatewayServer {
             plugin_registry.clone(),
             timeout,
         ));
-        let tcp_handler = Arc::new(TcpTunnelProtocolHandler::new(svc));
+        let tcp_handler = Arc::new(TcpTunnelProtocolHandler::with_config(
+            svc,
+            timeout,
+            config.gate.rate_limit.conn_qps,
+            config.gate.rate_limit.bandwidth_kbps,
+        ));
 
         Self {
             config: config_reloader,
@@ -112,6 +147,7 @@ impl GatewayServer {
             http_handler,
             tcp_handler,
             plugin_registry,
+            plugin_executor,
             max_connections: config.gate.connection.max_connections,
             max_body_bytes: config.gate.connection.max_body_bytes,
             idle_timeout: config.gate.connection.idle_timeout,
@@ -120,24 +156,35 @@ impl GatewayServer {
     }
 
     /// 从已有组件构建网关（bootstrap 装配路径）
+    ///
+    /// 传入已装配的 `ServiceContext`、`PluginRegistry`、`RouteMatcher` 和 `UpstreamSelectorImpl`，
+    /// 确保 server 内部使用的路由表和上游选择器与 bootstrap 装配的是同一实例。
     pub fn from_components(
         config: Config,
         svc: Arc<ServiceContext>,
         plugin_registry: Arc<PluginRegistryImpl>,
+        route_matcher: Arc<RouteMatcher>,
+        upstream_selector: Arc<UpstreamSelectorImpl>,
+        plugin_executor: Arc<PluginPipelineImpl>,
     ) -> Self {
         let config_reloader = ConfigReloader::new(config.clone());
-        let route_matcher = Arc::new(RouteMatcher::new());
-        let upstream_selector = Arc::new(UpstreamSelectorImpl::new(create_default_registry()));
         let timeout = std::time::Duration::from_millis(
             config.gate.timeouts.total.as_millis() as u64,
         );
+        let conn_qps = config.gate.rate_limit.conn_qps;
+        let bandwidth_kbps = config.gate.rate_limit.bandwidth_kbps;
 
         let http_handler = Arc::new(HttpProtocolHandler::with_registry(
             svc.clone(),
             plugin_registry.clone(),
             timeout,
         ));
-        let tcp_handler = Arc::new(TcpTunnelProtocolHandler::new(svc));
+        let tcp_handler = Arc::new(TcpTunnelProtocolHandler::with_config(
+            svc,
+            timeout,
+            conn_qps,
+            bandwidth_kbps,
+        ));
 
         Self {
             config: config_reloader,
@@ -146,6 +193,7 @@ impl GatewayServer {
             http_handler,
             tcp_handler,
             plugin_registry,
+            plugin_executor,
             max_connections: config.gate.connection.max_connections,
             max_body_bytes: config.gate.connection.max_body_bytes,
             idle_timeout: config.gate.connection.idle_timeout,
@@ -196,6 +244,18 @@ impl GatewayServer {
         }
 
         let body_required = server.plugin_registry.body_required_plugin_names();
+        // 初始加载：预解析路由插件链并缓存到 PluginPipelineImpl
+        let mut init_chains: std::collections::HashMap<u64, Vec<Arc<dyn conrogate_contract::plugin::Plugin>>> =
+            std::collections::HashMap::new();
+        for binding in &all_bindings {
+            if !binding.enabled {
+                continue;
+            }
+            if let Some(plugin) = server.plugin_registry.get(&binding.plugin_name) {
+                init_chains.entry(binding.route_id).or_default().push(plugin);
+            }
+        }
+        server.plugin_executor.set_route_chains(init_chains);
         server.route_matcher.load_with_bindings(routes, all_bindings, &body_required);
         server.upstream_selector.load_upstreams(upstreams);
 
@@ -203,6 +263,7 @@ impl GatewayServer {
         let matcher = server.route_matcher.clone();
         let selector = server.upstream_selector.clone();
         let registry = server.plugin_registry.clone();
+        let plugin_executor = server.plugin_executor.clone();
         let db = read_db.clone();
         let config_cache = server.config_cache.clone();
         let poll_dur = std::time::Duration::from_secs(poll_interval);
@@ -258,6 +319,19 @@ impl GatewayServer {
                 }
                 if !r.is_empty() || !u.is_empty() {
                     let body_req = registry.body_required_plugin_names();
+                    // 热加载：更新路由插件链（set_route_chains）
+                    // 按 route_id 分组绑定，解析插件实例，原子替换插件链缓存
+                    let mut chains: std::collections::HashMap<u64, Vec<Arc<dyn conrogate_contract::plugin::Plugin>>> =
+                        std::collections::HashMap::new();
+                    for binding in &bindings {
+                        if !binding.enabled {
+                            continue;
+                        }
+                        if let Some(plugin) = registry.get(&binding.plugin_name) {
+                            chains.entry(binding.route_id).or_default().push(plugin);
+                        }
+                    }
+                    plugin_executor.set_route_chains(chains);
                     matcher.load_with_bindings(r, bindings, &body_req);
                     selector.load_upstreams(u);
                     tracing::debug!("config hot-reloaded from DB");
@@ -515,7 +589,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
     type Error = ConrogateError;
     type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn call(&self, req: Request<Incoming>) -> Self::Future {
+    fn call(&self, mut req: Request<Incoming>) -> Self::Future {
         let handler = self.handler.clone();
         let route_matcher = self.route_matcher.clone();
         let client_ip = self.client_ip.clone();
@@ -546,6 +620,28 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                     .unwrap());
             }
 
+            // WebSocket 升级检测：在拆分请求前提取 OnUpgrade future
+            let is_ws_upgrade = req.method() == http::Method::GET
+                && req.headers().get("upgrade")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.eq_ignore_ascii_case("websocket"))
+                    .unwrap_or(false);
+            let on_upgrade = if is_ws_upgrade {
+                Some(hyper::upgrade::on(&mut req))
+            } else {
+                None
+            };
+            // 保存 WS 升级请求信息（用于构造转发到上游的握手请求）
+            let ws_req_info = if is_ws_upgrade {
+                Some((
+                    req.method().clone(),
+                    req.uri().clone(),
+                    req.headers().clone(),
+                ))
+            } else {
+                None
+            };
+
             // 拆分请求：先匹配路由，判定是否需要缓冲 body
             let (parts, body) = req.into_parts();
             let match_info = RouteMatchInfo::from_http_request(
@@ -560,6 +656,19 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
             // 流式模式：路由命中且无 requires_body 插件 → 不 collect body，直接透传
             if let Some(ref route) = matched_route {
                 if !route.requires_body {
+                    // 流式模式请求体大小限制（通过 Content-Length 头检查）
+                    if let Some(cl) = parts.headers.get("content-length")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|s| s.parse::<usize>().ok())
+                    {
+                        if cl > max_body_bytes {
+                            return Ok(error_response(
+                                http::StatusCode::PAYLOAD_TOO_LARGE,
+                                10007,
+                                "request body too large",
+                            ));
+                        }
+                    }
                     let resp = match handler.handle_stream(parts, body, route.clone(), client_ip).await {
                         Ok(resp) => resp,
                         Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
@@ -585,6 +694,45 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                             ));
                         }
                     };
+                    // WebSocket 升级响应检测（流式路径）
+                    if resp.status() == http::StatusCode::SWITCHING_PROTOCOLS {
+                        if let Some(upstream_addr) = resp.headers().get("X-WS-Upstream-Addr").and_then(|v| v.to_str().ok()).map(|s| s.to_string()) {
+                            // 启动 WS 双向转发任务
+                            if let (Some(on_upgrade), Some((method, uri, headers))) = (on_upgrade, ws_req_info) {
+                                let ws_timeout = idle_timeout;
+                                tokio::spawn(async move {
+                                    match on_upgrade.await {
+                                        Ok(upgraded) => {
+                                            let io = TokioIo::new(upgraded);
+                                            let mut upgrade_req = Request::builder()
+                                                .method(method)
+                                                .uri(uri)
+                                                .body(Bytes::new())
+                                                .unwrap();
+                                            *upgrade_req.headers_mut() = headers;
+                                            if let Err(e) = crate::upgrade::forward_websocket(
+                                                &upstream_addr,
+                                                io,
+                                                upgrade_req,
+                                                ws_timeout,
+                                            ).await {
+                                                tracing::warn!(error = %e, "websocket forwarding error");
+                                            }
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(error = %e, "websocket upgrade failed");
+                                        }
+                                    }
+                                });
+                            }
+                            // 清除扩展头（不透传给客户端）
+                            let mut clean_resp = resp;
+                            clean_resp.headers_mut().remove("X-WS-Upstream-Addr");
+                            clean_resp.headers_mut().remove("X-WS-Trace-Id");
+                            let (parts, _) = clean_resp.into_parts();
+                            return Ok(Response::from_parts(parts, Full::new(Bytes::new())));
+                        }
+                    }
                     let (parts, resp_body) = resp.into_parts();
                     return Ok(Response::from_parts(parts, Full::new(resp_body)));
                 }
@@ -636,16 +784,38 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
             // WebSocket 升级检测：101 响应 + X-WS-Upstream-Addr 头
             if resp.status() == http::StatusCode::SWITCHING_PROTOCOLS {
                 if let Some(upstream_addr) = resp.headers().get("X-WS-Upstream-Addr").and_then(|v| v.to_str().ok()).map(|s| s.to_string()) {
-                    let trace_id = resp.headers().get("X-WS-Trace-Id").and_then(|v| v.to_str().ok()).map(|s| s.to_string()).unwrap_or_default();
+                    // 启动 WS 双向转发任务
+                    if let (Some(on_upgrade), Some((method, uri, headers))) = (on_upgrade, ws_req_info) {
+                        let ws_timeout = idle_timeout;
+                        tokio::spawn(async move {
+                            match on_upgrade.await {
+                                Ok(upgraded) => {
+                                    let io = TokioIo::new(upgraded);
+                                    let mut upgrade_req = Request::builder()
+                                        .method(method)
+                                        .uri(uri)
+                                        .body(Bytes::new())
+                                        .unwrap();
+                                    *upgrade_req.headers_mut() = headers;
+                                    if let Err(e) = crate::upgrade::forward_websocket(
+                                        &upstream_addr,
+                                        io,
+                                        upgrade_req,
+                                        ws_timeout,
+                                    ).await {
+                                        tracing::warn!(error = %e, "websocket forwarding error");
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(error = %e, "websocket upgrade failed");
+                                }
+                            }
+                        });
+                    }
                     // 清除扩展头（不透传给客户端）
                     let mut clean_resp = resp;
                     clean_resp.headers_mut().remove("X-WS-Upstream-Addr");
                     clean_resp.headers_mut().remove("X-WS-Trace-Id");
-                    // 将上游地址和 trace_id 存入响应扩展，由 serve_connection 层提取
-                    clean_resp.extensions_mut().insert(WsUpgradeInfo {
-                        upstream_addr,
-                        trace_id,
-                    });
                     return Ok(Response::from_parts(clean_resp.into_parts().0, Full::new(Bytes::new())));
                 }
             }
