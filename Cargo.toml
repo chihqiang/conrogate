@@ -9,6 +9,8 @@ members = [
     "conrogate-balancer",
     "conrogate-traffic",
     "conrogate-plugin",
+    # 协议适配层
+    "conrogate-protocol",
     # 网关核心
     "conrogate-gateway",
     # 控制面
@@ -98,6 +100,7 @@ conrogate-storage = { path = "conrogate-storage" }
 conrogate-balancer = { path = "conrogate-balancer" }
 conrogate-traffic = { path = "conrogate-traffic" }
 conrogate-plugin = { path = "conrogate-plugin" }
+conrogate-protocol = { path = "conrogate-protocol" }
 conrogate-gateway = { path = "conrogate-gateway" }
 conrogate-control-svc = { path = "conrogate-control-svc" }
 conrogate-plugin-log = { path = "conrogate-plugin-log" }

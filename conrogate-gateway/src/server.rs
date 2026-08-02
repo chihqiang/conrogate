@@ -1,10 +1,12 @@
 //! 网关服务入口：启动 HTTP/TCP 监听 + 组装 ServiceContext。
 
 use crate::filter::ConfigReloader;
-use crate::protocol::{HttpProtocolHandler, TcpTunnelProtocolHandler};
 use crate::route::RouteMatcher;
 use crate::pool::UpstreamSelectorImpl;
 use crate::telemetry::TelemetryReportImpl;
+use conrogate_protocol::{
+    HttpProtocolHandler, ProtocolHandler, ProtocolHandlerRegistry, TcpTunnelProtocolHandler,
+};
 use bytes::Bytes;
 use conrogate_balancer::registry::create_default_registry;
 use conrogate_contract::config::Config;
@@ -30,8 +32,7 @@ pub struct GatewayServer {
     config: ConfigReloader,
     route_matcher: Arc<RouteMatcher>,
     upstream_selector: Arc<UpstreamSelectorImpl>,
-    http_handler: Arc<HttpProtocolHandler>,
-    tcp_handler: Arc<TcpTunnelProtocolHandler>,
+    protocols: Arc<ProtocolHandlerRegistry>,
     plugin_registry: Arc<PluginRegistryImpl>,
     plugin_executor: Arc<PluginPipelineImpl>,
     max_connections: usize,
@@ -128,24 +129,24 @@ impl GatewayServer {
             config.gate.timeouts.total.as_millis() as u64,
         );
 
-        let http_handler = Arc::new(HttpProtocolHandler::with_registry(
+        let protocols = ProtocolHandlerRegistry::new();
+        protocols.register(Arc::new(HttpProtocolHandler::with_registry(
             svc.clone(),
             plugin_registry.clone(),
             timeout,
-        ));
-        let tcp_handler = Arc::new(TcpTunnelProtocolHandler::with_config(
+        )));
+        protocols.register(Arc::new(TcpTunnelProtocolHandler::with_config(
             svc,
             timeout,
             config.gate.rate_limit.conn_qps,
             config.gate.rate_limit.bandwidth_kbps,
-        ));
+        )));
 
         Self {
             config: config_reloader,
             route_matcher,
             upstream_selector,
-            http_handler,
-            tcp_handler,
+            protocols: Arc::new(protocols),
             plugin_registry,
             plugin_executor,
             max_connections: config.gate.connection.max_connections,
@@ -174,24 +175,24 @@ impl GatewayServer {
         let conn_qps = config.gate.rate_limit.conn_qps;
         let bandwidth_kbps = config.gate.rate_limit.bandwidth_kbps;
 
-        let http_handler = Arc::new(HttpProtocolHandler::with_registry(
+        let protocols = ProtocolHandlerRegistry::new();
+        protocols.register(Arc::new(HttpProtocolHandler::with_registry(
             svc.clone(),
             plugin_registry.clone(),
             timeout,
-        ));
-        let tcp_handler = Arc::new(TcpTunnelProtocolHandler::with_config(
+        )));
+        protocols.register(Arc::new(TcpTunnelProtocolHandler::with_config(
             svc,
             timeout,
             conn_qps,
             bandwidth_kbps,
-        ));
+        )));
 
         Self {
             config: config_reloader,
             route_matcher,
             upstream_selector,
-            http_handler,
-            tcp_handler,
+            protocols: Arc::new(protocols),
             plugin_registry,
             plugin_executor,
             max_connections: config.gate.connection.max_connections,
@@ -403,8 +404,8 @@ impl GatewayServer {
                         .map_err(|e| ConrogateError::Init(format!("tcp accept: {e}")))?;
 
                     let client_ip = remote_addr.ip().to_string();
-                    let http_handler = self.http_handler.clone();
-                    let tcp_handler = self.tcp_handler.clone();
+                    let http_handler = self.protocols.get(ProtocolId::Http);
+                    let tcp_handler = self.protocols.get(ProtocolId::TcpTunnel);
                     let route_matcher = self.route_matcher.clone();
                     let semaphore = conn_semaphore.clone();
                     let tls_acc = tls_acceptor.clone();
@@ -423,9 +424,15 @@ impl GatewayServer {
 
                         // TLS passthrough 模式：原始 TCP 隧道转发，不终止 TLS
                         if tls_passthrough {
-                            let result = tcp_handler
-                                .handle(listen_addr, None, client_ip, stream)
-                                .await;
+                            let result = match tcp_handler {
+                                Some(handler) => {
+                                    handler.handle_tcp(listen_addr, None, client_ip, stream).await
+                                }
+                                None => {
+                                    tracing::warn!("TCP tunnel protocol handler not registered");
+                                    return;
+                                }
+                            };
                             if let Err(e) = &result {
                                 tracing::debug!(error = %e, "tcp tunnel connection ended");
                             }
@@ -433,6 +440,13 @@ impl GatewayServer {
                         }
 
                         // HTTP 模式（含 TLS 终止）
+                        let http_handler = match http_handler {
+                            Some(handler) => handler,
+                            None => {
+                                tracing::warn!("HTTP protocol handler not registered");
+                                return;
+                            }
+                        };
                         let svc = HyperServiceBridge {
                             handler: http_handler,
                             route_matcher,
@@ -547,7 +561,7 @@ impl GatewayServer {
 /// hyper Service 桥接器
 #[derive(Clone)]
 struct HyperServiceBridge {
-    handler: Arc<HttpProtocolHandler>,
+    handler: Arc<dyn ProtocolHandler>,
     route_matcher: Arc<RouteMatcher>,
     client_ip: String,
     max_body_bytes: usize,
@@ -669,7 +683,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                             ));
                         }
                     }
-                    let resp = match handler.handle_stream(parts, body, route.clone(), client_ip).await {
+                    let resp = match handler.handle_http_stream(parts, body, route.clone(), client_ip).await {
                         Ok(resp) => resp,
                         Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
                             return Ok(error_response(
@@ -710,7 +724,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                                 .body(Bytes::new())
                                                 .unwrap();
                                             *upgrade_req.headers_mut() = headers;
-                                            if let Err(e) = crate::upgrade::forward_websocket(
+                                            if let Err(e) = conrogate_protocol::upgrade::forward_websocket(
                                                 &upstream_addr,
                                                 io,
                                                 upgrade_req,
@@ -755,7 +769,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
             }
 
             let req = Request::from_parts(parts, body_bytes);
-            let resp = match handler.handle(req, client_ip).await {
+            let resp = match handler.handle_http(req, client_ip).await {
                 Ok(resp) => resp,
                 Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
                     return Ok(error_response(
@@ -797,7 +811,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                         .body(Bytes::new())
                                         .unwrap();
                                     *upgrade_req.headers_mut() = headers;
-                                    if let Err(e) = crate::upgrade::forward_websocket(
+                                    if let Err(e) = conrogate_protocol::upgrade::forward_websocket(
                                         &upstream_addr,
                                         io,
                                         upgrade_req,

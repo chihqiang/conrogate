@@ -1,4 +1,4 @@
-//! 代理转发：HTTP 请求转发 + 响应回传。
+//! 代理转发：HTTP 请求转发 + 响应回传 + TCP 双向转发。
 
 use bytes::Bytes;
 use conrogate_contract::dto::UpstreamNodeDto;
@@ -120,7 +120,7 @@ pub async fn forward_tcp(
     max_bytes_per_sec: Option<u64>,
 ) -> Result<(), ConrogateError> {
     // 使用 DNS 缓存解析地址
-    let addrs = crate::dns_cache::global_resolver().resolve(&node.address).await
+    let addrs = crate::dns::global_resolver().resolve(&node.address).await
         .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("DNS resolve: {e}")))?;
     let upstream = tokio::time::timeout(timeout, TcpStream::connect(&addrs[..]))
         .await

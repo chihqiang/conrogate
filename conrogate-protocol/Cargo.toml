@@ -1,0 +1,23 @@
+[package]
+name = "conrogate-protocol"
+description = "Conrogate 协议适配层：协议 Handler 抽象 + 注册表 + HTTP/WebSocket/TCP 隧道实现"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+conrogate-contract = { workspace = true }
+conrogate-plugin = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+bytes = { workspace = true }
+async-trait = { workspace = true }
+ipnet = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }

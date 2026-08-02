@@ -50,7 +50,8 @@ conrogate-code/
 ├── conrogate-balancer/        # 负载均衡：4 种算法 + Registry
 ├── conrogate-traffic/         # 流量治理：限流 + 熔断 + 重试 + 超时
 ├── conrogate-plugin/          # 插件框架：注册表 + 管线 + 加载器
-├── conrogate-gateway/         # 网关核心：路由/协议/代理/WS/遥测
+├── conrogate-protocol/        # 协议适配层：Handler 抽象 + 注册表 + HTTP/WS/TCP 实现
+├── conrogate-gateway/         # 网关核心：路由/代理/遥测/健康检查/配置热载
 ├── conrogate-control-svc/     # 控制面服务：REST API + 鉴权 + 审计
 ├── conrogate-plugin-log/      # 官方插件：访问日志
 ├── conrogate-plugin-cors/     # 官方插件：CORS 跨域

@@ -10,13 +10,13 @@ conrogate-contract = { workspace = true }
 conrogate-balancer = { workspace = true }
 conrogate-traffic = { workspace = true }
 conrogate-plugin = { workspace = true }
+conrogate-protocol = { workspace = true }
 conrogate-plugin-log = { workspace = true }
 conrogate-plugin-cors = { workspace = true }
 conrogate-plugin-auth = { workspace = true }
 conrogate-storage = { workspace = true }
 tokio-rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
-ipnet = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }

@@ -5,6 +5,7 @@ use http::{Method, Request, Response, StatusCode};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
+
 /// 检查是否为 WebSocket 升级请求
 pub fn is_upgrade_request(req: &Request<Bytes>) -> bool {
     if req.method() != Method::GET {
@@ -62,7 +63,7 @@ where
     C: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin,
 {
     // 1. 连接上游（带超时 + DNS 缓存）
-    let addrs = crate::dns_cache::global_resolver().resolve(upstream_addr).await?;
+    let addrs = crate::dns::global_resolver().resolve(upstream_addr).await?;
     let upstream = tokio::time::timeout(timeout, TcpStream::connect(&addrs[..]))
         .await
         .map_err(|_| "upstream connect timeout")??;
