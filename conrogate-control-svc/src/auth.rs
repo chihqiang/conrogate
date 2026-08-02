@@ -4,7 +4,8 @@
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
+use axum::Json;
 
 /// 认证配置
 #[derive(Clone)]
@@ -46,15 +47,37 @@ fn parse_token(token: &str) -> Option<(&str, &str, Role)> {
     Some((parts[0], parts[1], role))
 }
 
+/// 构建 401 统一错误体（docs/12 §10.5：code=10002）
+fn unauthorized_response() -> Response {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let trace_id = format!(
+        "{:032x}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(serde_json::json!({
+            "code": 10002,
+            "msg": "unauthorized",
+            "data": null,
+            "trace_id": trace_id,
+        })),
+    )
+        .into_response()
+}
+
 /// Bearer Token 认证中间件
 pub async fn auth_middleware(
     State(state): State<AuthState>,
     req: Request,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Response {
     // 如果未配置 token，跳过认证
     if state.token.is_empty() {
-        return Ok(next.run(req).await);
+        return next.run(req).await;
     }
 
     let auth_header = req
@@ -68,7 +91,7 @@ pub async fn auth_middleware(
             let token = &header[7..];
             // 校验 token 完全匹配
             if token != state.token {
-                return Err(StatusCode::UNAUTHORIZED);
+                return unauthorized_response();
             }
             // 解析角色并注入到请求扩展中
             let (role, operator) = if let Some((op, _secret, r)) = parse_token(token) {
@@ -81,8 +104,8 @@ pub async fn auth_middleware(
             parts.extensions.insert(role);
             parts.extensions.insert(operator);
             let req = Request::from_parts(parts, body);
-            Ok(next.run(req).await)
+            next.run(req).await
         }
-        _ => Err(StatusCode::UNAUTHORIZED),
+        _ => unauthorized_response(),
     }
 }

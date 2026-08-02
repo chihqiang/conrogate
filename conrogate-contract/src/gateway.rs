@@ -26,6 +26,9 @@ pub trait UpstreamSelector: Send + Sync {
         &self,
         route: &RouteSnapshot,
     ) -> Result<UpstreamNodeDto, ConrogateError>;
+
+    /// 释放节点（请求/连接结束时回调，供 LeastConnections 等有状态算法递减计数）
+    async fn release_node(&self, _route: &RouteSnapshot, _node: &UpstreamNodeDto) {}
 }
 
 // ── 流量治理 ──

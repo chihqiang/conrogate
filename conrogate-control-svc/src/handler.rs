@@ -33,13 +33,14 @@ fn require_role(role: &Role, required: Role) -> Result<(), ConrogateError> {
 
 pub async fn create_route(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Json(dto): Json<CreateRouteDto>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.create_route(dto, None).await {
+    match state.svc.create_route(dto, Some(&operator)).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -47,13 +48,14 @@ pub async fn create_route(
 
 pub async fn update_route(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Json(dto): Json<UpdateRouteDto>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.update_route(dto, None).await {
+    match state.svc.update_route(dto, Some(&operator)).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -62,6 +64,7 @@ pub async fn update_route(
 /// PATCH 局部更新路由：从路径取 id，body 中字段可选
 pub async fn patch_route(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Path(id): Path<u64>,
     Json(mut dto): Json<UpdateRouteDto>,
@@ -70,7 +73,7 @@ pub async fn patch_route(
         return response::err(e);
     }
     dto.id = id;
-    match state.svc.update_route(dto, None).await {
+    match state.svc.update_route(dto, Some(&operator)).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -78,13 +81,14 @@ pub async fn patch_route(
 
 pub async fn delete_route(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Path(id): Path<u64>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.delete_route(id, None).await {
+    match state.svc.delete_route(id, Some(&operator)).await {
         Ok(_) => response::ok_empty(),
         Err(e) => response::err(e),
     }
@@ -120,13 +124,14 @@ pub async fn list_routes(
 
 pub async fn create_upstream(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Json(dto): Json<CreateUpstreamDto>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.create_upstream(dto, None).await {
+    match state.svc.create_upstream(dto, Some(&operator)).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -134,13 +139,14 @@ pub async fn create_upstream(
 
 pub async fn update_upstream(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Json(dto): Json<UpdateUpstreamDto>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.update_upstream(dto, None).await {
+    match state.svc.update_upstream(dto, Some(&operator)).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -148,13 +154,14 @@ pub async fn update_upstream(
 
 pub async fn delete_upstream(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Path(id): Path<u64>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.delete_upstream(id, None).await {
+    match state.svc.delete_upstream(id, Some(&operator)).await {
         Ok(_) => response::ok_empty(),
         Err(e) => response::err(e),
     }
@@ -163,6 +170,7 @@ pub async fn delete_upstream(
 /// PATCH 局部更新上游：从路径取 id，body 中字段可选
 pub async fn patch_upstream(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Path(id): Path<u64>,
     Json(mut dto): Json<UpdateUpstreamDto>,
@@ -171,7 +179,7 @@ pub async fn patch_upstream(
         return response::err(e);
     }
     dto.id = id;
-    match state.svc.update_upstream(dto, None).await {
+    match state.svc.update_upstream(dto, Some(&operator)).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -201,6 +209,7 @@ pub async fn list_upstreams(
 
 pub async fn bind_plugin(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Path(route_id): Path<u64>,
     Json(dto): Json<BindPluginDto>,
@@ -208,7 +217,7 @@ pub async fn bind_plugin(
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.bind_plugin(route_id, dto, None).await {
+    match state.svc.bind_plugin(route_id, dto, Some(&operator)).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -217,6 +226,7 @@ pub async fn bind_plugin(
 /// PUT 更新插件绑定配置
 pub async fn update_plugin_binding(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Path((route_id, plugin_name)): Path<(u64, String)>,
     Json(dto): Json<UpdatePluginBindingDto>,
@@ -224,7 +234,7 @@ pub async fn update_plugin_binding(
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.update_plugin_binding(route_id, &plugin_name, dto, None).await {
+    match state.svc.update_plugin_binding(route_id, &plugin_name, dto, Some(&operator)).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -232,13 +242,14 @@ pub async fn update_plugin_binding(
 
 pub async fn unbind_plugin(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Path((route_id, plugin_name)): Path<(u64, String)>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.unbind_plugin(route_id, &plugin_name, None).await {
+    match state.svc.unbind_plugin(route_id, &plugin_name, Some(&operator)).await {
         Ok(_) => response::ok_empty(),
         Err(e) => response::err(e),
     }
@@ -264,13 +275,14 @@ pub struct PublishQuery {
 
 pub async fn publish_config(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Query(q): Query<PublishQuery>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.publish_config(q.base_version.unwrap_or(0), None, q.remark.as_deref()).await {
+    match state.svc.publish_config(q.base_version.unwrap_or(0), Some(&operator), q.remark.as_deref()).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -278,13 +290,14 @@ pub async fn publish_config(
 
 pub async fn rollback_config(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Path(version): Path<u64>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.rollback_config(version, None).await {
+    match state.svc.rollback_config(version, Some(&operator)).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -492,13 +505,14 @@ pub struct PluginStatusQuery {
 /// 激活插件（Admin 专属）
 pub async fn activate_plugin(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Admin) {
         return response::err(e);
     }
-    match state.svc.update_plugin_status(&name, conrogate_contract::plugin::PluginStatus::Active, None).await {
+    match state.svc.update_plugin_status(&name, conrogate_contract::plugin::PluginStatus::Active, Some(&operator)).await {
         Ok(_) => response::ok_empty(),
         Err(e) => response::err(e),
     }
@@ -507,13 +521,14 @@ pub async fn activate_plugin(
 /// 禁用插件（Admin 专属）
 pub async fn disable_plugin(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Admin) {
         return response::err(e);
     }
-    match state.svc.update_plugin_status(&name, conrogate_contract::plugin::PluginStatus::Disabled, None).await {
+    match state.svc.update_plugin_status(&name, conrogate_contract::plugin::PluginStatus::Disabled, Some(&operator)).await {
         Ok(_) => response::ok_empty(),
         Err(e) => response::err(e),
     }
@@ -522,13 +537,14 @@ pub async fn disable_plugin(
 /// 卸载插件（Admin 专属）
 pub async fn delete_plugin(
     Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Admin) {
         return response::err(e);
     }
-    match state.svc.delete_plugin(&name, None).await {
+    match state.svc.delete_plugin(&name, Some(&operator)).await {
         Ok(_) => response::ok_empty(),
         Err(e) => response::err(e),
     }

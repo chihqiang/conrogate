@@ -419,6 +419,8 @@ impl HttpProtocolHandler {
             .traffic
             .record_result(route.id, node.upstream_id, node.id, success)
             .await;
+        // 请求完成，释放节点（LeastConnections 递减计数）
+        self.svc.balancer.release_node(&route, &node).await;
 
         let proxy_result = proxy_result?;
 
@@ -675,6 +677,8 @@ impl HttpProtocolHandler {
             .traffic
             .record_result(route.id, node.upstream_id, node.id, success)
             .await;
+        // 请求完成，释放节点（LeastConnections 递减计数）
+        self.svc.balancer.release_node(&route, &node).await;
 
         let proxy_result = proxy_result?;
 

@@ -88,4 +88,18 @@ impl UpstreamSelector for UpstreamSelectorImpl {
 
         balancer.select(&healthy_nodes, key).await
     }
+
+    async fn release_node(&self, route: &RouteSnapshot, node: &UpstreamNodeDto) {
+        let upstream_id = match route.upstream_id {
+            Some(id) => id,
+            None => return,
+        };
+        let (algorithm, _) = match self.get_nodes(upstream_id) {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        if let Some(balancer) = self.registry.get(algorithm) {
+            balancer.release(node, route.host_header.as_deref()).await;
+        }
+    }
 }

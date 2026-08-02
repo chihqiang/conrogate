@@ -59,4 +59,14 @@ impl LoadBalancer for LeastConnections {
 
         Ok(selected.clone())
     }
+
+    async fn release(&self, node: &UpstreamNodeDto, _key: Option<&str>) {
+        let mut conns = self.connections.lock().unwrap();
+        if let Some(count) = conns.get_mut(&node.address) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                conns.remove(&node.address);
+            }
+        }
+    }
 }

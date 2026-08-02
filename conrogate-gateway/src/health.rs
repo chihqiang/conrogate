@@ -131,11 +131,9 @@ impl PassiveHealthChecker {
             if !node.enabled {
                 continue;
             }
-            match self.check(node).await {
-                Ok(NodeHealth::Healthy) | Ok(NodeHealth::Degraded { .. }) => {
-                    healthy.push(node.clone());
-                }
-                _ => {}
+            // Degraded/Unhealthy 不参与调度，仅 Healthy 可被选中
+            if let Ok(NodeHealth::Healthy) = self.check(node).await {
+                healthy.push(node.clone());
             }
         }
         healthy

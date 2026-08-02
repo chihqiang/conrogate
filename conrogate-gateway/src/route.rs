@@ -152,10 +152,10 @@ impl RouteMatcher {
             }
         }
 
-        // 3. Host 匹配
+        // 3. Host 匹配（支持 `*.example.com` 一层子域通配，精确匹配优先）
         if let Some(ref host) = conditions.host {
             match &info.host {
-                Some(h) if h.eq_ignore_ascii_case(host) => {}
+                Some(h) if Self::match_host(host, h) => {}
                 _ => return false,
             }
         }
@@ -188,6 +188,22 @@ impl RouteMatcher {
                 safe_regex_match(pattern, request_path)
             }
         }
+    }
+
+    /// Host 匹配：精确匹配优先，`*.example.com` 通配一层子域
+    fn match_host(pattern: &str, host: &str) -> bool {
+        if pattern.eq_ignore_ascii_case(host) {
+            return true;
+        }
+        if let Some(suffix) = pattern.strip_prefix("*.") {
+            let host = host.to_ascii_lowercase();
+            let suffix = suffix.to_ascii_lowercase();
+            // 仅匹配一层子域：`*.example.com` 匹配 `a.example.com`，不匹配 `a.b.example.com`
+            if let Some(rest) = host.strip_suffix(&format!(".{suffix}")) {
+                return !rest.is_empty() && !rest.contains('.');
+            }
+        }
+        false
     }
 
     fn match_header(hm: &HeaderMatch, headers: &[(String, String)]) -> bool {
@@ -469,5 +485,32 @@ mod tests {
             query_params: vec![],
         };
         assert!(!RouteMatcher::matches(&conditions, &info_no_match));
+    }
+
+    #[test]
+    fn test_host_wildcard_match() {
+        // `*.example.com` 匹配一层子域
+        let conditions = RouteMatchConditions {
+            path: PathMatch::Prefix("/".into()),
+            host: Some("*.example.com".into()),
+            ..Default::default()
+        };
+        let mk = |host: Option<String>| RouteMatchInfo {
+            path: "/api".into(),
+            method: None,
+            host,
+            headers: vec![],
+            query_params: vec![],
+        };
+        assert!(RouteMatcher::matches(&conditions, &mk(Some("a.example.com".into()))));
+        assert!(RouteMatcher::matches(&conditions, &mk(Some("A.Example.COM".into()))));
+        // 要求至少一层子域：基域不匹配
+        assert!(!RouteMatcher::matches(&conditions, &mk(Some("example.com".into()))));
+        // 多层子域不匹配
+        assert!(!RouteMatcher::matches(&conditions, &mk(Some("a.b.example.com".into()))));
+        // 其他域不匹配
+        assert!(!RouteMatcher::matches(&conditions, &mk(Some("a.other.com".into()))));
+        // 无 Host 不匹配
+        assert!(!RouteMatcher::matches(&conditions, &mk(None)));
     }
 }

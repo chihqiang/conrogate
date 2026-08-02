@@ -50,6 +50,10 @@ pub trait LoadBalancer: Send + Sync {
         nodes: &[UpstreamNodeDto],
         key: Option<&str>,
     ) -> Result<UpstreamNodeDto, ConrogateError>;
+
+    /// 释放节点（连接结束/请求完成时递减计数）。
+    /// 有状态算法（LeastConnections）需覆写，无状态算法使用默认空实现。
+    async fn release(&self, _node: &UpstreamNodeDto, _key: Option<&str>) {}
 }
 
 /// 负载均衡器注册表

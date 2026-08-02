@@ -149,11 +149,10 @@ impl GatewayServer {
         };
 
         let protocols = ProtocolHandlerRegistry::new();
-        protocols.register(Arc::new(HttpProtocolHandler::with_registry(
-            svc.clone(),
-            plugin_registry.clone(),
-            timeout,
-        )));
+        protocols.register(Arc::new(
+            HttpProtocolHandler::with_registry(svc.clone(), plugin_registry.clone(), timeout)
+                .with_trusted_proxies(config.gate.listen.trusted_proxies.clone()),
+        ));
         protocols.register(Arc::new(TcpTunnelProtocolHandler::with_config(
             svc,
             timeout,
@@ -204,11 +203,10 @@ impl GatewayServer {
         };
 
         let protocols = ProtocolHandlerRegistry::new();
-        protocols.register(Arc::new(HttpProtocolHandler::with_registry(
-            svc.clone(),
-            plugin_registry.clone(),
-            timeout,
-        )));
+        protocols.register(Arc::new(
+            HttpProtocolHandler::with_registry(svc.clone(), plugin_registry.clone(), timeout)
+                .with_trusted_proxies(config.gate.listen.trusted_proxies.clone()),
+        ));
         protocols.register(Arc::new(TcpTunnelProtocolHandler::with_config(
             svc,
             timeout,

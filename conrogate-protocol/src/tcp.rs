@@ -138,6 +138,8 @@ impl TcpTunnelProtocolHandler {
             .traffic
             .record_result(route.id, node.upstream_id, node.id, success)
             .await;
+        // 连接结束，释放节点（LeastConnections 递减计数）
+        self.svc.balancer.release_node(&route, &node).await;
 
         // 8. 插件 on_disconnect
         let _ = self
