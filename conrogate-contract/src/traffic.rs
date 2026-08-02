@@ -50,10 +50,11 @@ pub trait Breaker: Send + Sync {
 
 #[async_trait]
 pub trait BreakerFactory: Send + Sync {
+    /// 按维度（route + 上游节点）获取或创建熔断器实例
     async fn get_or_create(
         &self,
         route_id: u64,
-        upstream_id: u64,
+        node_id: u64,
     ) -> std::sync::Arc<dyn Breaker>;
 }
 

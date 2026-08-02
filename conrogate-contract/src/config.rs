@@ -172,6 +172,8 @@ pub struct BreakerConfig {
     pub min_requests: u32,
     pub wait: Duration,
     pub half_open_max: u32,
+    /// 集群模式共享计数存储（docs/10 §9.3）
+    pub cluster_store: Option<RedisStoreConfig>,
 }
 
 impl Default for BreakerConfig {
@@ -183,6 +185,7 @@ impl Default for BreakerConfig {
             min_requests: 10,
             wait: Duration::from_secs(30),
             half_open_max: 5,
+            cluster_store: None,
         }
     }
 }
@@ -498,6 +501,25 @@ impl Config {
             None
         };
 
+        let breaker_mode = env_str("CONROGATE_GATE_BREAKER_MODE", "local");
+        let breaker_cluster_store = if breaker_mode == "cluster" {
+            let redis_url = env_str("CONROGATE_GATE_BREAKER_REDIS_URL", "");
+            if redis_url.is_empty() {
+                return Err(ConrogateError::ConfigInvalid(
+                    "breaker mode=cluster requires CONROGATE_GATE_BREAKER_REDIS_URL".into(),
+                ));
+            }
+            Some(RedisStoreConfig {
+                redis_url,
+                connect_timeout: env_duration_ms(
+                    "CONROGATE_GATE_BREAKER_REDIS_CONNECT_TIMEOUT_MS",
+                    2000,
+                ),
+            })
+        } else {
+            None
+        };
+
         let config = Config {
             common: CommonConfig {
                 instance_id: env_str("CONROGATE_INSTANCE_ID", ""),
@@ -561,6 +583,7 @@ impl Config {
                     min_requests: env_u32("CONROGATE_GATE_BREAKER_MIN_REQUESTS", 10),
                     wait: env_duration_ms("CONROGATE_GATE_BREAKER_WAIT_MS", 30_000),
                     half_open_max: env_u32("CONROGATE_GATE_BREAKER_HALF_OPEN_MAX", 5),
+                    cluster_store: breaker_cluster_store,
                 },
                 shutdown: ShutdownConfig {
                     long_conn_drain: env_duration_ms(

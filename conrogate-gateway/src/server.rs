@@ -62,10 +62,12 @@ impl GatewayServer {
             Arc::new(TokenBucketLimiter::new())
         };
         let breaker_config = BreakerConfig {
+            window: config.gate.breaker.window,
             failure_rate_threshold: config.gate.breaker.failure_rate_threshold,
             min_requests: config.gate.breaker.min_requests,
             wait: config.gate.breaker.wait,
             half_open_max: config.gate.breaker.half_open_max,
+            redis_url: config.gate.breaker.cluster_store.as_ref().map(|c| c.redis_url.clone()),
         };
         let breaker_factory = Arc::new(BreakerFactoryImpl::new(breaker_config));
         let traffic = Arc::new(crate::filter::TrafficControlAdapter::with_governance_config(
@@ -239,9 +241,13 @@ impl GatewayServer {
         read_db: Arc<conrogate_storage::pool::DbConn>,
     ) -> Self {
         // 提取 Redis 配置（在 config 被 move 之前）
-        let redis_url = config.gate.rate_limit.cluster_store.as_ref()
-            .filter(|s| !s.redis_url.is_empty())
-            .map(|s| s.redis_url.clone());
+        let redis_url = if !config.gate.refresh.config_cache_redis_url.is_empty() {
+            Some(config.gate.refresh.config_cache_redis_url.clone())
+        } else {
+            config.gate.rate_limit.cluster_store.as_ref()
+                .filter(|s| !s.redis_url.is_empty())
+                .map(|s| s.redis_url.clone())
+        };
         let poll_interval = config.gate.refresh.config_poll_interval.as_secs().max(1);
         let mut server = Self::from_config(config).await;
 
@@ -334,21 +340,45 @@ impl GatewayServer {
                     tokio::time::sleep(poll_dur).await;
                 }
 
-                let r = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(
-                    &conrogate_storage::repository::route_repo::RouteRepoImpl::new((*db).clone()),
-                ).await.unwrap_or_default();
-                let u = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(
-                    &conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*db).clone()),
-                ).await.unwrap_or_default();
-                // 加载插件绑定
-                let mut bindings = Vec::new();
-                for route in &r {
-                    let rb = conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
-                        &conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new((*db).clone()),
-                        route.id,
+                // 读取配置：优先 Redis 快照，失败降级直连 DB（fail-open，docs/09 §9）
+                let (r, u, bindings) = if let Some(ref cache) = config_cache {
+                    match cache.get_snapshot().await {
+                        Ok(Some(snap)) => (snap.routes, snap.upstreams, snap.plugin_bindings),
+                        _ => {
+                            let r = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(
+                                &conrogate_storage::repository::route_repo::RouteRepoImpl::new((*db).clone()),
+                            ).await.unwrap_or_default();
+                            let u = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(
+                                &conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*db).clone()),
+                            ).await.unwrap_or_default();
+                            let mut bindings = Vec::new();
+                            for route in &r {
+                                let rb = conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
+                                    &conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new((*db).clone()),
+                                    route.id,
+                                ).await.unwrap_or_default();
+                                bindings.extend(rb);
+                            }
+                            (r, u, bindings)
+                        }
+                    }
+                } else {
+                    let r = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(
+                        &conrogate_storage::repository::route_repo::RouteRepoImpl::new((*db).clone()),
                     ).await.unwrap_or_default();
-                    bindings.extend(rb);
-                }
+                    let u = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(
+                        &conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*db).clone()),
+                    ).await.unwrap_or_default();
+                    let mut bindings = Vec::new();
+                    for route in &r {
+                        let rb = conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
+                            &conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new((*db).clone()),
+                            route.id,
+                        ).await.unwrap_or_default();
+                        bindings.extend(rb);
+                    }
+                    (r, u, bindings)
+                };
                 if !r.is_empty() || !u.is_empty() {
                     let body_req = registry.body_required_plugin_names();
                     // 热加载：更新路由插件链（set_route_chains）

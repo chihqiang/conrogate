@@ -110,10 +110,12 @@ pub async fn run(
         Arc::new(conrogate_traffic::limiter::TokenBucketLimiter::new())
     };
     let breaker_config = conrogate_traffic::breaker::BreakerConfig {
+        window: config.gate.breaker.window,
         failure_rate_threshold: config.gate.breaker.failure_rate_threshold,
         min_requests: config.gate.breaker.min_requests,
         wait: config.gate.breaker.wait,
         half_open_max: config.gate.breaker.half_open_max,
+        redis_url: config.gate.breaker.cluster_store.as_ref().map(|c| c.redis_url.clone()),
     };
     let breaker_factory = Arc::new(conrogate_traffic::breaker::BreakerFactoryImpl::new(breaker_config));
 

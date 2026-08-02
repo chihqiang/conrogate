@@ -116,7 +116,7 @@ impl TcpTunnelProtocolHandler {
         // 5. 熔断检查
         self.svc
             .traffic
-            .check_circuit_breaker(route.id, node.upstream_id)
+            .check_circuit_breaker(route.id, node.id)
             .await?;
 
         // 6. 实际转发
@@ -137,7 +137,7 @@ impl TcpTunnelProtocolHandler {
         let success = result.is_ok();
         self.svc
             .traffic
-            .record_result(route.id, node.upstream_id, node.id, success)
+            .record_result(route.id, node.id, success)
             .await;
         // 连接结束，释放节点（LeastConnections 递减计数）
         self.svc.balancer.release_node(&route, &node).await;

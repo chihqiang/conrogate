@@ -391,7 +391,6 @@ mod tests {
 
     #[test]
     fn test_prefix_match() {
-        let matcher = RouteMatcher::new();
         let conditions = RouteMatchConditions {
             path: PathMatch::Prefix("/api/".into()),
             ..Default::default()

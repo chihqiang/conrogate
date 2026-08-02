@@ -133,7 +133,7 @@ impl conrogate_contract::gateway::TrafficControl for TrafficControlAdapter {
     async fn check_circuit_breaker(
         &self,
         route_id: u64,
-        upstream_id: u64,
+        node_id: u64,
     ) -> Result<(), ConrogateError> {
         // 开关关闭：不熔断
         if !self.breaker_enabled {
@@ -141,7 +141,7 @@ impl conrogate_contract::gateway::TrafficControl for TrafficControlAdapter {
         }
         let breaker = self
             .breaker_factory
-            .get_or_create(route_id, upstream_id)
+            .get_or_create(route_id, node_id)
             .await;
         breaker.allow().await
     }
@@ -149,7 +149,6 @@ impl conrogate_contract::gateway::TrafficControl for TrafficControlAdapter {
     async fn record_result(
         &self,
         route_id: u64,
-        upstream_id: u64,
         node_id: u64,
         success: bool,
     ) {
@@ -157,7 +156,7 @@ impl conrogate_contract::gateway::TrafficControl for TrafficControlAdapter {
         if self.breaker_enabled {
             let breaker = self
                 .breaker_factory
-                .get_or_create(route_id, upstream_id)
+                .get_or_create(route_id, node_id)
                 .await;
             if success {
                 breaker.record_success().await;
@@ -237,10 +236,12 @@ mod tests {
     #[tokio::test]
     async fn test_breaker_disabled_bypasses_open_circuit() {
         let breaker_config = BreakerConfig {
+            window: Duration::from_secs(10),
             failure_rate_threshold: 0.1,
             min_requests: 2,
             wait: Duration::from_secs(60),
             half_open_max: 1,
+            redis_url: None,
         };
         let factory = Arc::new(BreakerFactoryImpl::new(breaker_config));
         let adapter = TrafficControlAdapter::with_governance_config(

@@ -270,7 +270,7 @@ impl HttpProtocolHandler {
         // 8. 熔断检查
         self.svc
             .traffic
-            .check_circuit_breaker(route.id, node.upstream_id)
+            .check_circuit_breaker(route.id, node.id)
             .await?;
 
         // 8a. WebSocket 升级检测（路由匹配 + 上游选择完成后）
@@ -417,7 +417,7 @@ impl HttpProtocolHandler {
         let success = proxy_result.is_ok();
         self.svc
             .traffic
-            .record_result(route.id, node.upstream_id, node.id, success)
+            .record_result(route.id, node.id, success)
             .await;
         // 请求完成，释放节点（LeastConnections 递减计数）
         self.svc.balancer.release_node(&route, &node).await;
@@ -592,7 +592,7 @@ impl HttpProtocolHandler {
         // 熔断检查
         self.svc
             .traffic
-            .check_circuit_breaker(route.id, node.upstream_id)
+            .check_circuit_breaker(route.id, node.id)
             .await?;
 
         // WebSocket 升级检测（路由匹配 + 上游选择完成后）
@@ -675,7 +675,7 @@ impl HttpProtocolHandler {
         let success = proxy_result.is_ok();
         self.svc
             .traffic
-            .record_result(route.id, node.upstream_id, node.id, success)
+            .record_result(route.id, node.id, success)
             .await;
         // 请求完成，释放节点（LeastConnections 递减计数）
         self.svc.balancer.release_node(&route, &node).await;
