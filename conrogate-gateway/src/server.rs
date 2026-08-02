@@ -60,11 +60,18 @@ impl GatewayServer {
         } else {
             Arc::new(TokenBucketLimiter::new())
         };
-        let breaker_factory = Arc::new(BreakerFactoryImpl::new(BreakerConfig::default()));
-        let traffic = Arc::new(crate::filter::TrafficControlAdapter::with_rate_limit_config(
+        let breaker_config = BreakerConfig {
+            failure_rate_threshold: config.gate.breaker.failure_rate_threshold,
+            min_requests: config.gate.breaker.min_requests,
+            wait: config.gate.breaker.wait,
+            half_open_max: config.gate.breaker.half_open_max,
+        };
+        let breaker_factory = Arc::new(BreakerFactoryImpl::new(breaker_config));
+        let traffic = Arc::new(crate::filter::TrafficControlAdapter::with_governance_config(
             limiter,
             breaker_factory,
             &config.gate.rate_limit,
+            &config.gate.breaker,
         ));
 
         // 遥测
@@ -129,6 +136,18 @@ impl GatewayServer {
             config.gate.timeouts.total.as_millis() as u64,
         );
 
+        let rate_limit_enabled = config.gate.rate_limit.enabled;
+        let conn_qps = if rate_limit_enabled {
+            config.gate.rate_limit.conn_qps
+        } else {
+            0
+        };
+        let bandwidth_kbps = if rate_limit_enabled {
+            config.gate.rate_limit.bandwidth_kbps
+        } else {
+            0
+        };
+
         let protocols = ProtocolHandlerRegistry::new();
         protocols.register(Arc::new(HttpProtocolHandler::with_registry(
             svc.clone(),
@@ -138,8 +157,8 @@ impl GatewayServer {
         protocols.register(Arc::new(TcpTunnelProtocolHandler::with_config(
             svc,
             timeout,
-            config.gate.rate_limit.conn_qps,
-            config.gate.rate_limit.bandwidth_kbps,
+            conn_qps,
+            bandwidth_kbps,
         )));
 
         Self {
@@ -172,8 +191,17 @@ impl GatewayServer {
         let timeout = std::time::Duration::from_millis(
             config.gate.timeouts.total.as_millis() as u64,
         );
-        let conn_qps = config.gate.rate_limit.conn_qps;
-        let bandwidth_kbps = config.gate.rate_limit.bandwidth_kbps;
+        let rate_limit_enabled = config.gate.rate_limit.enabled;
+        let conn_qps = if rate_limit_enabled {
+            config.gate.rate_limit.conn_qps
+        } else {
+            0
+        };
+        let bandwidth_kbps = if rate_limit_enabled {
+            config.gate.rate_limit.bandwidth_kbps
+        } else {
+            0
+        };
 
         let protocols = ProtocolHandlerRegistry::new();
         protocols.register(Arc::new(HttpProtocolHandler::with_registry(

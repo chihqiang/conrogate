@@ -109,13 +109,20 @@ pub async fn run(
     } else {
         Arc::new(conrogate_traffic::limiter::TokenBucketLimiter::new())
     };
-    let breaker_factory = Arc::new(conrogate_traffic::breaker::BreakerFactoryImpl::default());
+    let breaker_config = conrogate_traffic::breaker::BreakerConfig {
+        failure_rate_threshold: config.gate.breaker.failure_rate_threshold,
+        min_requests: config.gate.breaker.min_requests,
+        wait: config.gate.breaker.wait,
+        half_open_max: config.gate.breaker.half_open_max,
+    };
+    let breaker_factory = Arc::new(conrogate_traffic::breaker::BreakerFactoryImpl::new(breaker_config));
 
     // ── 11. TrafficControl（使用配置中的 QPS 阈值 + 被动健康检查）──
-    let traffic = Arc::new(conrogate_gateway::filter::TrafficControlAdapter::with_rate_limit_config(
+    let traffic = Arc::new(conrogate_gateway::filter::TrafficControlAdapter::with_governance_config(
         limiter,
         breaker_factory,
         &config.gate.rate_limit,
+        &config.gate.breaker,
     ).with_health_checker(health_checker.clone()));
 
     // ── 12. PluginRegistry + 注册静态插件 ──
