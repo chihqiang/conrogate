@@ -255,6 +255,14 @@ impl ControlService {
     }
 
     pub async fn rollback_config(&self, target_version: u64, operator: Option<&str>) -> Result<ConfigVersionDto, ConrogateError> {
+        // 1. 取目标快照
+        let target_snapshot = self.config_repo.get_snapshot_by_version(target_version).await?
+            .ok_or_else(|| ConrogateError::NotFound(format!("version {}", target_version)))?;
+
+        // 2. 回写业务表（gate 热加载直接读业务表，回滚依赖这一步生效）
+        self.config_repo.apply_snapshot(&target_snapshot).await?;
+
+        // 3. 写版本行
         let version = self.config_repo.rollback(target_version, operator).await?;
 
         // 写 Redis 配置缓存（失败不阻断回滚，仅告警）

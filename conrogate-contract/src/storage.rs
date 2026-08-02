@@ -92,6 +92,13 @@ pub trait ConfigVersionRepo: Send + Sync {
     /// 按版本号获取配置快照内容（用于回滚后写 Redis 缓存）
     async fn get_snapshot_by_version(&self, version: u64) -> Result<Option<ConfigSnapshot>, ConrogateError>;
 
+    /// 将快照回写到业务表（routes / upstreams / route_plugin_bindings）。
+    ///
+    /// gate 配置热加载直接读业务表，回滚只有在回写业务表后才会生效：
+    /// 按名称 upsert 快照中的路由/上游（含节点替换与路由→上游引用重映射），
+    /// 软删除快照中不存在的活跃路由与上游，并重新对齐插件绑定。
+    async fn apply_snapshot(&self, snapshot: &ConfigSnapshot) -> Result<(), ConrogateError>;
+
     async fn rollback(
         &self,
         target_version: u64,

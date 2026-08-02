@@ -13,7 +13,7 @@ use serde_json;
 
 // ── 协议枚举映射 ──
 
-fn protocol_to_i16(p: ProtocolId) -> i16 {
+pub(crate) fn protocol_to_i16(p: ProtocolId) -> i16 {
     match p {
         ProtocolId::Http => 0,
         ProtocolId::WebSocket => 1,
@@ -31,7 +31,7 @@ fn i16_to_protocol(v: i16) -> ProtocolId {
 
 // ── 算法枚举映射 ──
 
-fn algorithm_to_i16(a: BalancerAlgorithm) -> i16 {
+pub(crate) fn algorithm_to_i16(a: BalancerAlgorithm) -> i16 {
     match a {
         BalancerAlgorithm::RoundRobin => 0,
         BalancerAlgorithm::WeightedRoundRobin => 1,
