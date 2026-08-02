@@ -53,6 +53,7 @@ impl TcpTunnelProtocolHandler {
         inbound: TcpStream,
     ) -> Result<(), ConrogateError> {
         let match_info = RouteMatchInfo::from_tunnel(&listen_addr, sni.as_deref());
+        let start_ts = std::time::Instant::now();
 
         // 1. 路由匹配
         let route = self
@@ -67,7 +68,7 @@ impl TcpTunnelProtocolHandler {
             request_id: uuid::Uuid::new_v4().to_string(),
             trace_id: uuid::Uuid::new_v4().to_string(),
             route_id: route.id,
-            client_ip,
+            client_ip: client_ip.clone(),
             protocol: ProtocolId::TcpTunnel,
             http: None,
             tunnel: Some(conrogate_contract::plugin::TunnelContext {
@@ -109,8 +110,8 @@ impl TcpTunnelProtocolHandler {
                 .await?;
         }
 
-        // 4. 选择上游
-        let node = self.svc.balancer.select_upstream(&route).await?;
+        // 4. 选择上游（一致性哈希按 client_ip）
+        let node = self.svc.balancer.select_upstream(&route, Some(&client_ip)).await?;
 
         // 5. 熔断检查
         self.svc
@@ -141,6 +142,33 @@ impl TcpTunnelProtocolHandler {
         // 连接结束，释放节点（LeastConnections 递减计数）
         self.svc.balancer.release_node(&route, &node).await;
 
+        // 7a. 隧道遥测：记录会话数与字节数（docs/10 §2.4）
+        if let Ok(stats) = &result {
+            let duration_secs = start_ts.elapsed().as_secs().max(1);
+            let sessions = if duration_secs > 0 { 1u64 } else { 0u64 };
+            self.svc.telemetry.record_metric(
+                conrogate_contract::dto::MetricRow {
+                    ts: chrono::Utc::now(),
+                    bucket_sec: 10,
+                    route_id: Some(route.id),
+                    gate_id: String::new(),
+                    qps: sessions as u32,
+                    total_requests: sessions,
+                    avg_latency_ms: start_ts.elapsed().as_millis() as f64,
+                    p50_ms: 0,
+                    p90_ms: 0,
+                    p99_ms: 0,
+                    status_2xx: 0,
+                    status_3xx: 0,
+                    status_4xx: 0,
+                    status_5xx: 0,
+                    sessions,
+                    bytes_in: stats.bytes_in,
+                    bytes_out: stats.bytes_out,
+                }
+            ).await;
+        }
+
         // 8. 插件 on_disconnect
         let _ = self
             .svc
@@ -148,7 +176,7 @@ impl TcpTunnelProtocolHandler {
             .execute_on_disconnect(&mut plugin_ctx, &[])
             .await;
 
-        result
+        result.map(|_| ())
     }
 }
 

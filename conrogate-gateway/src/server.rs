@@ -37,6 +37,7 @@ pub struct GatewayServer {
     plugin_executor: Arc<PluginPipelineImpl>,
     max_connections: usize,
     max_body_bytes: usize,
+    max_header_bytes: usize,
     idle_timeout: std::time::Duration,
     config_cache: Option<Arc<dyn conrogate_contract::storage::ConfigCache>>,
 }
@@ -151,7 +152,8 @@ impl GatewayServer {
         let protocols = ProtocolHandlerRegistry::new();
         protocols.register(Arc::new(
             HttpProtocolHandler::with_registry(svc.clone(), plugin_registry.clone(), timeout)
-                .with_trusted_proxies(config.gate.listen.trusted_proxies.clone()),
+                .with_trusted_proxies(config.gate.listen.trusted_proxies.clone())
+                .with_max_retries(config.gate.retry.max_attempts),
         ));
         protocols.register(Arc::new(TcpTunnelProtocolHandler::with_config(
             svc,
@@ -169,6 +171,7 @@ impl GatewayServer {
             plugin_executor,
             max_connections: config.gate.connection.max_connections,
             max_body_bytes: config.gate.connection.max_body_bytes,
+            max_header_bytes: config.gate.connection.max_header_bytes,
             idle_timeout: config.gate.connection.idle_timeout,
             config_cache: None,
         }
@@ -205,7 +208,8 @@ impl GatewayServer {
         let protocols = ProtocolHandlerRegistry::new();
         protocols.register(Arc::new(
             HttpProtocolHandler::with_registry(svc.clone(), plugin_registry.clone(), timeout)
-                .with_trusted_proxies(config.gate.listen.trusted_proxies.clone()),
+                .with_trusted_proxies(config.gate.listen.trusted_proxies.clone())
+                .with_max_retries(config.gate.retry.max_attempts),
         ));
         protocols.register(Arc::new(TcpTunnelProtocolHandler::with_config(
             svc,
@@ -223,6 +227,7 @@ impl GatewayServer {
             plugin_executor,
             max_connections: config.gate.connection.max_connections,
             max_body_bytes: config.gate.connection.max_body_bytes,
+            max_header_bytes: config.gate.connection.max_header_bytes,
             idle_timeout: config.gate.connection.idle_timeout,
             config_cache: None,
         }
@@ -393,7 +398,9 @@ impl GatewayServer {
         // 全局并发连接限制（Semaphore）
         let conn_semaphore = Arc::new(tokio::sync::Semaphore::new(self.max_connections));
         let max_body_bytes = self.max_body_bytes;
+        let max_header_bytes = self.max_header_bytes;
         let idle_timeout = self.idle_timeout;
+        let upgrade_buffer_size = config.gate.upgrade.buffer_size;
         let long_conn_drain = config.gate.shutdown.long_conn_drain;
 
         // TLS 入站终止
@@ -479,8 +486,10 @@ impl GatewayServer {
                             client_ip,
                             max_body_bytes,
                             idle_timeout,
+                            upgrade_buffer_size,
                         };
-                        let h1 = http1::Builder::new();
+                        let mut h1 = http1::Builder::new();
+                        h1.max_buf_size(max_header_bytes);
                         let result = if let Some(acc) = tls_acc {
                             match acc.accept(stream).await {
                                 Ok(tls_stream) => {
@@ -592,6 +601,7 @@ struct HyperServiceBridge {
     client_ip: String,
     max_body_bytes: usize,
     idle_timeout: std::time::Duration,
+    upgrade_buffer_size: usize,
 }
 
 /// WebSocket 升级信息（存入响应扩展）
@@ -635,6 +645,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
         let client_ip = self.client_ip.clone();
         let max_body_bytes = self.max_body_bytes;
         let idle_timeout = self.idle_timeout;
+        let upgrade_buffer_size = self.upgrade_buffer_size;
 
         Box::pin(async move {
             // 健康探针：GET /healthz → 200
@@ -755,6 +766,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                                 io,
                                                 upgrade_req,
                                                 ws_timeout,
+                                                upgrade_buffer_size,
                                             ).await {
                                                 tracing::warn!(error = %e, "websocket forwarding error");
                                             }
@@ -842,6 +854,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                         io,
                                         upgrade_req,
                                         ws_timeout,
+                                        upgrade_buffer_size,
                                     ).await {
                                         tracing::warn!(error = %e, "websocket forwarding error");
                                     }

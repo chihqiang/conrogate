@@ -110,6 +110,15 @@ pub fn body_from_incoming(incoming: Incoming) -> ReqBody {
     }))
 }
 
+/// TCP 隧道转发统计（用于遥测）
+#[derive(Debug, Clone, Default)]
+pub struct TunnelStats {
+    /// 客户端 → 上游（出站）字节数
+    pub bytes_out: u64,
+    /// 上游 → 客户端（入站）字节数
+    pub bytes_in: u64,
+}
+
 /// 转发 TCP 隧道连接
 ///
 /// `max_bytes_per_sec`: 每秒最大字节数（None = 不限制）
@@ -118,7 +127,7 @@ pub async fn forward_tcp(
     inbound: TcpStream,
     timeout: Duration,
     max_bytes_per_sec: Option<u64>,
-) -> Result<(), ConrogateError> {
+) -> Result<TunnelStats, ConrogateError> {
     // 使用 DNS 缓存解析地址
     let addrs = crate::dns::global_resolver().resolve(&node.address).await
         .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("DNS resolve: {e}")))?;
@@ -138,29 +147,31 @@ pub async fn forward_tcp(
         throttled_copy(&mut ro, &mut wi, max_bytes_per_sec).await
     };
 
-    tokio::try_join!(c2s, s2c)
+    let (bytes_out, bytes_in) = tokio::try_join!(c2s, s2c)
         .map_err(|e| ConrogateError::UpstreamConnectFailed(e.to_string()))?;
 
-    Ok(())
+    Ok(TunnelStats { bytes_out, bytes_in })
 }
 
-/// 带限速的字节流拷贝
+/// 带限速的字节流拷贝（返回拷贝字节数）
 async fn throttled_copy<R, W>(
     reader: &mut R,
     writer: &mut W,
     max_bytes_per_sec: Option<u64>,
-) -> std::io::Result<()>
+) -> std::io::Result<u64>
 where
     R: tokio::io::AsyncRead + Unpin,
     W: tokio::io::AsyncWrite + Unpin,
 {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     let mut buf = [0u8; 8192];
+    let mut copied: u64 = 0;
     loop {
         let n = reader.read(&mut buf).await?;
         if n == 0 {
             break;
         }
+        copied += n as u64;
         writer.write_all(&buf[..n]).await?;
         writer.flush().await?;
         // 带宽限制：按实际传输字节数计算休眠时间
@@ -173,5 +184,5 @@ where
             }
         }
     }
-    Ok(())
+    Ok(copied)
 }

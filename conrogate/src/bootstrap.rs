@@ -204,26 +204,29 @@ pub async fn run(
     // ── 20. 后台任务（TaskManager 逆序取消）──
     let mut task_manager = conrogate_gateway::task_manager::TaskManager::new();
     let metric_repo_clone = metric_repo.clone();
+    let telemetry_bucket_sec = config.gate.telemetry.bucket_sec.max(1);
+    let telemetry_flush = config.gate.telemetry.batch_interval;
     task_manager.spawn("metric-aggregator", async move {
         let mut aggregator = conrogate_gateway::telemetry::MetricAggregator::new(
             metric_rx,
-            10,
+            telemetry_bucket_sec,
         ).with_metric_repo(metric_repo_clone);
-        aggregator.run(std::time::Duration::from_secs(10)).await;
+        aggregator.run(telemetry_flush).await;
     });
 
     // 事件消费者：批量读取事件通道并落库
     let event_repo_clone = event_repo.clone();
+    let event_batch_size = config.gate.telemetry.batch_size.max(1);
     task_manager.spawn("event-consumer", async move {
         let mut rx = event_rx;
         let mut batch = Vec::new();
-        let mut flush_timer = tokio::time::interval(std::time::Duration::from_secs(5));
+        let mut flush_timer = tokio::time::interval(config.gate.telemetry.batch_interval);
         flush_timer.tick().await; // 跳过第一次立即触发
         loop {
             tokio::select! {
                 Some(event) = rx.recv() => {
                     batch.push(event);
-                    if batch.len() >= 100 {
+                    if batch.len() >= event_batch_size {
                         if let Err(e) = event_repo_clone.insert_batch(&batch).await {
                             tracing::warn!(error = %e, "event batch insert failed");
                         }

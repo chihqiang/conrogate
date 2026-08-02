@@ -22,9 +22,11 @@ pub trait RouteLookup: Send + Sync {
 
 #[async_trait]
 pub trait UpstreamSelector: Send + Sync {
+    /// 选择上游节点。`key` 用于有状态/哈希算法（一致性哈希按 client_ip）。
     async fn select_upstream(
         &self,
         route: &RouteSnapshot,
+        key: Option<&str>,
     ) -> Result<UpstreamNodeDto, ConrogateError>;
 
     /// 释放节点（请求/连接结束时回调，供 LeastConnections 等有状态算法递减计数）

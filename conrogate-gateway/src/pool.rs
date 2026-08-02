@@ -58,7 +58,11 @@ impl UpstreamSelectorImpl {
 
 #[async_trait::async_trait]
 impl UpstreamSelector for UpstreamSelectorImpl {
-    async fn select_upstream(&self, route: &RouteSnapshot) -> Result<UpstreamNodeDto, ConrogateError> {
+    async fn select_upstream(
+        &self,
+        route: &RouteSnapshot,
+        key: Option<&str>,
+    ) -> Result<UpstreamNodeDto, ConrogateError> {
         let upstream_id = route
             .upstream_id
             .ok_or_else(|| ConrogateError::UpstreamNotFound("route has no upstream".into()))?;
@@ -83,9 +87,7 @@ impl UpstreamSelector for UpstreamSelectorImpl {
             .get(algorithm)
             .ok_or_else(|| ConrogateError::Internal(format!("no balancer for {:?}", algorithm)))?;
 
-        // 一致性哈希需要 key（如 client IP 或 session ID）
-        let key = route.host_header.as_deref();
-
+        // 一致性哈希等按调用方传入的 key（client_ip）做亲和
         balancer.select(&healthy_nodes, key).await
     }
 

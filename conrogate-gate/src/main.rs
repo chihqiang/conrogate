@@ -40,9 +40,23 @@ async fn main() -> anyhow::Result<()> {
         host = %config.gate.listen.host,
         port = config.gate.listen.port,
         config_source = %config.gate.refresh.config_source,
+        worker_threads = config.gate.worker_threads,
         "starting conrogate-gate (data plane only)"
     );
 
+    // 按配置 worker_threads 构建 tokio 运行时（0 = 自动取 CPU 核数）
+    let mut runtime_builder = tokio::runtime::Builder::new_multi_thread();
+    runtime_builder.enable_all();
+    if config.gate.worker_threads > 0 {
+        runtime_builder.worker_threads(config.gate.worker_threads);
+    }
+    let runtime = runtime_builder
+        .build()
+        .map_err(|e| anyhow::anyhow!("tokio runtime build failed: {e}"))?;
+    runtime.block_on(run(config))
+}
+
+async fn run(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
     // ── 1. 配置源选择：http 模式不直连 DB ──
     if config.gate.refresh.config_source == "http" {
         tracing::info!("config_source=http, using HTTP config loader only");

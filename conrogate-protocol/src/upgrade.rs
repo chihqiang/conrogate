@@ -53,11 +53,13 @@ pub fn build_upgrade_response(req: &Request<Bytes>) -> Response<Bytes> {
 /// WebSocket 双向转发：连接上游 + 透传字节流
 ///
 /// 流程：connect upstream → send upgrade request → read 101 response → bidirectional copy
+/// `buffer_size` 为双向透传缓冲上限（0 时使用默认 8192）。
 pub async fn forward_websocket<C>(
     upstream_addr: &str,
     client: C,
     upgrade_req: Request<Bytes>,
     timeout: Duration,
+    buffer_size: usize,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
     C: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin,
@@ -100,8 +102,9 @@ where
     }
 
     // 4. 双向字节流透传（带背压处理）
+    let buf_size = buffer_size.max(1);
     let c2s = async {
-        let mut buf = [0u8; 8192];
+        let mut buf = vec![0u8; buf_size];
         loop {
             let n = client_r.read(&mut buf).await?;
             if n == 0 {
@@ -115,7 +118,7 @@ where
     };
 
     let s2c = async {
-        let mut buf = [0u8; 8192];
+        let mut buf = vec![0u8; buf_size];
         loop {
             let n = upstream_r.read(&mut buf).await?;
             if n == 0 {

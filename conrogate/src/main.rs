@@ -40,9 +40,27 @@ async fn main() -> anyhow::Result<()> {
         instance_id = ?config.common.instance_id,
         gate_port = config.gate.listen.port,
         control_port = config.control.listen.port,
+        worker_threads = config.gate.worker_threads,
         "starting conrogate (merged mode)"
     );
 
+    // 按配置 worker_threads 构建 tokio 运行时（0 = 自动取 CPU 核数）
+    let runtime = build_runtime(config.gate.worker_threads)?;
+    runtime.block_on(run(config))
+}
+
+fn build_runtime(worker_threads: usize) -> anyhow::Result<tokio::runtime::Runtime> {
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.enable_all();
+    if worker_threads > 0 {
+        builder.worker_threads(worker_threads);
+    }
+    builder
+        .build()
+        .map_err(|e| anyhow::anyhow!("tokio runtime build failed: {e}"))
+}
+
+async fn run(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
     // Bootstrap 装配
     let shutdown_tx = bootstrap::run(config).await?;
 

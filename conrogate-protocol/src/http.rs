@@ -264,8 +264,8 @@ impl HttpProtocolHandler {
             return Err(e);
         }
 
-        // 7. 选择上游节点
-        let node = self.svc.balancer.select_upstream(&route).await?;
+        // 7. 选择上游节点（一致性哈希按真实 client_ip）
+        let node = self.svc.balancer.select_upstream(&route, Some(&real_ip)).await?;
 
         // 8. 熔断检查
         self.svc
@@ -587,7 +587,7 @@ impl HttpProtocolHandler {
         }
 
         // 选择上游节点
-        let node = self.svc.balancer.select_upstream(&route).await?;
+        let node = self.svc.balancer.select_upstream(&route, Some(&real_ip)).await?;
 
         // 熔断检查
         self.svc
