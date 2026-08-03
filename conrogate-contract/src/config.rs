@@ -35,6 +35,7 @@ pub struct GateConfig {
     pub refresh: RefreshConfig,
     pub upgrade: UpgradeConfig,
     pub telemetry: TelemetryConfig,
+    pub outbound_tls: OutboundTlsConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -201,6 +202,13 @@ impl Default for ShutdownConfig {
             long_conn_drain: Duration::from_secs(30),
         }
     }
+}
+
+/// 出站 TLS 配置（docs/10 §2.1、docs/15 §2）
+#[derive(Debug, Clone, Default)]
+pub struct OutboundTlsConfig {
+    /// 跳过上游证书校验（仅非生产，docs/15：需显式配置 + 告警日志）
+    pub skip_verify: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -639,6 +647,9 @@ impl Config {
                     ),
                     bucket_sec: env_u32("CONROGATE_GATE_TELEMETRY_BUCKET_SEC", 10),
                 },
+                outbound_tls: OutboundTlsConfig {
+                    skip_verify: env_bool("CONROGATE_GATE_OUTBOUND_TLS_SKIP_VERIFY", false),
+                },
             },
             node: NodeConfig {
                 auto_migrate: env_bool("CONROGATE_NODE_AUTO_MIGRATE", false),
@@ -748,6 +759,7 @@ impl Default for Config {
                 refresh: RefreshConfig::default(),
                 upgrade: UpgradeConfig::default(),
                 telemetry: TelemetryConfig::default(),
+                outbound_tls: OutboundTlsConfig::default(),
             },
             node: NodeConfig::default(),
             control: ControlConfig {

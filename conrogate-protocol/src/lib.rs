@@ -12,6 +12,7 @@ pub mod tcp;
 pub mod proxy;
 pub mod upgrade;
 pub mod dns;
+pub mod tls;
 
 pub use handler::{ProtocolHandler, ProtocolHandlerRegistry};
 pub use http::HttpProtocolHandler;

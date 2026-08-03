@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 数据面支持的协议标识，随协议扩展增量追加
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProtocolId {
     /// HTTP/1.1 + HTTP/2
@@ -44,7 +44,7 @@ impl std::str::FromStr for ProtocolId {
 }
 
 /// 路径匹配方式
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PathMatch {
     Prefix(String),
@@ -53,7 +53,7 @@ pub enum PathMatch {
 }
 
 /// 通用匹配操作符
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MatchOp {
     Exact,
@@ -63,7 +63,7 @@ pub enum MatchOp {
 }
 
 /// Header 匹配条件
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct HeaderMatch {
     pub key: String,
     pub op: MatchOp,
@@ -71,7 +71,7 @@ pub struct HeaderMatch {
 }
 
 /// Query 参数匹配条件
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct QueryMatch {
     pub key: String,
     pub op: MatchOp,
@@ -79,7 +79,7 @@ pub struct QueryMatch {
 }
 
 /// 路由匹配条件集合（多维匹配，全部条件 AND 关系）
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RouteMatchConditions {
     pub path: PathMatch,
     pub methods: Option<Vec<String>>,

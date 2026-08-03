@@ -6,6 +6,7 @@ use conrogate_contract::ConrogateError;
 use http::Request;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
+use hyper_rustls::HttpsConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
 use std::time::Duration;
@@ -13,6 +14,9 @@ use tokio::net::TcpStream;
 
 /// 统一请求体类型：BoxBody 兼容缓冲模式（Full<Bytes>）和流式模式（Incoming）
 pub type ReqBody = http_body_util::combinators::BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>>;
+
+/// 出站 HTTP 客户端：支持 http:// 与 https://（TLS）上游
+pub type HttpClient = Client<HttpsConnector<HttpConnector>, ReqBody>;
 
 /// 代理转发结果
 pub struct ProxyResult {
@@ -23,7 +27,7 @@ pub struct ProxyResult {
 
 /// 转发 HTTP 请求到上游节点（缓冲模式：body 已在内存中）
 pub async fn forward_http(
-    client: &Client<HttpConnector, ReqBody>,
+    client: &HttpClient,
     node: &UpstreamNodeDto,
     req: Request<ReqBody>,
     timeout: Duration,
@@ -33,7 +37,7 @@ pub async fn forward_http(
 
 /// 转发 HTTP 请求到上游节点（流式模式：body 以 BoxBody 包装 Incoming，不提前 collect）
 pub async fn forward_http_stream(
-    client: &Client<HttpConnector, ReqBody>,
+    client: &HttpClient,
     node: &UpstreamNodeDto,
     req: Request<ReqBody>,
     timeout: Duration,
@@ -45,12 +49,17 @@ pub async fn forward_http_stream(
 
 /// 内部转发逻辑
 async fn forward_internal(
-    client: &Client<HttpConnector, ReqBody>,
+    client: &HttpClient,
     node: &UpstreamNodeDto,
     req: Request<ReqBody>,
     timeout: Duration,
 ) -> Result<ProxyResult, ConrogateError> {
-    let addr = format!("http://{}", node.address);
+    // 地址支持显式 scheme（https://host:port）；缺省按 http
+    let addr = if node.address.contains("://") {
+        node.address.clone()
+    } else {
+        format!("http://{}", node.address)
+    };
 
     let (method, uri, headers, body) = (
         req.method().clone(),

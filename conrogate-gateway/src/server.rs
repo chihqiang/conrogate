@@ -154,6 +154,7 @@ impl GatewayServer {
         let protocols = ProtocolHandlerRegistry::new();
         protocols.register(Arc::new(
             HttpProtocolHandler::with_registry(svc.clone(), plugin_registry.clone(), timeout)
+                .with_outbound_tls(config.gate.outbound_tls.skip_verify)
                 .with_trusted_proxies(config.gate.listen.trusted_proxies.clone())
                 .with_max_retries(config.gate.retry.max_attempts),
         ));
@@ -210,6 +211,7 @@ impl GatewayServer {
         let protocols = ProtocolHandlerRegistry::new();
         protocols.register(Arc::new(
             HttpProtocolHandler::with_registry(svc.clone(), plugin_registry.clone(), timeout)
+                .with_outbound_tls(config.gate.outbound_tls.skip_verify)
                 .with_trusted_proxies(config.gate.listen.trusted_proxies.clone())
                 .with_max_retries(config.gate.retry.max_attempts),
         ));
@@ -448,7 +450,7 @@ impl GatewayServer {
                 }
             }
         } else if tls_enabled && tls_mode == "passthrough" {
-            tracing::info!("TLS passthrough mode enabled (raw TCP forwarding)");
+            tracing::info!("TLS passthrough mode enabled (raw TCP forwarding, SNI-based routing)");
             None
         } else {
             None
@@ -487,9 +489,20 @@ impl GatewayServer {
 
                         // TLS passthrough 模式：原始 TCP 隧道转发，不终止 TLS
                         if tls_passthrough {
+                            // peek ClientHello 提取 SNI，用于按域名路由（docs/10 §2.3）
+                            let mut buf = [0u8; 4096];
+                            let sni = match stream.peek(&mut buf).await {
+                                Ok(n) if n >= 5 => {
+                                    conrogate_protocol::tls::extract_sni_from_client_hello(&buf[..n])
+                                }
+                                _ => None,
+                            };
+                            if let Some(sni) = &sni {
+                                tracing::debug!(sni = %sni, "tls passthrough: sni extracted from client hello");
+                            }
                             let result = match tcp_handler {
                                 Some(handler) => {
-                                    handler.handle_tcp(listen_addr, None, client_ip, stream).await
+                                    handler.handle_tcp(listen_addr, sni, client_ip, stream).await
                                 }
                                 None => {
                                     tracing::warn!("TCP tunnel protocol handler not registered");

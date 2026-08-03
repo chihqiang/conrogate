@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 // ── 路由 ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RouteDto {
     pub id: u64,
     pub name: String,
@@ -22,7 +22,7 @@ pub struct RouteDto {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateRouteDto {
     pub name: String,
     pub protocol: ProtocolId,
@@ -34,7 +34,7 @@ pub struct CreateRouteDto {
     pub enabled: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateRouteDto {
     pub id: u64,
     pub name: Option<String>,
@@ -48,7 +48,7 @@ pub struct UpdateRouteDto {
 
 // ── 上游 ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpstreamNodeDto {
     pub id: u64,
     pub upstream_id: u64,
@@ -57,7 +57,7 @@ pub struct UpstreamNodeDto {
     pub enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpstreamDto {
     pub id: u64,
     pub name: String,
@@ -68,7 +68,7 @@ pub struct UpstreamDto {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateUpstreamDto {
     pub name: String,
     pub algorithm: BalancerAlgorithm,
@@ -76,14 +76,14 @@ pub struct CreateUpstreamDto {
     pub nodes: Vec<CreateUpstreamNodeDto>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct CreateUpstreamNodeDto {
     pub address: String,
     pub weight: Option<i32>,
     pub enabled: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateUpstreamDto {
     pub id: u64,
     pub name: Option<String>,
@@ -94,7 +94,7 @@ pub struct UpdateUpstreamDto {
 
 // ── 插件绑定 ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct PluginBindingDto {
     pub id: u64,
     pub route_id: u64,
@@ -105,7 +105,7 @@ pub struct PluginBindingDto {
     pub enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct BindPluginDto {
     pub plugin_name: String,
     pub config: serde_json::Value,
@@ -114,7 +114,7 @@ pub struct BindPluginDto {
     pub enabled: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdatePluginBindingDto {
     pub config: Option<serde_json::Value>,
     pub order: Option<i32>,
@@ -124,7 +124,7 @@ pub struct UpdatePluginBindingDto {
 
 // ── 配置版本 ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ConfigVersionDto {
     pub version: u64,
     pub base_version: u64,
@@ -136,21 +136,21 @@ pub struct ConfigVersionDto {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PublishType {
     Publish,
     Rollback,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ConfigSnapshot {
     pub routes: Vec<RouteDto>,
     pub upstreams: Vec<UpstreamDto>,
     pub plugin_bindings: Vec<PluginBindingDto>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ConfigDiff {
     pub added: Vec<String>,
     pub modified: Vec<String>,
@@ -159,7 +159,7 @@ pub struct ConfigDiff {
 
 // ── 指标与事件 ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MetricRow {
     pub ts: DateTime<Utc>,
     pub bucket_sec: u32,
@@ -180,7 +180,7 @@ pub struct MetricRow {
     pub bytes_out: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EventRow {
     pub ts: DateTime<Utc>,
     pub event_type: String,
@@ -190,14 +190,14 @@ pub struct EventRow {
     pub detail: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct OverviewMetric {
     pub total_qps: f64,
     pub avg_latency_ms: f64,
     pub error_rate: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct PaginatedResult<T> {
     pub list: Vec<T>,
     pub total: u64,
@@ -207,7 +207,7 @@ pub struct PaginatedResult<T> {
 
 // ── 审计日志 ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AuditLogRow {
     pub ts: DateTime<Utc>,
     pub operator: Option<String>,
@@ -220,7 +220,7 @@ pub struct AuditLogRow {
 
 // ── 节点应用记录 ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct NodeApplicationRow {
     pub gate_id: String,
     pub version: u64,
@@ -230,7 +230,7 @@ pub struct NodeApplicationRow {
 
 // ── 已安装插件 ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct InstalledPluginDto {
     pub name: String,
     pub version: String,
@@ -245,7 +245,7 @@ pub struct InstalledPluginDto {
 
 // ── 数据上报载荷 ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MetricsBatch {
     pub gate_id: String,
     pub trace_id: String,
@@ -255,14 +255,14 @@ pub struct MetricsBatch {
     pub metrics: Vec<MetricRow>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EventsBatch {
     pub gate_id: String,
     pub trace_id: String,
     pub events: Vec<EventRow>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Heartbeat {
     pub gate_id: String,
     pub version: u64,
@@ -284,14 +284,14 @@ pub struct RouteSnapshot {
 
 // ── 查询参数 ──
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct MetricQuery {
     pub range_min: u32,
     pub route_id: Option<u64>,
     pub gate_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct EventQuery {
     pub event_type: Option<String>,
     pub route_id: Option<u64>,
@@ -299,7 +299,7 @@ pub struct EventQuery {
     pub ts_to: Option<DateTime<Utc>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct AuditLogQuery {
     pub operator: Option<String>,
     pub action: Option<String>,

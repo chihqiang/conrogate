@@ -1,7 +1,7 @@
 //! HTTP 协议处理器：完整转发链路（缓冲 / 流式两种模式）。
 
 use crate::handler::{NoopLogger, NoopMetrics, ProtocolHandler};
-use crate::proxy::{ReqBody, body_from_bytes, body_from_incoming};
+use crate::proxy::{HttpClient, body_from_bytes, body_from_incoming};
 use conrogate_contract::gateway::ServiceContext;
 use conrogate_contract::plugin::{HttpContext, PluginContext, PluginOutcome, PluginResponse};
 use conrogate_contract::protocol::{ProtocolId, RouteMatchInfo};
@@ -9,7 +9,6 @@ use conrogate_contract::ConrogateError;
 use bytes::Bytes;
 use http::{Request, Response, StatusCode};
 use hyper_util::client::legacy::Client;
-use hyper_util::client::legacy::connect::HttpConnector;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -30,8 +29,8 @@ pub struct HttpProtocolHandler {
     svc: Arc<ServiceContext>,
     /// 插件注册表（解析路由绑定 → 插件实例）
     plugin_registry: Option<Arc<conrogate_plugin::registry::PluginRegistryImpl>>,
-    /// hyper 客户端（连接池复用，统一使用 BoxBody 体类型）
-    client: Client<HttpConnector, ReqBody>,
+    /// hyper 客户端（连接池复用，统一使用 BoxBody 体类型；支持 http/https 出站）
+    client: HttpClient,
     /// 转发超时
     timeout: Duration,
     /// 可信代理 CIDR 列表（XFF 信任链）
@@ -43,9 +42,32 @@ pub struct HttpProtocolHandler {
 }
 
 impl HttpProtocolHandler {
+    /// 构建出站客户端（支持 http/https；skip_verify 跳过上游证书校验，仅非生产）
+    fn build_client(skip_verify: bool) -> HttpClient {
+        if skip_verify {
+            tracing::warn!("outbound TLS: skipping upstream certificate verification (non-production only)");
+            let verifier = Arc::new(crate::tls::NoVerifyServerCertVerifier);
+            let tls_config = rustls::ClientConfig::builder()
+                .dangerous()
+                .with_custom_certificate_verifier(verifier)
+                .with_no_client_auth();
+            let connector = hyper_rustls::HttpsConnectorBuilder::new()
+                .with_tls_config(tls_config)
+                .https_or_http();
+            Client::builder(hyper_util::rt::TokioExecutor::new())
+                .build(connector.enable_http1().enable_http2().build())
+        } else {
+            let connector = hyper_rustls::HttpsConnectorBuilder::new()
+                .with_native_roots()
+                .expect("failed to load native TLS roots")
+                .https_or_http();
+            Client::builder(hyper_util::rt::TokioExecutor::new())
+                .build(connector.enable_http1().enable_http2().build())
+        }
+    }
+
     pub fn new(svc: Arc<ServiceContext>) -> Self {
-        let client = Client::builder(hyper_util::rt::TokioExecutor::new())
-            .build(HttpConnector::new());
+        let client = Self::build_client(false);
         Self {
             svc,
             plugin_registry: None,
@@ -59,8 +81,7 @@ impl HttpProtocolHandler {
 
     /// 使用指定超时创建
     pub fn with_timeout(svc: Arc<ServiceContext>, timeout: Duration) -> Self {
-        let client = Client::builder(hyper_util::rt::TokioExecutor::new())
-            .build(HttpConnector::new());
+        let client = Self::build_client(false);
         Self {
             svc,
             plugin_registry: None,
@@ -78,8 +99,7 @@ impl HttpProtocolHandler {
         plugin_registry: Arc<conrogate_plugin::registry::PluginRegistryImpl>,
         timeout: Duration,
     ) -> Self {
-        let client = Client::builder(hyper_util::rt::TokioExecutor::new())
-            .build(HttpConnector::new());
+        let client = Self::build_client(false);
         Self {
             svc,
             plugin_registry: Some(plugin_registry),
@@ -89,6 +109,12 @@ impl HttpProtocolHandler {
             rate_limit_qps: 100,
             max_retries: 3,
         }
+    }
+
+    /// 设置出站 TLS 跳过上游证书校验（重建客户端）
+    pub fn with_outbound_tls(mut self, skip_verify: bool) -> Self {
+        self.client = Self::build_client(skip_verify);
+        self
     }
 
     /// 设置可信代理 CIDR 列表
