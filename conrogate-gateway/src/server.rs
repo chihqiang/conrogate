@@ -126,6 +126,7 @@ impl GatewayServer {
             traffic,
             telemetry,
             plugins: plugin_executor.clone(),
+            gate_id: config.gate.gate_id.clone(),
         });
 
         let timeout =

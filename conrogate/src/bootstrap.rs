@@ -203,6 +203,7 @@ pub async fn run(
         traffic,
         telemetry,
         plugins: plugin_executor.clone(),
+        gate_id: config.gate.gate_id.clone(),
     });
 
     // ── 17-18. 启动数据面（带优雅停机）──

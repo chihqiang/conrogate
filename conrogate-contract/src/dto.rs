@@ -162,9 +162,12 @@ pub struct ConfigDiff {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MetricRow {
     pub ts: DateTime<Utc>,
+    /// 时间桶长度（秒）。协议层原始样本填 0，由 MetricAggregator 按自身配置重写
     pub bucket_sec: u32,
     pub route_id: Option<u64>,
+    /// 网关实例标识（多网关部署区分数据来源）
     pub gate_id: String,
+    /// 协议层原始样本填 0，由 MetricAggregator 聚合时重算
     pub qps: u32,
     pub total_requests: u64,
     pub avg_latency_ms: f64,
@@ -178,6 +181,50 @@ pub struct MetricRow {
     pub sessions: u64,
     pub bytes_in: u64,
     pub bytes_out: u64,
+}
+
+impl MetricRow {
+    /// 构建协议层单次请求/会话的原始样本。
+    ///
+    /// `total_requests` 恒为 1；`bucket_sec`/`qps` 为占位值，
+    /// 由 `MetricAggregator` 按自身桶配置聚合时重写（见 conrogate-gateway::telemetry）。
+    #[allow(clippy::too_many_arguments)]
+    pub fn raw_sample(
+        ts: DateTime<Utc>,
+        gate_id: String,
+        route_id: Option<u64>,
+        latency_ms: f64,
+        p50_ms: u32,
+        p90_ms: u32,
+        p99_ms: u32,
+        status_2xx: u64,
+        status_3xx: u64,
+        status_4xx: u64,
+        status_5xx: u64,
+        sessions: u64,
+        bytes_in: u64,
+        bytes_out: u64,
+    ) -> Self {
+        Self {
+            ts,
+            bucket_sec: 0,
+            route_id,
+            gate_id,
+            qps: 0,
+            total_requests: 1,
+            avg_latency_ms: latency_ms,
+            p50_ms,
+            p90_ms,
+            p99_ms,
+            status_2xx,
+            status_3xx,
+            status_4xx,
+            status_5xx,
+            sessions,
+            bytes_in,
+            bytes_out,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]

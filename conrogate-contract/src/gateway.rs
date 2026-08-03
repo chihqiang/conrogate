@@ -93,6 +93,8 @@ pub struct ServiceContext {
     pub traffic: Arc<dyn TrafficControl>,
     pub telemetry: Arc<dyn TelemetryReport>,
     pub plugins: Arc<dyn PluginExecutor>,
+    /// 网关实例标识：写入遥测指标，用于多网关部署时区分数据来源
+    pub gate_id: String,
 }
 
 impl std::fmt::Debug for ServiceContext {

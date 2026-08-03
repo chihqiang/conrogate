@@ -36,6 +36,8 @@ pub struct GateConfig {
     pub upgrade: UpgradeConfig,
     pub telemetry: TelemetryConfig,
     pub outbound_tls: OutboundTlsConfig,
+    /// 网关实例标识（用于遥测区分多网关部署），默认取主机名
+    pub gate_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -410,6 +412,13 @@ impl std::str::FromStr for ConfigSource {
 
 // ── 环境变量加载 ──
 
+/// 默认网关标识：优先取 CONROGATE_GATE_ID，否则用主机名兜底
+fn default_gate_id() -> String {
+    std::env::var("CONROGATE_GATE_ID").unwrap_or_else(|_| {
+        std::env::var("HOSTNAME").unwrap_or_else(|_| "conrogate".into())
+    })
+}
+
 fn env_str(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
 }
@@ -686,6 +695,7 @@ impl Config {
                 outbound_tls: OutboundTlsConfig {
                     skip_verify: env_bool("CONROGATE_GATE_OUTBOUND_TLS_SKIP_VERIFY", def.gate.outbound_tls.skip_verify),
                 },
+                gate_id: env_str("CONROGATE_GATE_ID", &def.gate.gate_id),
             },
             node: NodeConfig {
                 auto_migrate: env_bool("CONROGATE_NODE_AUTO_MIGRATE", def.node.auto_migrate),
@@ -807,6 +817,7 @@ impl Default for Config {
                 upgrade: UpgradeConfig::default(),
                 telemetry: TelemetryConfig::default(),
                 outbound_tls: OutboundTlsConfig::default(),
+                gate_id: default_gate_id(),
             },
             node: NodeConfig::default(),
             control: ControlConfig {
@@ -905,6 +916,7 @@ mod tests {
         assert_eq!(parsed.gate.telemetry.batch_size, default.gate.telemetry.batch_size);
         assert_eq!(parsed.gate.telemetry.bucket_sec, default.gate.telemetry.bucket_sec);
         assert_eq!(parsed.gate.outbound_tls.skip_verify, default.gate.outbound_tls.skip_verify);
+        assert_eq!(parsed.gate.gate_id, default.gate.gate_id);
         assert_eq!(parsed.control.listen.enabled, default.control.listen.enabled);
         assert_eq!(parsed.control.listen.port, default.control.listen.port);
         assert_eq!(parsed.control.auth.token, default.control.auth.token);
@@ -927,5 +939,15 @@ mod tests {
         let parsed = Config::from_env().expect("from_env should succeed");
         assert_eq!(parsed.gate.listen.port, 9999);
         assert_eq!(parsed.gate.timeouts.total.as_millis() as u64, 7000);
+    }
+
+    /// CONROGATE_GATE_ID 覆盖生效
+    #[test]
+    fn test_gate_id_override() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _env = EnvGuard::clear();
+        std::env::set_var("CONROGATE_GATE_ID", "gw-east-1");
+        let parsed = Config::from_env().expect("from_env should succeed");
+        assert_eq!(parsed.gate.gate_id, "gw-east-1");
     }
 }

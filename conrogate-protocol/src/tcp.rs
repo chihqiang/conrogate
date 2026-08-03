@@ -158,25 +158,22 @@ impl TcpTunnelProtocolHandler {
         };
         self.svc
             .telemetry
-            .record_metric(conrogate_contract::dto::MetricRow {
-                ts: chrono::Utc::now(),
-                bucket_sec: 10,
-                route_id: Some(route.id),
-                gate_id: String::new(),
-                qps: 1,
-                total_requests: 1,
-                avg_latency_ms: start_ts.elapsed().as_millis() as f64,
-                p50_ms: 0,
-                p90_ms: 0,
-                p99_ms: 0,
-                status_2xx: if success { 1 } else { 0 },
-                status_3xx: 0,
-                status_4xx: 0,
-                status_5xx: if success { 0 } else { 1 },
-                sessions: 1,
+            .record_metric(conrogate_contract::dto::MetricRow::raw_sample(
+                chrono::Utc::now(),
+                self.svc.gate_id.clone(),
+                Some(route.id),
+                start_ts.elapsed().as_millis() as f64,
+                0,
+                0,
+                0,
+                u64::from(success),
+                0,
+                0,
+                u64::from(!success),
+                1,
                 bytes_in,
                 bytes_out,
-            })
+            ))
             .await;
 
         // 8. 插件 on_disconnect

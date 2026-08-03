@@ -339,7 +339,7 @@ impl HttpProtocolHandler {
                 self.record_outcome(&route, &node, proxy_result.is_ok()).await;
                 if proxy_result.is_err() {
                     // 上游传输失败（超时/连接错误）：无响应体可返回，记录 5xx 指标
-                    self.record_terminal_metric(&route, &meta, false, false, true, 0, 0)
+                    self.record_terminal_metric(&route, &meta, false, false, false, true, 0, 0)
                         .await;
                 }
                 let proxy_result = proxy_result?;
@@ -355,6 +355,7 @@ impl HttpProtocolHandler {
                     resp_body,
                     after_body,
                     &meta,
+                    body_bytes.len() as u64,
                 )
                 .await
             }
@@ -433,7 +434,7 @@ impl HttpProtocolHandler {
                 self.record_outcome(&route, &node, proxy_result.is_ok()).await;
                 if proxy_result.is_err() {
                     // 上游传输失败：无响应体可返回，记录 5xx 指标
-                    self.record_terminal_metric(&route, &meta, false, false, true, 0, 0)
+                    self.record_terminal_metric(&route, &meta, false, false, false, true, 0, 0)
                         .await;
                 }
                 let proxy_result = proxy_result?;
@@ -447,6 +448,7 @@ impl HttpProtocolHandler {
                     body_from_incoming(proxy_result.body),
                     Bytes::new(),
                     &meta,
+                    0,
                 )
                 .await
             }
@@ -544,7 +546,7 @@ impl HttpProtocolHandler {
                 })
                 .await;
             // 限流请求无响应体可转发，直接记录 4xx 指标
-            self.record_terminal_metric(&route, meta, false, true, false, 0, 0)
+            self.record_terminal_metric(&route, meta, false, false, true, false, 0, 0)
                 .await;
             return Err(e);
         }
@@ -564,7 +566,7 @@ impl HttpProtocolHandler {
             .await
         {
             // 熔断拒绝的请求不转发，记录 5xx 指标
-            self.record_terminal_metric(&route, meta, false, false, true, 0, 0)
+            self.record_terminal_metric(&route, meta, false, false, false, true, 0, 0)
                 .await;
             return Err(e);
         }
@@ -666,6 +668,7 @@ impl HttpProtocolHandler {
         resp_body: B,
         after_body: Bytes,
         meta: &RequestMeta,
+        bytes_in: u64,
     ) -> Result<Response<B>, ConrogateError> {
         // 12. 构造响应
         let mut resp_builder = Response::builder().status(status);
@@ -690,6 +693,8 @@ impl HttpProtocolHandler {
         };
 
         // 13. 插件 after_response
+        // 响应字节数在缓冲模式取 after_body 长度；流式模式 body 不缓冲，无法统计（0）
+        let bytes_out = after_body.len() as u64;
         let mut plugin_resp = PluginResponse {
             status: status.as_u16(),
             headers,
@@ -701,10 +706,12 @@ impl HttpProtocolHandler {
             .await?;
 
         // 14. 遥测：记录指标（含实际延迟）
-        let is_2xx = status.as_u16() >= 200 && status.as_u16() < 300;
-        let is_4xx = status.as_u16() >= 400 && status.as_u16() < 500;
-        let is_5xx = status.as_u16() >= 500;
-        self.record_terminal_metric(route, meta, is_2xx, is_4xx, is_5xx, 0, 0)
+        let code = status.as_u16();
+        let is_2xx = (200..300).contains(&code);
+        let is_3xx = (300..400).contains(&code);
+        let is_4xx = (400..500).contains(&code);
+        let is_5xx = code >= 500;
+        self.record_terminal_metric(route, meta, is_2xx, is_3xx, is_4xx, is_5xx, bytes_in, bytes_out)
             .await;
 
         Ok(resp)
@@ -720,6 +727,7 @@ impl HttpProtocolHandler {
         route: &RouteSnapshot,
         meta: &RequestMeta,
         status_2xx: bool,
+        status_3xx: bool,
         status_4xx: bool,
         status_5xx: bool,
         bytes_in: u64,
@@ -728,25 +736,22 @@ impl HttpProtocolHandler {
         let latency_ms = meta.start.elapsed().as_millis() as f64;
         self.svc
             .telemetry
-            .record_metric(conrogate_contract::dto::MetricRow {
-                ts: chrono::Utc::now(),
-                bucket_sec: 10,
-                route_id: Some(route.id),
-                gate_id: String::new(),
-                qps: 1,
-                total_requests: 1,
-                avg_latency_ms: latency_ms,
-                p50_ms: latency_ms as u32,
-                p90_ms: latency_ms as u32,
-                p99_ms: latency_ms as u32,
-                status_2xx: if status_2xx { 1 } else { 0 },
-                status_3xx: 0,
-                status_4xx: if status_4xx { 1 } else { 0 },
-                status_5xx: if status_5xx { 1 } else { 0 },
-                sessions: 0,
+            .record_metric(conrogate_contract::dto::MetricRow::raw_sample(
+                chrono::Utc::now(),
+                self.svc.gate_id.clone(),
+                Some(route.id),
+                latency_ms,
+                latency_ms as u32,
+                latency_ms as u32,
+                latency_ms as u32,
+                u64::from(status_2xx),
+                u64::from(status_3xx),
+                u64::from(status_4xx),
+                u64::from(status_5xx),
+                0,
                 bytes_in,
                 bytes_out,
-            })
+            ))
             .await;
     }
 }
@@ -959,6 +964,7 @@ mod tests {
             traffic,
             telemetry: Arc::new(telemetry),
             plugins: Arc::new(StubPlugins),
+            gate_id: "test-gate".into(),
         });
         (HttpProtocolHandler::with_timeout(svc, Duration::from_secs(5)), metrics)
     }
@@ -985,6 +991,34 @@ mod tests {
                                     .header("x-upstream", "echo")
                                     .body(Full::new(Bytes::from(echo)))
                                     .unwrap(),
+                            )
+                        },
+                    );
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, svc)
+                        .await;
+                });
+            }
+        });
+        addr
+    }
+
+    /// 固定状态码上游：返回指定 status + 空 body
+    async fn spawn_status_upstream(status: StatusCode) -> SocketAddr {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let (stream, _) = match listener.accept().await {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+                let io = TokioIo::new(stream);
+                tokio::spawn(async move {
+                    let svc = hyper::service::service_fn(
+                        |_req: Request<Incoming>| async move {
+                            Ok::<_, std::convert::Infallible>(
+                                Response::builder().status(status).body(Full::new(Bytes::new())).unwrap(),
                             )
                         },
                     );
@@ -1057,6 +1091,8 @@ mod tests {
         assert_eq!(rows[0].status_2xx, 0);
         assert_eq!(rows[0].status_4xx, 0);
         assert_eq!(rows[0].total_requests, 1);
+        assert_eq!(rows[0].gate_id, "test-gate");
+        assert_eq!(rows[0].bucket_sec, 0, "raw sample: aggregator assigns bucket");
     }
 
     /// 限流拒绝：应上报 4xx 指标
@@ -1081,7 +1117,7 @@ mod tests {
         assert_eq!(rows[0].status_2xx, 0);
     }
 
-    /// 成功请求：应上报 2xx 指标
+    /// 成功请求：应上报 2xx 指标 + 真实字节数
     #[tokio::test]
     async fn successful_request_emits_2xx_metric() {
         let upstream = spawn_echo_upstream().await;
@@ -1098,6 +1134,31 @@ mod tests {
         let rows = metrics.lock().unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status_2xx, 1);
+        assert_eq!(rows[0].status_4xx, 0);
+        assert_eq!(rows[0].status_5xx, 0);
+        assert_eq!(rows[0].gate_id, "test-gate");
+        assert_eq!(rows[0].bytes_in, 4, "request body was 'ping'");
+        assert_eq!(rows[0].bytes_out, 9, "response body was 'echo:ping'");
+    }
+
+    /// 上游返回 3xx：应计入 status_3xx（此前 3xx 计数全丢）
+    #[tokio::test]
+    async fn upstream_redirect_emits_3xx_metric() {
+        let upstream = spawn_status_upstream(StatusCode::FOUND).await;
+        let (handler, metrics) = make_handler_with(Some(upstream), Arc::new(StubTraffic));
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("http://gateway.local/echo")
+            .body(Bytes::new())
+            .unwrap();
+        let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
+        assert_eq!(resp.status(), StatusCode::FOUND);
+
+        let rows = metrics.lock().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].status_3xx, 1);
+        assert_eq!(rows[0].status_2xx, 0);
         assert_eq!(rows[0].status_4xx, 0);
         assert_eq!(rows[0].status_5xx, 0);
     }
