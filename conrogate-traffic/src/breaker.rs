@@ -162,8 +162,9 @@ impl Breaker for BreakerImpl {
                 }
                 BreakerState::HalfOpen => {}
                 BreakerState::Closed => {
-                    // 正常运行中成功 → 重置计数
-                    inner.failure_count = 0;
+                    // Closed 阶段成功仅累计计数，作为失败率分母；
+                    // 失败计数由 refresh_window（窗口过期）统一清零，
+                    // 避免单次成功就把失败计数清零导致熔断永不触发。
                 }
                 _ => {}
             }

@@ -138,14 +138,24 @@ impl HttpProtocolHandler {
     }
 
     /// XFF 信任链解析：从 X-Forwarded-For 链中提取真实客户端 IP
+    ///
+    /// 仅信任来自可信代理的对端所携带的 XFF：
+    /// - 无可信代理配置 → 直接使用 socket IP；
+    /// - 对端不是可信代理（客户端直连）→ 忽略其自带的 XFF，防止伪造绕过 IP 限流；
+    /// - 对端是可信代理 → 从右向左取第一个非可信 IP 作为真实客户端 IP。
     fn resolve_real_ip(&self, socket_ip: &str, headers: &http::HeaderMap) -> String {
         if self.trusted_proxies.is_empty() {
             return socket_ip.to_string();
         }
 
+        // 对端不是可信代理：直连客户端可伪造 XFF，必须忽略
+        if !self.is_trusted_proxy(socket_ip) {
+            return socket_ip.to_string();
+        }
+
         if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
             let chain: Vec<&str> = xff.split(',').map(|s| s.trim()).collect();
-            for ip in &chain {
+            for ip in chain.iter().rev() {
                 if !self.is_trusted_proxy(ip) {
                     return ip.to_string();
                 }

@@ -90,7 +90,7 @@ bytes = "1.7"
 # 配置加载
 dotenvy = "0.15"
 # 集群共享状态
-redis = { version = "0.27", features = ["tokio-comp"] }
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 # 正则匹配
 regex = "1.10"
 

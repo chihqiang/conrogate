@@ -3,12 +3,13 @@
 use crate::filter::ConfigReloader;
 use crate::pool::UpstreamSelectorImpl;
 use crate::route::RouteMatcher;
-use crate::telemetry::TelemetryReportImpl;
+use crate::telemetry::{MetricAggregator, TelemetryReportImpl};
 use bytes::Bytes;
 use conrogate_balancer::registry::create_default_registry;
 use conrogate_contract::config::Config;
 use conrogate_contract::gateway::ServiceContext;
 use conrogate_contract::protocol::{ProtocolId, RouteMatchInfo};
+use conrogate_contract::storage::EventRepo;
 use conrogate_contract::ConrogateError;
 use conrogate_plugin::pipeline::PluginPipelineImpl;
 use conrogate_plugin::registry::PluginRegistryImpl;
@@ -42,9 +43,15 @@ pub struct GatewayServer {
     config_cache: Option<Arc<dyn conrogate_contract::storage::ConfigCache>>,
 }
 
+/// 遥测通道（指标/事件接收端），由调用方决定消费方式（DB 落库或日志兜底）
+struct TelemetryChannels {
+    metric_rx: mpsc::Receiver<conrogate_contract::dto::MetricRow>,
+    event_rx: mpsc::Receiver<conrogate_contract::dto::EventRow>,
+}
+
 impl GatewayServer {
-    /// 从配置构建网关（async：需注册插件）
-    pub async fn from_config(config: Config) -> Self {
+    /// 组装服务器（不消费遥测通道，由调用方决定消费方式）
+    async fn from_config_inner(config: Config) -> (Self, TelemetryChannels) {
         let config_reloader = ConfigReloader::new(config.clone());
 
         // 路由匹配引擎
@@ -88,29 +95,6 @@ impl GatewayServer {
         let (metric_tx, metric_rx) = mpsc::channel(100_000);
         let (event_tx, event_rx) = mpsc::channel(100_000);
         let telemetry = Arc::new(TelemetryReportImpl::new(metric_tx, event_tx));
-
-        // 启动事件/指标消费者（防止通道满后静默丢弃）
-        tokio::spawn(async move {
-            let mut rx = metric_rx;
-            while let Some(metric) = rx.recv().await {
-                tracing::debug!(
-                    route_id = ?metric.route_id,
-                    qps = metric.qps,
-                    latency_ms = metric.avg_latency_ms,
-                    "metric received (no DB backend, logging only)"
-                );
-            }
-        });
-        tokio::spawn(async move {
-            let mut rx = event_rx;
-            while let Some(event) = rx.recv().await {
-                tracing::debug!(
-                    event_type = %event.event_type,
-                    route_id = ?event.route_id,
-                    "event received (no DB backend, logging only)"
-                );
-            }
-        });
 
         // 插件执行器
         let plugin_executor = Arc::new(PluginPipelineImpl::new());
@@ -173,7 +157,7 @@ impl GatewayServer {
             bandwidth_kbps,
         )));
 
-        Self {
+        let server = Self {
             config: config_reloader,
             route_matcher,
             upstream_selector,
@@ -185,7 +169,36 @@ impl GatewayServer {
             max_header_bytes: config.gate.connection.max_header_bytes,
             idle_timeout: config.gate.connection.idle_timeout,
             config_cache: None,
-        }
+        };
+        (server, TelemetryChannels { metric_rx, event_rx })
+    }
+
+    /// 从配置构建网关（async：需注册插件）。
+    /// 无 DB 场景：遥测仅记录日志（防止通道满后静默丢弃）。
+    pub async fn from_config(config: Config) -> Self {
+        let (server, channels) = Self::from_config_inner(config).await;
+        tokio::spawn(async move {
+            let mut rx = channels.metric_rx;
+            while let Some(metric) = rx.recv().await {
+                tracing::debug!(
+                    route_id = ?metric.route_id,
+                    qps = metric.qps,
+                    latency_ms = metric.avg_latency_ms,
+                    "metric received (no DB backend, logging only)"
+                );
+            }
+        });
+        tokio::spawn(async move {
+            let mut rx = channels.event_rx;
+            while let Some(event) = rx.recv().await {
+                tracing::debug!(
+                    event_type = %event.event_type,
+                    route_id = ?event.route_id,
+                    "event received (no DB backend, logging only)"
+                );
+            }
+        });
+        server
     }
 
     /// 从已有组件构建网关（bootstrap 装配路径）
@@ -262,7 +275,50 @@ impl GatewayServer {
                 .map(|s| s.redis_url.clone())
         };
         let poll_interval = config.gate.refresh.config_poll_interval.as_secs().max(1);
-        let mut server = Self::from_config(config).await;
+        let telemetry_bucket_sec = config.gate.telemetry.bucket_sec.max(1);
+        let telemetry_flush = config.gate.telemetry.batch_interval;
+        let telemetry_batch_size = config.gate.telemetry.batch_size.max(1);
+        let (mut server, channels) = Self::from_config_inner(config).await;
+
+        // 数据面遥测落库：指标聚合批量写入 + 事件批量写入（复用合并模式管线）
+        let metric_repo = Arc::new(
+            conrogate_storage::repository::metric_repo::MetricRepoImpl::new((*read_db).clone()),
+        );
+        let event_repo = Arc::new(
+            conrogate_storage::repository::event_repo::EventRepoImpl::new((*read_db).clone()),
+        );
+        tokio::spawn(async move {
+            let mut aggregator = MetricAggregator::new(channels.metric_rx, telemetry_bucket_sec)
+                .with_metric_repo(metric_repo);
+            aggregator.run(telemetry_flush).await;
+        });
+        tokio::spawn(async move {
+            let mut rx = channels.event_rx;
+            let mut batch = Vec::new();
+            let mut flush_timer = tokio::time::interval(telemetry_flush);
+            flush_timer.tick().await; // 跳过第一次立即触发
+            loop {
+                tokio::select! {
+                    Some(event) = rx.recv() => {
+                        batch.push(event);
+                        if batch.len() >= telemetry_batch_size {
+                            if let Err(e) = event_repo.insert_batch(&batch).await {
+                                tracing::warn!(error = %e, "event batch insert failed");
+                            }
+                            batch.clear();
+                        }
+                    }
+                    _ = flush_timer.tick() => {
+                        if !batch.is_empty() {
+                            if let Err(e) = event_repo.insert_batch(&batch).await {
+                                tracing::warn!(error = %e, "event batch insert failed");
+                            }
+                            batch.clear();
+                        }
+                    }
+                }
+            }
+        });
 
         // 尝试创建 Redis 配置缓存
         if let Some(ref url) = redis_url {

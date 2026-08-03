@@ -10,4 +10,5 @@ conrogate-contract = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
 rand = { workspace = true }
+seahash = "4"
 tracing = { workspace = true }
