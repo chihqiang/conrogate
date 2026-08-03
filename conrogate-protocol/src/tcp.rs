@@ -44,6 +44,30 @@ impl TcpTunnelProtocolHandler {
         }
     }
 
+    /// 上报隧道建立前失败指标（限流/熔断/插件拒绝等）：
+    /// 会话未建立（sessions=0），不记录则失败完全不可观测。
+    async fn record_pre_tunnel_failure(&self, route_id: Option<u64>, status_4xx: bool) {
+        self.svc
+            .telemetry
+            .record_metric(conrogate_contract::dto::MetricRow::raw_sample(
+                chrono::Utc::now(),
+                self.svc.gate_id.clone(),
+                route_id,
+                0.0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                u64::from(status_4xx),
+                u64::from(!status_4xx),
+                0,
+                0,
+                0,
+            ))
+            .await;
+    }
+
     /// 处理 TCP 隧道连接 — 完整转发链路
     async fn handle(
         &self,
@@ -56,12 +80,18 @@ impl TcpTunnelProtocolHandler {
         let start_ts = std::time::Instant::now();
 
         // 1. 路由匹配
-        let route = self
+        let route = match self
             .svc
             .routes
             .lookup_route(ProtocolId::TcpTunnel, &match_info)
             .await?
-            .ok_or_else(|| ConrogateError::RouteNotFound(listen_addr.clone()))?;
+        {
+            Some(route) => route,
+            None => {
+                self.record_pre_tunnel_failure(None, false).await;
+                return Err(ConrogateError::RouteNotFound(listen_addr.clone()));
+            }
+        };
 
         // 2. 插件 on_connect
         let listen_port = listen_addr
@@ -92,25 +122,36 @@ impl TcpTunnelProtocolHandler {
 
         if let PluginOutcome::Terminate(code, _) = plugin_outcome {
             tracing::warn!(code = %code, "tcp tunnel rejected by plugin");
+            self.record_pre_tunnel_failure(Some(route.id), false).await;
             return Err(ConrogateError::PluginRuntime(format!(
                 "plugin rejected: {code}"
             )));
         }
 
         // 3. 流量治理
-        self.svc
+        if let Err(e) = self
+            .svc
             .traffic
             .check_rate_limit(route.id, &plugin_ctx.client_ip)
-            .await?;
+            .await
+        {
+            self.record_pre_tunnel_failure(Some(route.id), true).await;
+            return Err(e);
+        }
 
         // 3a. 隧道连接建立速率限流
         if self.conn_qps > 0 {
             let conn_key = format!("conn:{listen_addr}");
             // 使用 traffic 模块的限流接口
-            self.svc
+            if let Err(e) = self
+                .svc
                 .traffic
                 .check_rate_limit(u64::MAX, &conn_key)
-                .await?;
+                .await
+            {
+                self.record_pre_tunnel_failure(Some(route.id), true).await;
+                return Err(e);
+            }
         }
 
         // 4. 选择上游（一致性哈希按 client_ip）
@@ -121,10 +162,15 @@ impl TcpTunnelProtocolHandler {
             .await?;
 
         // 5. 熔断检查
-        self.svc
+        if let Err(e) = self
+            .svc
             .traffic
             .check_circuit_breaker(route.id, node.id)
-            .await?;
+            .await
+        {
+            self.record_pre_tunnel_failure(Some(route.id), false).await;
+            return Err(e);
+        }
 
         // 6. 实际转发
         tracing::info!(

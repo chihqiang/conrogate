@@ -236,12 +236,15 @@ impl HttpProtocolHandler {
             PreFlight::WebSocketUpgrade {
                 parts: resp_parts,
                 upstream_addr,
+                route_id,
             } => {
                 tracing::info!(
                     trace_id = %meta.trace_id,
                     upstream = %upstream_addr,
                     "websocket upgrade request, returning 101 with upstream addr"
                 );
+                // WS 升级成功建立隧道：记录会话指标（此前完全不可观测）
+                self.record_ws_metric(route_id, &meta).await;
                 Ok(Response::from_parts(resp_parts, Bytes::new()))
             }
             PreFlight::Continue {
@@ -337,10 +340,11 @@ impl HttpProtocolHandler {
 
                 // 11. 记录结果（成功/失败反馈给熔断器）
                 self.record_outcome(&route, &node, proxy_result.is_ok()).await;
-                if proxy_result.is_err() {
-                    // 上游传输失败（超时/连接错误）：无响应体可返回，记录 5xx 指标
+                if let Err(ref e) = proxy_result {
+                    // 上游传输失败（超时/连接错误）：无响应体可返回，记录 5xx 指标 + 事件
                     self.record_terminal_metric(&route, &meta, false, false, false, true, 0, 0)
                         .await;
+                    self.record_upstream_failed_event(&route, &node, &meta, e).await;
                 }
                 let proxy_result = proxy_result?;
 
@@ -393,12 +397,15 @@ impl HttpProtocolHandler {
             PreFlight::WebSocketUpgrade {
                 parts: resp_parts,
                 upstream_addr,
+                route_id,
             } => {
                 tracing::info!(
                     trace_id = %meta.trace_id,
                     upstream = %upstream_addr,
                     "websocket upgrade request (stream), returning 101 with upstream addr"
                 );
+                // WS 升级成功建立隧道：记录会话指标（此前完全不可观测）
+                self.record_ws_metric(route_id, &meta).await;
                 Ok(Response::from_parts(resp_parts, body_from_bytes(Bytes::new())))
             }
             PreFlight::Continue {
@@ -432,10 +439,11 @@ impl HttpProtocolHandler {
 
                 // 记录结果
                 self.record_outcome(&route, &node, proxy_result.is_ok()).await;
-                if proxy_result.is_err() {
-                    // 上游传输失败：无响应体可返回，记录 5xx 指标
+                if let Err(ref e) = proxy_result {
+                    // 上游传输失败：无响应体可返回，记录 5xx 指标 + 事件
                     self.record_terminal_metric(&route, &meta, false, false, false, true, 0, 0)
                         .await;
+                    self.record_upstream_failed_event(&route, &node, &meta, e).await;
                 }
                 let proxy_result = proxy_result?;
 
@@ -565,19 +573,35 @@ impl HttpProtocolHandler {
             .check_circuit_breaker(route.id, node.id)
             .await
         {
-            // 熔断拒绝的请求不转发，记录 5xx 指标
+            // 熔断拒绝的请求不转发，记录 5xx 指标 + 审计事件
             self.record_terminal_metric(&route, meta, false, false, false, true, 0, 0)
+                .await;
+            self.svc
+                .telemetry
+                .record_event(conrogate_contract::dto::EventRow {
+                    ts: chrono::Utc::now(),
+                    event_type: "circuit_breaker_open".into(),
+                    route_id: Some(route.id),
+                    upstream_id: Some(node.id),
+                    trace_id: Some(meta.trace_id.clone()),
+                    detail: serde_json::json!({
+                        "client_ip": meta.real_ip,
+                        "reason": e.to_string(),
+                    }),
+                })
                 .await;
             return Err(e);
         }
 
         // 8a. WebSocket 升级检测（路由匹配 + 上游选择完成后）
-        let upgrade_check_req = Request::builder()
+        // 注意：必须带上客户端请求头，is_upgrade_request 依赖 upgrade/connection 头
+        let mut upgrade_check_req = Request::builder()
             .method(method.clone())
             .uri(uri.clone())
             .version(version)
             .body(Bytes::new())
             .unwrap();
+        *upgrade_check_req.headers_mut() = headers.clone();
         if crate::upgrade::is_upgrade_request(&upgrade_check_req) {
             let mut resp = crate::upgrade::build_upgrade_response(&upgrade_check_req);
             let upstream_addr = node.address.clone();
@@ -592,6 +616,7 @@ impl HttpProtocolHandler {
             return Ok(PreFlight::WebSocketUpgrade {
                 parts,
                 upstream_addr,
+                route_id: route.id,
             });
         }
 
@@ -705,9 +730,9 @@ impl HttpProtocolHandler {
             .execute_after_response(plugin_ctx, &mut plugin_resp, plugins)
             .await?;
 
-        // 14. 遥测：记录指标（含实际延迟）
+        // 14. 遥测：记录指标（含实际延迟）。101 Switching Protocols（WS 升级）视为成功
         let code = status.as_u16();
-        let is_2xx = (200..300).contains(&code);
+        let is_2xx = code == 101 || (200..300).contains(&code);
         let is_3xx = (300..400).contains(&code);
         let is_4xx = (400..500).contains(&code);
         let is_5xx = code >= 500;
@@ -754,6 +779,57 @@ impl HttpProtocolHandler {
             ))
             .await;
     }
+
+    /// 上报 WebSocket 升级会话指标：101 视为成功隧道建立（sessions=1）。
+    ///
+    /// 升级后由 HyperServiceBridge 另行执行双向转发，此处只计数不计量字节。
+    async fn record_ws_metric(&self, route_id: u64, meta: &RequestMeta) {
+        let latency_ms = meta.start.elapsed().as_millis() as f64;
+        self.svc
+            .telemetry
+            .record_metric(conrogate_contract::dto::MetricRow::raw_sample(
+                chrono::Utc::now(),
+                self.svc.gate_id.clone(),
+                Some(route_id),
+                latency_ms,
+                latency_ms as u32,
+                latency_ms as u32,
+                latency_ms as u32,
+                1,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+            ))
+            .await;
+    }
+
+    /// 上报上游传输失败审计事件（超时/连接错误），与 5xx 指标配套
+    async fn record_upstream_failed_event(
+        &self,
+        route: &RouteSnapshot,
+        node: &UpstreamNodeDto,
+        meta: &RequestMeta,
+        error: &ConrogateError,
+    ) {
+        self.svc
+            .telemetry
+            .record_event(conrogate_contract::dto::EventRow {
+                ts: chrono::Utc::now(),
+                event_type: "upstream_failed".into(),
+                route_id: Some(route.id),
+                upstream_id: Some(node.id),
+                trace_id: Some(meta.trace_id.clone()),
+                detail: serde_json::json!({
+                    "client_ip": meta.real_ip,
+                    "upstream": node.address,
+                    "reason": error.to_string(),
+                }),
+            })
+            .await;
+    }
 }
 
 /// 请求元数据（前置流程的公共输入）
@@ -781,6 +857,7 @@ enum PreFlight {
     WebSocketUpgrade {
         parts: http::response::Parts,
         upstream_addr: String,
+        route_id: u64,
     },
 }
 
@@ -882,17 +959,33 @@ mod tests {
         async fn record_result(&self, _route_id: u64, _node_id: u64, _success: bool) {}
     }
 
-    /// 收集指标的遥测桩
+    /// 恒熔断的流量桩：验证熔断拒绝路径指标 + 事件
+    struct FailingBreakerTraffic;
+    #[async_trait::async_trait]
+    impl TrafficControl for FailingBreakerTraffic {
+        async fn check_rate_limit(&self, _route_id: u64, _client_ip: &str) -> Result<(), ConrogateError> {
+            Ok(())
+        }
+        async fn check_circuit_breaker(&self, _route_id: u64, _node_id: u64) -> Result<(), ConrogateError> {
+            Err(ConrogateError::CircuitBreakerOpen)
+        }
+        async fn record_result(&self, _route_id: u64, _node_id: u64, _success: bool) {}
+    }
+
+    /// 收集指标 + 事件的遥测桩
     #[derive(Clone)]
     struct StubTelemetry {
         metrics: Arc<std::sync::Mutex<Vec<MetricRow>>>,
+        events: Arc<std::sync::Mutex<Vec<EventRow>>>,
     }
     #[async_trait::async_trait]
     impl TelemetryReport for StubTelemetry {
         async fn record_metric(&self, metric: MetricRow) {
             self.metrics.lock().unwrap().push(metric);
         }
-        async fn record_event(&self, _event: EventRow) {}
+        async fn record_event(&self, event: EventRow) {
+            self.events.lock().unwrap().push(event);
+        }
     }
 
     struct StubPlugins;
@@ -944,15 +1037,21 @@ mod tests {
     fn make_handler(upstream_addr: SocketAddr) -> HttpProtocolHandler {
         make_handler_with(Some(upstream_addr), Arc::new(StubTraffic)).0
     }
-
-    /// 构造 handler + 指标收集器（可自定义流量桩）
+    /// 构造 handler + 指标/事件收集器（可自定义流量桩）
+    #[allow(clippy::type_complexity)]
     fn make_handler_with(
         upstream: Option<SocketAddr>,
         traffic: Arc<dyn TrafficControl>,
-    ) -> (HttpProtocolHandler, Arc<std::sync::Mutex<Vec<MetricRow>>>) {
+    ) -> (
+        HttpProtocolHandler,
+        Arc<std::sync::Mutex<Vec<MetricRow>>>,
+        Arc<std::sync::Mutex<Vec<EventRow>>>,
+    ) {
         let metrics = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
         let telemetry = StubTelemetry {
             metrics: metrics.clone(),
+            events: events.clone(),
         };
         let svc = Arc::new(ServiceContext {
             routes: Arc::new(StubRoutes),
@@ -966,7 +1065,7 @@ mod tests {
             plugins: Arc::new(StubPlugins),
             gate_id: "test-gate".into(),
         });
-        (HttpProtocolHandler::with_timeout(svc, Duration::from_secs(5)), metrics)
+        (HttpProtocolHandler::with_timeout(svc, Duration::from_secs(5)), metrics, events)
     }
 
     /// 上游回显服务器：请求体原样回显（响应带 x-upstream 头）
@@ -1075,7 +1174,7 @@ mod tests {
     #[tokio::test]
     async fn upstream_connect_failure_emits_5xx_metric() {
         // 指向未监听端口 127.0.0.1:1 → 连接拒绝
-        let (handler, metrics) = make_handler_with(None, Arc::new(StubTraffic));
+        let (handler, metrics, events) = make_handler_with(None, Arc::new(StubTraffic));
 
         let req = Request::builder()
             .method(Method::POST) // 非幂等：不重试，单次尝试
@@ -1093,13 +1192,18 @@ mod tests {
         assert_eq!(rows[0].total_requests, 1);
         assert_eq!(rows[0].gate_id, "test-gate");
         assert_eq!(rows[0].bucket_sec, 0, "raw sample: aggregator assigns bucket");
+        // 上游失败应同时上报审计事件
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "upstream_failed");
+        assert_eq!(events[0].upstream_id, Some(1));
     }
 
     /// 限流拒绝：应上报 4xx 指标
     #[tokio::test]
     async fn rate_limited_emits_4xx_metric() {
         let upstream = spawn_echo_upstream().await;
-        let (handler, metrics) =
+        let (handler, metrics, _events) =
             make_handler_with(Some(upstream), Arc::new(FailingRateLimitTraffic));
 
         let req = Request::builder()
@@ -1121,7 +1225,7 @@ mod tests {
     #[tokio::test]
     async fn successful_request_emits_2xx_metric() {
         let upstream = spawn_echo_upstream().await;
-        let (handler, metrics) = make_handler_with(Some(upstream), Arc::new(StubTraffic));
+        let (handler, metrics, _events) = make_handler_with(Some(upstream), Arc::new(StubTraffic));
 
         let req = Request::builder()
             .method(Method::POST)
@@ -1145,7 +1249,7 @@ mod tests {
     #[tokio::test]
     async fn upstream_redirect_emits_3xx_metric() {
         let upstream = spawn_status_upstream(StatusCode::FOUND).await;
-        let (handler, metrics) = make_handler_with(Some(upstream), Arc::new(StubTraffic));
+        let (handler, metrics, _events) = make_handler_with(Some(upstream), Arc::new(StubTraffic));
 
         let req = Request::builder()
             .method(Method::POST)
@@ -1161,6 +1265,57 @@ mod tests {
         assert_eq!(rows[0].status_2xx, 0);
         assert_eq!(rows[0].status_4xx, 0);
         assert_eq!(rows[0].status_5xx, 0);
+    }
+
+    /// 熔断拒绝：应上报 5xx 指标 + circuit_breaker_open 审计事件
+    #[tokio::test]
+    async fn circuit_breaker_open_emits_5xx_metric_and_event() {
+        let upstream = spawn_echo_upstream().await;
+        let (handler, metrics, events) =
+            make_handler_with(Some(upstream), Arc::new(FailingBreakerTraffic));
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("http://gateway.local/echo")
+            .body(Bytes::new())
+            .unwrap();
+        let result = handler.handle(req, "192.168.1.10".into()).await;
+        assert!(matches!(result, Err(ConrogateError::CircuitBreakerOpen)));
+
+        let rows = metrics.lock().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].status_5xx, 1);
+
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "circuit_breaker_open");
+        assert_eq!(events[0].upstream_id, Some(1));
+        assert_eq!(events[0].route_id, Some(1));
+    }
+
+    /// WebSocket 升级：应上报会话指标（此前完全不可观测）
+    #[tokio::test]
+    async fn websocket_upgrade_emits_session_metric() {
+        let upstream = spawn_echo_upstream().await;
+        let (handler, metrics, _events) = make_handler_with(Some(upstream), Arc::new(StubTraffic));
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("http://gateway.local/ws")
+            .header("connection", "Upgrade")
+            .header("upgrade", "websocket")
+            .header("sec-websocket-version", "13")
+            .header("sec-websocket-key", "x3JJHMbDL1EzLkh9GBhXDw==")
+            .body(Bytes::new())
+            .unwrap();
+        let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
+        assert_eq!(resp.status(), StatusCode::SWITCHING_PROTOCOLS);
+
+        let rows = metrics.lock().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].status_2xx, 1, "101 视为成功隧道建立");
+        assert_eq!(rows[0].sessions, 1);
+        assert_eq!(rows[0].route_id, Some(1));
     }
 
     /// 流式模式：通过真实 hyper 服务器（Incoming body）端到端转发
