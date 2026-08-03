@@ -14,6 +14,12 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 jsonwebtoken = { workspace = true }
 tracing = { workspace = true }
+tokio = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+hyper-rustls = { workspace = true }
+http-body-util = { workspace = true }
+bytes = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

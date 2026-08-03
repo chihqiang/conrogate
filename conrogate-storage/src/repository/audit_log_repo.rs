@@ -5,7 +5,10 @@ use crate::entity::audit_logs::{self, Entity as AuditEntity};
 use conrogate_contract::dto::{AuditLogQuery, AuditLogRow, PaginatedResult};
 use conrogate_contract::storage::AuditLogRepo;
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect,
+};
 
 pub struct AuditLogRepoImpl {
     db: DatabaseConnection,
@@ -53,7 +56,11 @@ impl AuditLogRepo for AuditLogRepoImpl {
             query = query.filter(audit_logs::Column::Ts.lte(ts_to));
         }
 
-        let total = query.clone().count(&self.db).await.map_err(|_| ConrogateError::DatabaseInternal)?;
+        let total = query
+            .clone()
+            .count(&self.db)
+            .await
+            .map_err(|_| ConrogateError::DatabaseInternal)?;
 
         let models = query
             .offset(((page - 1) * page_size) as u64)
@@ -62,7 +69,15 @@ impl AuditLogRepo for AuditLogRepoImpl {
             .await
             .map_err(|_| ConrogateError::DatabaseInternal)?;
 
-        let list: Vec<AuditLogRow> = models.into_iter().filter_map(convert::audit_model_to_row).collect();
-        Ok(PaginatedResult { list, total, page, page_size })
+        let list: Vec<AuditLogRow> = models
+            .into_iter()
+            .filter_map(convert::audit_model_to_row)
+            .collect();
+        Ok(PaginatedResult {
+            list,
+            total,
+            page,
+            page_size,
+        })
     }
 }

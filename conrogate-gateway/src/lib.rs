@@ -3,14 +3,14 @@
 //! 协议适配层（HTTP/WebSocket/TCP 隧道）已抽离至 `conrogate-protocol` crate，
 //! 网关通过 `ProtocolHandlerRegistry` 分发，扩展新协议无需修改网关核心。
 
+pub mod discovery;
+pub mod filter;
+pub mod health;
+pub mod health_check;
+pub mod logging;
+pub mod pool;
 pub mod route;
 pub mod server;
-pub mod pool;
-pub mod filter;
-pub mod telemetry;
-pub mod discovery;
-pub mod health;
 pub mod task_manager;
-pub mod logging;
+pub mod telemetry;
 pub mod tls;
-pub mod health_check;

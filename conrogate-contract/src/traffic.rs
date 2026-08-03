@@ -19,12 +19,7 @@ pub enum LimitAlgorithm {
 pub trait Limiter: Send + Sync {
     fn algorithm(&self) -> LimitAlgorithm;
 
-    async fn acquire(
-        &self,
-        key: &str,
-        limit: u32,
-        window: Duration,
-    ) -> Result<(), ConrogateError>;
+    async fn acquire(&self, key: &str, limit: u32, window: Duration) -> Result<(), ConrogateError>;
 }
 
 // ── 熔断器 ──
@@ -51,11 +46,7 @@ pub trait Breaker: Send + Sync {
 #[async_trait]
 pub trait BreakerFactory: Send + Sync {
     /// 按维度（route + 上游节点）获取或创建熔断器实例
-    async fn get_or_create(
-        &self,
-        route_id: u64,
-        node_id: u64,
-    ) -> std::sync::Arc<dyn Breaker>;
+    async fn get_or_create(&self, route_id: u64, node_id: u64) -> std::sync::Arc<dyn Breaker>;
 }
 
 // ── 重试器 ──

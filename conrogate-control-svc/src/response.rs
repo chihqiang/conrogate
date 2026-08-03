@@ -21,7 +21,8 @@ pub fn ok<T: Serialize>(data: T) -> Response {
         msg: "success".to_string(),
         data: Some(data),
         trace_id: generate_trace_id(),
-    }).into_response()
+    })
+    .into_response()
 }
 
 /// 空数据成功响应
@@ -31,7 +32,8 @@ pub fn ok_empty() -> Response {
         msg: "success".to_string(),
         data: None,
         trace_id: generate_trace_id(),
-    }).into_response()
+    })
+    .into_response()
 }
 
 /// 从 ConrogateError 构建错误响应

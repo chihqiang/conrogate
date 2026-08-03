@@ -44,10 +44,7 @@ impl HealthChecker for PassiveHealthChecker {
         "passive"
     }
 
-    async fn check(
-        &self,
-        node: &UpstreamNodeDto,
-    ) -> Result<NodeHealth, ConrogateError> {
+    async fn check(&self, node: &UpstreamNodeDto) -> Result<NodeHealth, ConrogateError> {
         let states = self.states.lock().unwrap();
         match states.get(&node.id) {
             None => Ok(NodeHealth::Healthy),
@@ -62,17 +59,11 @@ impl HealthChecker for PassiveHealthChecker {
                         }
                     }
                     Ok(NodeHealth::Unhealthy {
-                        reason: format!(
-                            "{} consecutive failures",
-                            state.consecutive_failures
-                        ),
+                        reason: format!("{} consecutive failures", state.consecutive_failures),
                     })
                 } else if state.consecutive_failures > 0 {
                     Ok(NodeHealth::Degraded {
-                        reason: format!(
-                            "{} recent failures",
-                            state.consecutive_failures
-                        ),
+                        reason: format!("{} recent failures", state.consecutive_failures),
                     })
                 } else {
                     Ok(NodeHealth::Healthy)
@@ -122,10 +113,7 @@ impl PassiveHealthChecker {
     }
 
     /// 过滤健康节点
-    pub async fn filter_healthy(
-        &self,
-        nodes: &[UpstreamNodeDto],
-    ) -> Vec<UpstreamNodeDto> {
+    pub async fn filter_healthy(&self, nodes: &[UpstreamNodeDto]) -> Vec<UpstreamNodeDto> {
         let mut healthy = Vec::new();
         for node in nodes {
             if !node.enabled {

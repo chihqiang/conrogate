@@ -27,7 +27,9 @@ pub trait ProtocolHandler: Send + Sync {
         _req: Request<Bytes>,
         _client_ip: String,
     ) -> Result<Response<Bytes>, ConrogateError> {
-        Err(ConrogateError::ProtocolNotSupported(self.protocol().to_string()))
+        Err(ConrogateError::ProtocolNotSupported(
+            self.protocol().to_string(),
+        ))
     }
 
     /// HTTP 请求处理（流式模式：请求体与响应体均不缓冲，直接透传）
@@ -38,7 +40,9 @@ pub trait ProtocolHandler: Send + Sync {
         _route: RouteSnapshot,
         _client_ip: String,
     ) -> Result<Response<crate::proxy::ReqBody>, ConrogateError> {
-        Err(ConrogateError::ProtocolNotSupported(self.protocol().to_string()))
+        Err(ConrogateError::ProtocolNotSupported(
+            self.protocol().to_string(),
+        ))
     }
 
     /// TCP 隧道处理（原始字节流转发）
@@ -49,7 +53,9 @@ pub trait ProtocolHandler: Send + Sync {
         _client_ip: String,
         _stream: TcpStream,
     ) -> Result<(), ConrogateError> {
-        Err(ConrogateError::ProtocolNotSupported(self.protocol().to_string()))
+        Err(ConrogateError::ProtocolNotSupported(
+            self.protocol().to_string(),
+        ))
     }
 }
 

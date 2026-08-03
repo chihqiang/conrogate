@@ -86,11 +86,17 @@ pub trait ConfigVersionRepo: Send + Sync {
         page_size: u32,
     ) -> Result<PaginatedResult<ConfigVersionDto>, ConrogateError>;
 
-    async fn find_by_version(&self, version: u64) -> Result<Option<ConfigVersionDto>, ConrogateError>;
+    async fn find_by_version(
+        &self,
+        version: u64,
+    ) -> Result<Option<ConfigVersionDto>, ConrogateError>;
     async fn latest_version(&self) -> Result<Option<ConfigVersionDto>, ConrogateError>;
 
     /// 按版本号获取配置快照内容（用于回滚后写 Redis 缓存）
-    async fn get_snapshot_by_version(&self, version: u64) -> Result<Option<ConfigSnapshot>, ConrogateError>;
+    async fn get_snapshot_by_version(
+        &self,
+        version: u64,
+    ) -> Result<Option<ConfigSnapshot>, ConrogateError>;
 
     /// 将快照回写到业务表（routes / upstreams / route_plugin_bindings）。
     ///
@@ -150,17 +156,27 @@ pub trait NodeApplicationRepo: Send + Sync {
     async fn upsert(&self, gate_id: &str, version: u64) -> Result<(), ConrogateError>;
     async fn count_by_version(&self, version: u64) -> Result<u32, ConrogateError>;
     async fn list_all(&self) -> Result<Vec<NodeApplicationRow>, ConrogateError>;
-    async fn list_stale(&self, before: chrono::DateTime<chrono::Utc>) -> Result<Vec<NodeApplicationRow>, ConrogateError>;
+    async fn list_stale(
+        &self,
+        before: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<NodeApplicationRow>, ConrogateError>;
 }
 
 // ── 已安装插件仓储 ──
 
 #[async_trait]
 pub trait InstalledPluginRepo: Send + Sync {
-    async fn list(&self, status: Option<crate::plugin::PluginStatus>) -> Result<Vec<InstalledPluginDto>, ConrogateError>;
+    async fn list(
+        &self,
+        status: Option<crate::plugin::PluginStatus>,
+    ) -> Result<Vec<InstalledPluginDto>, ConrogateError>;
     async fn find_by_name(&self, name: &str) -> Result<Option<InstalledPluginDto>, ConrogateError>;
     async fn insert(&self, dto: &InstalledPluginDto) -> Result<(), ConrogateError>;
-    async fn update_status(&self, name: &str, status: crate::plugin::PluginStatus) -> Result<(), ConrogateError>;
+    async fn update_status(
+        &self,
+        name: &str,
+        status: crate::plugin::PluginStatus,
+    ) -> Result<(), ConrogateError>;
     async fn soft_delete(&self, name: &str) -> Result<(), ConrogateError>;
 }
 
@@ -170,8 +186,14 @@ pub trait InstalledPluginRepo: Send + Sync {
 pub trait ConfigCache: Send + Sync {
     async fn get_version(&self) -> Result<Option<u64>, ConrogateError>;
     async fn get_snapshot(&self) -> Result<Option<ConfigSnapshot>, ConrogateError>;
-    async fn put_snapshot(&self, version: u64, snapshot: &ConfigSnapshot) -> Result<(), ConrogateError>;
-    async fn subscribe_changes(&self) -> Result<Option<tokio::sync::watch::Receiver<u64>>, ConrogateError>;
+    async fn put_snapshot(
+        &self,
+        version: u64,
+        snapshot: &ConfigSnapshot,
+    ) -> Result<(), ConrogateError>;
+    async fn subscribe_changes(
+        &self,
+    ) -> Result<Option<tokio::sync::watch::Receiver<u64>>, ConrogateError>;
 }
 
 // ── 配置快照加载器 ──

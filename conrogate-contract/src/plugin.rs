@@ -164,10 +164,7 @@ pub trait Plugin: Send + Sync {
     // ── 隧道协议钩子 ──
 
     /// 连接建立时执行（默认放行）
-    async fn on_connect(
-        &self,
-        ctx: &mut PluginContext,
-    ) -> Result<PluginOutcome, ConrogateError> {
+    async fn on_connect(&self, ctx: &mut PluginContext) -> Result<PluginOutcome, ConrogateError> {
         let _ = ctx;
         Ok(PluginOutcome::Continue)
     }

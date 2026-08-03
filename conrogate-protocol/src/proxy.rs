@@ -7,13 +7,14 @@ use http::Request;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
 use hyper_rustls::HttpsConnector;
-use hyper_util::client::legacy::Client;
 use hyper_util::client::legacy::connect::HttpConnector;
+use hyper_util::client::legacy::Client;
 use std::time::Duration;
 use tokio::net::TcpStream;
 
-/// 统一请求体类型：BoxBody 兼容缓冲模式（Full<Bytes>）和流式模式（Incoming）
-pub type ReqBody = http_body_util::combinators::BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>>;
+/// 统一请求体类型：BoxBody 兼容缓冲模式（`Full<Bytes>`）和流式模式（`Incoming`）
+pub type ReqBody =
+    http_body_util::combinators::BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>>;
 
 /// 出站 HTTP 客户端：支持 http:// 与 https://（TLS）上游
 pub type HttpClient = Client<HttpsConnector<HttpConnector>, ReqBody>;
@@ -88,10 +89,7 @@ async fn forward_common(
         req.into_body(),
     );
 
-    let path_and_query = uri
-        .path_and_query()
-        .map(|p| p.as_str())
-        .unwrap_or("/");
+    let path_and_query = uri.path_and_query().map(|p| p.as_str()).unwrap_or("/");
     let upstream_uri: http::Uri = format!("{}{}", addr, path_and_query)
         .parse()
         .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("uri parse: {e}")))?;
@@ -124,9 +122,7 @@ pub fn body_from_bytes(bytes: Bytes) -> ReqBody {
 /// 将 Incoming 包装为 ReqBody（流式模式）
 pub fn body_from_incoming(incoming: Incoming) -> ReqBody {
     use http_body_util::combinators::BoxBody;
-    BoxBody::new(incoming.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> {
-        Box::new(e)
-    }))
+    BoxBody::new(incoming.map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) }))
 }
 
 /// TCP 隧道转发统计（用于遥测）
@@ -148,7 +144,9 @@ pub async fn forward_tcp(
     max_bytes_per_sec: Option<u64>,
 ) -> Result<TunnelStats, ConrogateError> {
     // 使用 DNS 缓存解析地址
-    let addrs = crate::dns::global_resolver().resolve(&node.address).await
+    let addrs = crate::dns::global_resolver()
+        .resolve(&node.address)
+        .await
         .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("DNS resolve: {e}")))?;
     let upstream = tokio::time::timeout(timeout, TcpStream::connect(&addrs[..]))
         .await
@@ -159,17 +157,16 @@ pub async fn forward_tcp(
     let (mut ro, mut wo) = upstream.into_split();
 
     // 双向转发（可选带宽限制）
-    let c2s = async {
-        throttled_copy(&mut ri, &mut wo, max_bytes_per_sec).await
-    };
-    let s2c = async {
-        throttled_copy(&mut ro, &mut wi, max_bytes_per_sec).await
-    };
+    let c2s = async { throttled_copy(&mut ri, &mut wo, max_bytes_per_sec).await };
+    let s2c = async { throttled_copy(&mut ro, &mut wi, max_bytes_per_sec).await };
 
     let (bytes_out, bytes_in) = tokio::try_join!(c2s, s2c)
         .map_err(|e| ConrogateError::UpstreamConnectFailed(e.to_string()))?;
 
-    Ok(TunnelStats { bytes_out, bytes_in })
+    Ok(TunnelStats {
+        bytes_out,
+        bytes_in,
+    })
 }
 
 /// 带限速的字节流拷贝（返回拷贝字节数）
@@ -195,11 +192,8 @@ where
         writer.flush().await?;
         // 带宽限制：按实际传输字节数计算休眠时间
         if let Some(bps) = max_bytes_per_sec {
-            if bps > 0 {
-                let sleep_us = (n as u64 * 1_000_000) / bps;
-                if sleep_us > 0 {
-                    tokio::time::sleep(std::time::Duration::from_micros(sleep_us)).await;
-                }
+            if let Some(sleep_us) = (n as u64 * 1_000_000).checked_div(bps).filter(|&us| us > 0) {
+                tokio::time::sleep(std::time::Duration::from_micros(sleep_us)).await;
             }
         }
     }

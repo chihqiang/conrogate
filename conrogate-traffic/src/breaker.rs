@@ -74,7 +74,9 @@ impl BreakerImpl {
 
     /// 集群模式：把计数镜像到 Redis（best-effort，不影响本地判定）
     async fn mirror_to_redis(&self, succ: bool) {
-        let Some(ref url) = self.config.redis_url else { return };
+        let Some(ref url) = self.config.redis_url else {
+            return;
+        };
         let client = match redis::Client::open(url.as_str()) {
             Ok(c) => c,
             Err(_) => return,
@@ -150,14 +152,15 @@ impl Breaker for BreakerImpl {
             inner.success_count += 1;
 
             match inner.state {
-                BreakerState::HalfOpen => {
+                BreakerState::HalfOpen
+                    if inner.success_count >= self.config.half_open_max as u64 =>
+                {
                     // HalfOpen 阶段成功次数达到阈值 → 回到 Closed
-                    if inner.success_count >= self.config.half_open_max as u64 {
-                        inner.state = BreakerState::Closed;
-                        inner.failure_count = 0;
-                        inner.success_count = 0;
-                    }
+                    inner.state = BreakerState::Closed;
+                    inner.failure_count = 0;
+                    inner.success_count = 0;
                 }
+                BreakerState::HalfOpen => {}
                 BreakerState::Closed => {
                     // 正常运行中成功 → 重置计数
                     inner.failure_count = 0;
@@ -221,11 +224,7 @@ impl Default for BreakerFactoryImpl {
 
 #[async_trait::async_trait]
 impl BreakerFactory for BreakerFactoryImpl {
-    async fn get_or_create(
-        &self,
-        route_id: u64,
-        node_id: u64,
-    ) -> Arc<dyn Breaker> {
+    async fn get_or_create(&self, route_id: u64, node_id: u64) -> Arc<dyn Breaker> {
         let mut breakers = self.breakers.lock().unwrap();
         breakers
             .entry((route_id, node_id))

@@ -91,7 +91,9 @@ impl TcpTunnelProtocolHandler {
 
         if let PluginOutcome::Terminate(code, _) = plugin_outcome {
             tracing::warn!(code = %code, "tcp tunnel rejected by plugin");
-            return Err(ConrogateError::PluginRuntime(format!("plugin rejected: {code}")));
+            return Err(ConrogateError::PluginRuntime(format!(
+                "plugin rejected: {code}"
+            )));
         }
 
         // 3. 流量治理
@@ -111,7 +113,11 @@ impl TcpTunnelProtocolHandler {
         }
 
         // 4. 选择上游（一致性哈希按 client_ip）
-        let node = self.svc.balancer.select_upstream(&route, Some(&client_ip)).await?;
+        let node = self
+            .svc
+            .balancer
+            .select_upstream(&route, Some(&client_ip))
+            .await?;
 
         // 5. 熔断检查
         self.svc
@@ -131,7 +137,8 @@ impl TcpTunnelProtocolHandler {
         } else {
             None
         };
-        let result = crate::proxy::forward_tcp(&node, inbound, self.timeout, max_bytes_per_sec).await;
+        let result =
+            crate::proxy::forward_tcp(&node, inbound, self.timeout, max_bytes_per_sec).await;
 
         // 7. 记录结果
         let success = result.is_ok();
@@ -146,8 +153,9 @@ impl TcpTunnelProtocolHandler {
         if let Ok(stats) = &result {
             let duration_secs = start_ts.elapsed().as_secs().max(1);
             let sessions = if duration_secs > 0 { 1u64 } else { 0u64 };
-            self.svc.telemetry.record_metric(
-                conrogate_contract::dto::MetricRow {
+            self.svc
+                .telemetry
+                .record_metric(conrogate_contract::dto::MetricRow {
                     ts: chrono::Utc::now(),
                     bucket_sec: 10,
                     route_id: Some(route.id),
@@ -165,8 +173,8 @@ impl TcpTunnelProtocolHandler {
                     sessions,
                     bytes_in: stats.bytes_in,
                     bytes_out: stats.bytes_out,
-                }
-            ).await;
+                })
+                .await;
         }
 
         // 8. 插件 on_disconnect

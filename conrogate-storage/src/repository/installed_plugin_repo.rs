@@ -6,8 +6,10 @@ use conrogate_contract::dto::InstalledPluginDto;
 use conrogate_contract::plugin::PluginStatus;
 use conrogate_contract::storage::InstalledPluginRepo;
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
+};
 
 fn status_to_i16(s: PluginStatus) -> i16 {
     match s {
@@ -30,7 +32,10 @@ impl InstalledPluginRepoImpl {
 
 #[async_trait::async_trait]
 impl InstalledPluginRepo for InstalledPluginRepoImpl {
-    async fn list(&self, status: Option<PluginStatus>) -> Result<Vec<InstalledPluginDto>, ConrogateError> {
+    async fn list(
+        &self,
+        status: Option<PluginStatus>,
+    ) -> Result<Vec<InstalledPluginDto>, ConrogateError> {
         let mut query = PluginEntity::find()
             .filter(installed_plugins::Column::DeletedAt.is_null())
             .order_by_desc(installed_plugins::Column::InstalledAt);
@@ -44,7 +49,10 @@ impl InstalledPluginRepo for InstalledPluginRepoImpl {
             .await
             .map_err(|_| ConrogateError::DatabaseInternal)?;
 
-        Ok(models.into_iter().filter_map(convert::installed_plugin_model_to_dto).collect())
+        Ok(models
+            .into_iter()
+            .filter_map(convert::installed_plugin_model_to_dto)
+            .collect())
     }
 
     async fn find_by_name(&self, name: &str) -> Result<Option<InstalledPluginDto>, ConrogateError> {
@@ -69,7 +77,10 @@ impl InstalledPluginRepo for InstalledPluginRepoImpl {
 
     async fn update_status(&self, name: &str, status: PluginStatus) -> Result<(), ConrogateError> {
         PluginEntity::update_many()
-            .col_expr(installed_plugins::Column::Status, Expr::value(status_to_i16(status)))
+            .col_expr(
+                installed_plugins::Column::Status,
+                Expr::value(status_to_i16(status)),
+            )
             .filter(installed_plugins::Column::Name.eq(name))
             .filter(installed_plugins::Column::DeletedAt.is_null())
             .exec(&self.db)

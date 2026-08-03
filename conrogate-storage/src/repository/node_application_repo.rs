@@ -5,7 +5,10 @@ use crate::entity::node_applications::{self, Entity as NodeAppEntity};
 use conrogate_contract::dto::NodeApplicationRow;
 use conrogate_contract::storage::NodeApplicationRepo;
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, Set,
+};
 
 pub struct NodeApplicationRepoImpl {
     db: DatabaseConnection,
@@ -69,15 +72,24 @@ impl NodeApplicationRepo for NodeApplicationRepoImpl {
             .all(&self.db)
             .await
             .map_err(|_| ConrogateError::DatabaseInternal)?;
-        Ok(models.into_iter().filter_map(convert::node_app_model_to_row).collect())
+        Ok(models
+            .into_iter()
+            .filter_map(convert::node_app_model_to_row)
+            .collect())
     }
 
-    async fn list_stale(&self, before: chrono::DateTime<chrono::Utc>) -> Result<Vec<NodeApplicationRow>, ConrogateError> {
+    async fn list_stale(
+        &self,
+        before: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<NodeApplicationRow>, ConrogateError> {
         let models = NodeAppEntity::find()
             .filter(node_applications::Column::UpdatedAt.lt(before))
             .all(&self.db)
             .await
             .map_err(|_| ConrogateError::DatabaseInternal)?;
-        Ok(models.into_iter().filter_map(convert::node_app_model_to_row).collect())
+        Ok(models
+            .into_iter()
+            .filter_map(convert::node_app_model_to_row)
+            .collect())
     }
 }

@@ -2,6 +2,6 @@
 //!
 //! 实现 `conrogate-contract` 中的 `PluginRegistry` 和 `PluginPipeline` Trait。
 
-pub mod registry;
-pub mod pipeline;
 pub mod loader;
+pub mod pipeline;
+pub mod registry;

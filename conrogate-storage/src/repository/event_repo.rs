@@ -6,7 +6,10 @@ use conrogate_contract::dto::{EventQuery, EventRow, PaginatedResult};
 use conrogate_contract::storage::EventRepo;
 use conrogate_contract::ConrogateError;
 use sea_orm::sea_query::OnConflict;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 
 pub struct EventRepoImpl {
     db: DatabaseConnection,
@@ -24,7 +27,10 @@ impl EventRepo for EventRepoImpl {
         if events.is_empty() {
             return Ok(());
         }
-        let actives: Vec<_> = events.iter().map(convert::event_row_to_active_model).collect();
+        let actives: Vec<_> = events
+            .iter()
+            .map(convert::event_row_to_active_model)
+            .collect();
         EventEntity::insert_many(actives)
             .on_conflict(
                 OnConflict::columns([
@@ -63,7 +69,11 @@ impl EventRepo for EventRepoImpl {
             query = query.filter(gateway_events::Column::Ts.lte(ts_to));
         }
 
-        let total = query.clone().count(&self.db).await.map_err(|_| ConrogateError::DatabaseInternal)?;
+        let total = query
+            .clone()
+            .count(&self.db)
+            .await
+            .map_err(|_| ConrogateError::DatabaseInternal)?;
 
         let models = query
             .offset(((page - 1) * page_size) as u64)
@@ -72,7 +82,15 @@ impl EventRepo for EventRepoImpl {
             .await
             .map_err(|_| ConrogateError::DatabaseInternal)?;
 
-        let list: Vec<EventRow> = models.into_iter().filter_map(convert::event_model_to_row).collect();
-        Ok(PaginatedResult { list, total, page, page_size })
+        let list: Vec<EventRow> = models
+            .into_iter()
+            .filter_map(convert::event_model_to_row)
+            .collect();
+        Ok(PaginatedResult {
+            list,
+            total,
+            page,
+            page_size,
+        })
     }
 }

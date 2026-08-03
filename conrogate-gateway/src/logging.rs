@@ -3,8 +3,8 @@
 use conrogate_contract::config::LogConfig;
 use std::path::Path;
 use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::Layer;
 use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::Layer;
 
 /// 初始化 tracing 订阅者
 pub fn init(log_config: &LogConfig) {
@@ -40,7 +40,9 @@ pub fn init(log_config: &LogConfig) {
             .unwrap_or(std::ffi::OsStr::new("conrogate.log"));
 
         let file_appender = tracing_appender::rolling::daily(
-            Path::new(&log_config.file_path).parent().unwrap_or(Path::new(".")),
+            Path::new(&log_config.file_path)
+                .parent()
+                .unwrap_or(Path::new(".")),
             file_name,
         );
 

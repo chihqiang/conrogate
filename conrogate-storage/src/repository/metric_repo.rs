@@ -5,8 +5,10 @@ use crate::entity::metric_aggregates::{self, Entity as MetricEntity};
 use conrogate_contract::dto::{MetricQuery, MetricRow, OverviewMetric};
 use conrogate_contract::storage::MetricRepo;
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use sea_orm::sea_query::Expr;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
+};
 
 pub struct MetricRepoImpl {
     db: DatabaseConnection,
@@ -41,11 +43,26 @@ impl MetricRepo for MetricRepoImpl {
                 // 更新已存在的桶
                 MetricEntity::update_many()
                     .col_expr(metric_aggregates::Column::Qps, Expr::value(row.qps as i32))
-                    .col_expr(metric_aggregates::Column::TotalRequests, Expr::value(row.total_requests as i64))
-                    .col_expr(metric_aggregates::Column::AvgLatencyMs, Expr::value(row.avg_latency_ms))
-                    .col_expr(metric_aggregates::Column::Status2xx, Expr::value(row.status_2xx as i64))
-                    .col_expr(metric_aggregates::Column::Status4xx, Expr::value(row.status_4xx as i64))
-                    .col_expr(metric_aggregates::Column::Status5xx, Expr::value(row.status_5xx as i64))
+                    .col_expr(
+                        metric_aggregates::Column::TotalRequests,
+                        Expr::value(row.total_requests as i64),
+                    )
+                    .col_expr(
+                        metric_aggregates::Column::AvgLatencyMs,
+                        Expr::value(row.avg_latency_ms),
+                    )
+                    .col_expr(
+                        metric_aggregates::Column::Status2xx,
+                        Expr::value(row.status_2xx as i64),
+                    )
+                    .col_expr(
+                        metric_aggregates::Column::Status4xx,
+                        Expr::value(row.status_4xx as i64),
+                    )
+                    .col_expr(
+                        metric_aggregates::Column::Status5xx,
+                        Expr::value(row.status_5xx as i64),
+                    )
                     .filter(metric_aggregates::Column::Ts.eq(row.ts))
                     .filter(metric_aggregates::Column::BucketSec.eq(row.bucket_sec as i32))
                     .filter(metric_aggregates::Column::GateId.eq(&row.gate_id))
@@ -67,9 +84,8 @@ impl MetricRepo for MetricRepoImpl {
     async fn query(&self, filter: &MetricQuery) -> Result<Vec<MetricRow>, ConrogateError> {
         let mut query = MetricEntity::find()
             .filter(
-                metric_aggregates::Column::Ts.gte(
-                    chrono::Utc::now() - chrono::Duration::minutes(filter.range_min as i64),
-                ),
+                metric_aggregates::Column::Ts
+                    .gte(chrono::Utc::now() - chrono::Duration::minutes(filter.range_min as i64)),
             )
             .order_by_asc(metric_aggregates::Column::Ts);
 
@@ -85,7 +101,10 @@ impl MetricRepo for MetricRepoImpl {
             .await
             .map_err(|_| ConrogateError::DatabaseInternal)?;
 
-        Ok(models.into_iter().filter_map(convert::metric_model_to_row).collect())
+        Ok(models
+            .into_iter()
+            .filter_map(convert::metric_model_to_row)
+            .collect())
     }
 
     async fn overview(&self, range_min: u32) -> Result<OverviewMetric, ConrogateError> {
@@ -106,12 +125,27 @@ impl MetricRepo for MetricRepoImpl {
 
         let total_requests: i64 = models.iter().map(|m| m.total_requests).sum();
         let total_errors: i64 = models.iter().map(|m| m.status_4xx + m.status_5xx).sum();
-        let total_latency: f64 = models.iter().map(|m| m.avg_latency_ms * m.total_requests as f64).sum();
+        let total_latency: f64 = models
+            .iter()
+            .map(|m| m.avg_latency_ms * m.total_requests as f64)
+            .sum();
 
         let seconds = range_min * 60;
-        let total_qps = if seconds > 0 { total_requests as f64 / seconds as f64 } else { 0.0 };
-        let avg_latency = if total_requests > 0 { total_latency / total_requests as f64 } else { 0.0 };
-        let error_rate = if total_requests > 0 { total_errors as f64 / total_requests as f64 } else { 0.0 };
+        let total_qps = if seconds > 0 {
+            total_requests as f64 / seconds as f64
+        } else {
+            0.0
+        };
+        let avg_latency = if total_requests > 0 {
+            total_latency / total_requests as f64
+        } else {
+            0.0
+        };
+        let error_rate = if total_requests > 0 {
+            total_errors as f64 / total_requests as f64
+        } else {
+            0.0
+        };
 
         Ok(OverviewMetric {
             total_qps,

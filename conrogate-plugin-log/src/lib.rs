@@ -1,11 +1,11 @@
 //! Conrogate 官方日志插件：请求访问日志记录。
 
+use async_trait::async_trait;
 use conrogate_contract::{
     plugin::{Plugin, PluginContext, PluginOutcome, PluginResponse},
     protocol::ProtocolId,
     ConrogateError,
 };
-use async_trait::async_trait;
 use serde_json::Value;
 
 /// 日志插件配置
@@ -83,7 +83,12 @@ impl Plugin for LogPlugin {
     ) -> Result<PluginOutcome, ConrogateError> {
         // 跳过健康检查路径
         if let Some(http) = &ctx.http {
-            if self.config.skip_paths.iter().any(|p| http.path.starts_with(p.as_str())) {
+            if self
+                .config
+                .skip_paths
+                .iter()
+                .any(|p| http.path.starts_with(p.as_str()))
+            {
                 return Ok(PluginOutcome::Continue);
             }
 

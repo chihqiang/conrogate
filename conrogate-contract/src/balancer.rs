@@ -35,7 +35,9 @@ impl std::str::FromStr for BalancerAlgorithm {
             "weighted_round_robin" => Ok(Self::WeightedRoundRobin),
             "least_connections" => Ok(Self::LeastConnections),
             "consistent_hash" => Ok(Self::ConsistentHash),
-            _ => Err(ConrogateError::BadRequest(format!("unknown algorithm: {s}"))),
+            _ => Err(ConrogateError::BadRequest(format!(
+                "unknown algorithm: {s}"
+            ))),
         }
     }
 }

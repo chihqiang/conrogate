@@ -8,9 +8,7 @@ pub async fn with_timeout<F>(dur: Duration, fut: F) -> Result<F::Output, Timeout
 where
     F: std::future::Future,
 {
-    timeout(dur, fut)
-        .await
-        .map_err(|_| TimeoutError::Elapsed)
+    timeout(dur, fut).await.map_err(|_| TimeoutError::Elapsed)
 }
 
 /// 超时错误

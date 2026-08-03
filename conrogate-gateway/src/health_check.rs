@@ -108,7 +108,10 @@ impl ActiveHealthChecker {
     /// 获取节点健康状态
     pub fn get_health(&self, addr: &str) -> NodeHealth {
         let nodes = self.nodes.read().unwrap();
-        nodes.get(addr).map(|s| s.state.clone()).unwrap_or(NodeHealth::Healthy)
+        nodes
+            .get(addr)
+            .map(|s| s.state.clone())
+            .unwrap_or(NodeHealth::Healthy)
     }
 
     /// 判断节点是否可调度
@@ -123,20 +126,16 @@ impl ActiveHealthChecker {
 
     /// TCP 探测
     async fn tcp_probe(&self, addr: &str) -> bool {
-        match tokio::time::timeout(
-            self.config.connect_timeout,
-            TcpStream::connect(addr),
-        ).await {
-            Ok(Ok(_)) => true,
-            _ => false,
-        }
+        matches!(
+            tokio::time::timeout(self.config.connect_timeout, TcpStream::connect(addr),).await,
+            Ok(Ok(_))
+        )
     }
 
     /// HTTP 探测
     async fn http_probe(&self, addr: &str, path: &str) -> bool {
-        let timeout_result: Result<Result<bool, std::io::Error>, _> = tokio::time::timeout(
-            self.config.connect_timeout,
-            async {
+        let timeout_result: Result<Result<bool, std::io::Error>, _> =
+            tokio::time::timeout(self.config.connect_timeout, async {
                 let mut stream = TcpStream::connect(addr).await?;
                 // 发送 HTTP GET 请求
                 let request = format!(
@@ -156,8 +155,8 @@ impl ActiveHealthChecker {
                 // 检查 HTTP 状态码是否 2xx
                 let response = String::from_utf8_lossy(&buf[..n]);
                 Ok(response.starts_with("HTTP/1.1 2") || response.starts_with("HTTP/1.0 2"))
-            },
-        ).await;
+            })
+            .await;
 
         match timeout_result {
             Ok(Ok(success)) => success,
@@ -168,7 +167,7 @@ impl ActiveHealthChecker {
     /// 启动定期检查后台任务
     pub fn spawn_periodic_check(
         self: std::sync::Arc<Self>,
-        upstreams: std::sync::Arc<RwLock<HashMap<u64, (conrogate_contract::balancer::BalancerAlgorithm, Vec<UpstreamNodeDto>)>>>,
+        upstreams: std::sync::Arc<RwLock<crate::pool::UpstreamMap>>,
     ) {
         let config = self.config.clone();
         let checker = self.clone();

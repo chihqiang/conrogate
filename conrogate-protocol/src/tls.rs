@@ -194,7 +194,10 @@ mod tests {
     #[test]
     fn test_extract_sni() {
         let buf = build_client_hello("api.example.com");
-        assert_eq!(extract_sni_from_client_hello(&buf).as_deref(), Some("api.example.com"));
+        assert_eq!(
+            extract_sni_from_client_hello(&buf).as_deref(),
+            Some("api.example.com")
+        );
     }
 
     #[test]

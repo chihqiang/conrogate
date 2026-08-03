@@ -5,7 +5,10 @@ use crate::entity::routes::{self, Entity as RouteEntity};
 use conrogate_contract::dto::{CreateRouteDto, PaginatedResult, RouteDto, UpdateRouteDto};
 use conrogate_contract::storage::{ReadOnlyRouteRepo, RouteRepo};
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, sea_query::Expr};
+use sea_orm::{
+    sea_query::Expr, ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+};
 
 pub struct RouteRepoImpl {
     db: DatabaseConnection,
@@ -28,7 +31,10 @@ impl ReadOnlyRouteRepo for RouteRepoImpl {
             .await
             .map_err(|_| ConrogateError::DatabaseInternal)?;
 
-        Ok(models.into_iter().filter_map(convert::route_model_to_dto).collect())
+        Ok(models
+            .into_iter()
+            .filter_map(convert::route_model_to_dto)
+            .collect())
     }
 
     async fn find_by_id(&self, id: u64) -> Result<Option<RouteDto>, ConrogateError> {
@@ -51,7 +57,9 @@ impl RouteRepo for RouteRepoImpl {
             .await
             .map_err(|e| ConrogateError::DataMapping(e.to_string()))?;
 
-        convert::route_model_to_dto(model).ok_or(ConrogateError::DataMapping("insert returned no model".into()))
+        convert::route_model_to_dto(model).ok_or(ConrogateError::DataMapping(
+            "insert returned no model".into(),
+        ))
     }
 
     async fn update(&self, dto: UpdateRouteDto) -> Result<RouteDto, ConrogateError> {
@@ -63,15 +71,27 @@ impl RouteRepo for RouteRepoImpl {
             .ok_or_else(|| ConrogateError::NotFound(format!("route {}", dto.id)))?;
 
         let mut active: routes::ActiveModel = model.into();
-        if let Some(name) = dto.name { active.name = Set(name); }
+        if let Some(name) = dto.name {
+            active.name = Set(name);
+        }
         if let Some(mc) = dto.match_conditions {
             active.match_conditions = Set(serde_json::to_value(&mc).unwrap_or_default());
         }
-        if let Some(priority) = dto.priority { active.priority = Set(priority); }
-        if let Some(upstream_id) = dto.upstream_id { active.upstream_id = Set(Some(upstream_id as i64)); }
-        if let Some(host) = dto.host_header { active.host_header = Set(Some(host)); }
-        if let Some(retry) = dto.allow_retry_non_idempotent { active.allow_retry_non_idempotent = Set(retry); }
-        if let Some(enabled) = dto.enabled { active.enabled = Set(enabled); }
+        if let Some(priority) = dto.priority {
+            active.priority = Set(priority);
+        }
+        if let Some(upstream_id) = dto.upstream_id {
+            active.upstream_id = Set(Some(upstream_id as i64));
+        }
+        if let Some(host) = dto.host_header {
+            active.host_header = Set(Some(host));
+        }
+        if let Some(retry) = dto.allow_retry_non_idempotent {
+            active.allow_retry_non_idempotent = Set(retry);
+        }
+        if let Some(enabled) = dto.enabled {
+            active.enabled = Set(enabled);
+        }
         active.updated_at = Set(chrono::Utc::now());
 
         let model = active
@@ -79,7 +99,9 @@ impl RouteRepo for RouteRepoImpl {
             .await
             .map_err(|e| ConrogateError::DataMapping(e.to_string()))?;
 
-        convert::route_model_to_dto(model).ok_or(ConrogateError::DataMapping("update returned no model".into()))
+        convert::route_model_to_dto(model).ok_or(ConrogateError::DataMapping(
+            "update returned no model".into(),
+        ))
     }
 
     async fn soft_delete(&self, id: u64) -> Result<(), ConrogateError> {
@@ -119,7 +141,10 @@ impl RouteRepo for RouteRepoImpl {
             .await
             .map_err(|_| ConrogateError::DatabaseInternal)?;
 
-        let list: Vec<RouteDto> = models.into_iter().filter_map(convert::route_model_to_dto).collect();
+        let list: Vec<RouteDto> = models
+            .into_iter()
+            .filter_map(convert::route_model_to_dto)
+            .collect();
         Ok(PaginatedResult {
             list,
             total,

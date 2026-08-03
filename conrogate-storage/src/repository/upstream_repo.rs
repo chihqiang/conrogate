@@ -1,11 +1,17 @@
 //! 上游仓储实现。
 
 use crate::convert;
-use crate::entity::{upstream_nodes, upstreams::{self, Entity as UpstreamEntity}};
+use crate::entity::{
+    upstream_nodes,
+    upstreams::{self, Entity as UpstreamEntity},
+};
 use conrogate_contract::dto::*;
 use conrogate_contract::storage::{ReadOnlyUpstreamRepo, UpstreamRepo};
 use conrogate_contract::ConrogateError;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, sea_query::Expr};
+use sea_orm::{
+    sea_query::Expr, ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+};
 
 pub struct UpstreamRepoImpl {
     db: DatabaseConnection,
@@ -16,7 +22,10 @@ impl UpstreamRepoImpl {
         Self { db }
     }
 
-    async fn load_nodes(&self, upstream_id: i64) -> Result<Vec<upstream_nodes::Model>, ConrogateError> {
+    async fn load_nodes(
+        &self,
+        upstream_id: i64,
+    ) -> Result<Vec<upstream_nodes::Model>, ConrogateError> {
         upstream_nodes::Entity::find()
             .filter(upstream_nodes::Column::UpstreamId.eq(upstream_id))
             .filter(upstream_nodes::Column::DeletedAt.is_null())
@@ -38,7 +47,9 @@ impl ReadOnlyUpstreamRepo for UpstreamRepoImpl {
         let mut result = Vec::with_capacity(models.len());
         for m in models {
             let nodes = self.load_nodes(m.id).await?;
-            result.push(convert::upstream_model_to_dto(m, nodes).ok_or(ConrogateError::DataMapping("upstream convert failed".into()))?);
+            result.push(convert::upstream_model_to_dto(m, nodes).ok_or(
+                ConrogateError::DataMapping("upstream convert failed".into()),
+            )?);
         }
         Ok(result)
     }
@@ -93,8 +104,9 @@ impl UpstreamRepo for UpstreamRepoImpl {
         }
 
         let nodes = self.load_nodes(model.id).await?;
-        convert::upstream_model_to_dto(model, nodes)
-            .ok_or(ConrogateError::DataMapping("insert returned no model".into()))
+        convert::upstream_model_to_dto(model, nodes).ok_or(ConrogateError::DataMapping(
+            "insert returned no model".into(),
+        ))
     }
 
     async fn update(&self, dto: UpdateUpstreamDto) -> Result<UpstreamDto, ConrogateError> {
@@ -106,7 +118,9 @@ impl UpstreamRepo for UpstreamRepoImpl {
             .ok_or_else(|| ConrogateError::NotFound(format!("upstream {}", dto.id)))?;
 
         let mut active: upstreams::ActiveModel = model.into();
-        if let Some(name) = dto.name { active.name = Set(name); }
+        if let Some(name) = dto.name {
+            active.name = Set(name);
+        }
         if let Some(algo) = dto.algorithm {
             active.algorithm = Set(match algo {
                 conrogate_contract::balancer::BalancerAlgorithm::RoundRobin => 0,
@@ -115,7 +129,9 @@ impl UpstreamRepo for UpstreamRepoImpl {
                 conrogate_contract::balancer::BalancerAlgorithm::ConsistentHash => 3,
             });
         }
-        if let Some(retry) = dto.retry_enabled { active.retry_enabled = Set(retry); }
+        if let Some(retry) = dto.retry_enabled {
+            active.retry_enabled = Set(retry);
+        }
         active.updated_at = Set(chrono::Utc::now());
 
         let model = active
@@ -127,7 +143,10 @@ impl UpstreamRepo for UpstreamRepoImpl {
         if let Some(nodes) = dto.nodes {
             // 软删旧节点
             upstream_nodes::Entity::update_many()
-                .col_expr(upstream_nodes::Column::DeletedAt, Expr::value(Some(chrono::Utc::now())))
+                .col_expr(
+                    upstream_nodes::Column::DeletedAt,
+                    Expr::value(Some(chrono::Utc::now())),
+                )
                 .filter(upstream_nodes::Column::UpstreamId.eq(model.id))
                 .filter(upstream_nodes::Column::DeletedAt.is_null())
                 .exec(&self.db)
@@ -145,14 +164,18 @@ impl UpstreamRepo for UpstreamRepoImpl {
         }
 
         let nodes = self.load_nodes(model.id).await?;
-        convert::upstream_model_to_dto(model, nodes)
-            .ok_or(ConrogateError::DataMapping("update returned no model".into()))
+        convert::upstream_model_to_dto(model, nodes).ok_or(ConrogateError::DataMapping(
+            "update returned no model".into(),
+        ))
     }
 
     async fn soft_delete(&self, id: u64) -> Result<(), ConrogateError> {
         // 软删上游
         UpstreamEntity::update_many()
-            .col_expr(upstreams::Column::DeletedAt, Expr::value(Some(chrono::Utc::now())))
+            .col_expr(
+                upstreams::Column::DeletedAt,
+                Expr::value(Some(chrono::Utc::now())),
+            )
             .filter(upstreams::Column::Id.eq(id as i64))
             .filter(upstreams::Column::DeletedAt.is_null())
             .exec(&self.db)
@@ -161,7 +184,10 @@ impl UpstreamRepo for UpstreamRepoImpl {
 
         // 软删关联节点
         upstream_nodes::Entity::update_many()
-            .col_expr(upstream_nodes::Column::DeletedAt, Expr::value(Some(chrono::Utc::now())))
+            .col_expr(
+                upstream_nodes::Column::DeletedAt,
+                Expr::value(Some(chrono::Utc::now())),
+            )
             .filter(upstream_nodes::Column::UpstreamId.eq(id as i64))
             .filter(upstream_nodes::Column::DeletedAt.is_null())
             .exec(&self.db)
@@ -171,13 +197,21 @@ impl UpstreamRepo for UpstreamRepoImpl {
         Ok(())
     }
 
-    async fn list_paginated(&self, page: u32, page_size: u32) -> Result<PaginatedResult<UpstreamDto>, ConrogateError> {
+    async fn list_paginated(
+        &self,
+        page: u32,
+        page_size: u32,
+    ) -> Result<PaginatedResult<UpstreamDto>, ConrogateError> {
         let page_size = page_size.clamp(1, 200);
         let query = UpstreamEntity::find()
             .filter(upstreams::Column::DeletedAt.is_null())
             .order_by_desc(upstreams::Column::Id);
 
-        let total = query.clone().count(&self.db).await.map_err(|_| ConrogateError::DatabaseInternal)?;
+        let total = query
+            .clone()
+            .count(&self.db)
+            .await
+            .map_err(|_| ConrogateError::DatabaseInternal)?;
 
         let models = query
             .offset(((page - 1) * page_size) as u64)
@@ -194,6 +228,11 @@ impl UpstreamRepo for UpstreamRepoImpl {
             }
         }
 
-        Ok(PaginatedResult { list, total, page, page_size })
+        Ok(PaginatedResult {
+            list,
+            total,
+            page,
+            page_size,
+        })
     }
 }

@@ -48,53 +48,63 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // ── 3. 初始化仓储 ──
-    let route_repo: Arc<dyn conrogate_contract::storage::RouteRepo> = Arc::new(
-        conrogate_storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()),
-    );
+    let route_repo: Arc<dyn conrogate_contract::storage::RouteRepo> =
+        Arc::new(conrogate_storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()));
     let upstream_repo: Arc<dyn conrogate_contract::storage::UpstreamRepo> = Arc::new(
         conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*main_db).clone()),
     );
     let binding_repo: Arc<dyn conrogate_contract::storage::PluginBindingRepo> = Arc::new(
-        conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new((*main_db).clone()),
+        conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
+            (*main_db).clone(),
+        ),
     );
     let config_repo: Arc<dyn conrogate_contract::storage::ConfigVersionRepo> = Arc::new(
-        conrogate_storage::repository::config_version_repo::ConfigVersionRepoImpl::new((*main_db).clone()),
+        conrogate_storage::repository::config_version_repo::ConfigVersionRepoImpl::new(
+            (*main_db).clone(),
+        ),
     );
     let metric_repo: Arc<dyn conrogate_contract::storage::MetricRepo> = Arc::new(
         conrogate_storage::repository::metric_repo::MetricRepoImpl::new((*main_db).clone()),
     );
-    let event_repo: Arc<dyn conrogate_contract::storage::EventRepo> = Arc::new(
-        conrogate_storage::repository::event_repo::EventRepoImpl::new((*main_db).clone()),
-    );
+    let event_repo: Arc<dyn conrogate_contract::storage::EventRepo> =
+        Arc::new(conrogate_storage::repository::event_repo::EventRepoImpl::new((*main_db).clone()));
     let audit_repo: Arc<dyn conrogate_contract::storage::AuditLogRepo> = Arc::new(
         conrogate_storage::repository::audit_log_repo::AuditLogRepoImpl::new((*main_db).clone()),
     );
     let node_app_repo: Arc<dyn conrogate_contract::storage::NodeApplicationRepo> = Arc::new(
-        conrogate_storage::repository::node_application_repo::NodeApplicationRepoImpl::new((*main_db).clone()),
+        conrogate_storage::repository::node_application_repo::NodeApplicationRepoImpl::new(
+            (*main_db).clone(),
+        ),
     );
     let plugin_repo: Arc<dyn conrogate_contract::storage::InstalledPluginRepo> = Arc::new(
-        conrogate_storage::repository::installed_plugin_repo::InstalledPluginRepoImpl::new((*main_db).clone()),
+        conrogate_storage::repository::installed_plugin_repo::InstalledPluginRepoImpl::new(
+            (*main_db).clone(),
+        ),
     );
 
     // ── 4. 组装 ControlService ──
     // Redis 配置缓存（可选）
-    let config_cache: Option<Arc<dyn conrogate_contract::storage::ConfigCache>> =
-        if !config.gate.refresh.config_cache_redis_url.is_empty() {
-            match conrogate_storage::config_cache::RedisConfigCache::new(
-                &config.gate.refresh.config_cache_redis_url,
-            ) {
-                Ok(cache) => {
-                    tracing::info!("Redis config cache enabled");
-                    Some(Arc::new(cache))
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Redis config cache init failed, falling back to no cache");
-                    None
-                }
+    let config_cache: Option<Arc<dyn conrogate_contract::storage::ConfigCache>> = if !config
+        .gate
+        .refresh
+        .config_cache_redis_url
+        .is_empty()
+    {
+        match conrogate_storage::config_cache::RedisConfigCache::new(
+            &config.gate.refresh.config_cache_redis_url,
+        ) {
+            Ok(cache) => {
+                tracing::info!("Redis config cache enabled");
+                Some(Arc::new(cache))
             }
-        } else {
-            None
-        };
+            Err(e) => {
+                tracing::warn!(error = %e, "Redis config cache init failed, falling back to no cache");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     let svc = Arc::new(
         conrogate_control_svc::ControlService::new(
@@ -113,16 +123,12 @@ async fn main() -> anyhow::Result<()> {
 
     // ── 5. 组装 axum 路由 + 中间件 ──
     let app_state = conrogate_control_svc::AppState { svc };
-    let router = conrogate_control_svc::build_router(
-        app_state,
-        &config.control.auth.token,
-    );
+    let router = conrogate_control_svc::build_router(app_state, &config.control.auth.token);
 
     // ── 6. 启动控制面监听 ──
     let addr = format!(
         "{}:{}",
-        config.control.listen.host,
-        config.control.listen.port
+        config.control.listen.host, config.control.listen.port
     );
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(addr = %addr, "conrogate-control listening");

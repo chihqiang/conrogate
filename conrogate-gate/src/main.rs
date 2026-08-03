@@ -72,30 +72,10 @@ async fn run(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
         }
     };
 
-    // ── 2. 加载初始配置 ──
-    let route_repo = conrogate_storage::repository::route_repo::RouteRepoImpl::new((*read_db).clone());
-    let upstream_repo = conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*read_db).clone());
-    let binding_repo = conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new((*read_db).clone());
-
-    let routes = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(&route_repo).await
-        .unwrap_or_default();
-    let upstreams = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(&upstream_repo).await
-        .unwrap_or_default();
-    // 加载插件绑定
-    let mut all_bindings = Vec::new();
-    for route in &routes {
-        let rb = conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
-            &binding_repo, route.id,
-        ).await.unwrap_or_default();
-        all_bindings.extend(rb);
-    }
-
-    // ── 3. 创建 GatewayServer（注册插件 + 装配 ServiceContext）──
-    let server = conrogate_gateway::server::GatewayServer::from_config(config.clone()).await;
-
-    // ── 4. 加载路由 + 上游 ──
-    server.reload_routes_with_bindings(routes, all_bindings);
-    server.reload_upstreams(upstreams);
+    // ── 2. 使用 from_config_with_db 创建 GatewayServer（自动加载初始配置 + 启动热加载）──
+    let server =
+        conrogate_gateway::server::GatewayServer::from_config_with_db(config.clone(), read_db)
+            .await;
 
     // ── 4a. 节点心跳上报后台任务（分离模式）──
     let control_url = &config.gate.refresh.control_api_url;
@@ -104,10 +84,9 @@ async fn run(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
     if !control_url.is_empty() {
         let url = control_url.clone();
         tokio::spawn(async move {
-            let client = hyper_util::client::legacy::Client::builder(
-                hyper_util::rt::TokioExecutor::new(),
-            )
-            .build(hyper_util::client::legacy::connect::HttpConnector::new());
+            let client =
+                hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+                    .build(hyper_util::client::legacy::connect::HttpConnector::new());
             let heartbeat_interval = std::time::Duration::from_secs(30);
             loop {
                 tokio::time::sleep(heartbeat_interval).await;
@@ -131,7 +110,10 @@ async fn run(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
     }
 
     // ── 5. 启动数据面监听 ──
-    server.run().await.map_err(|e| anyhow::anyhow!("gateway server error: {e}"))?;
+    server
+        .run()
+        .await
+        .map_err(|e| anyhow::anyhow!("gateway server error: {e}"))?;
 
     Ok(())
 }
@@ -152,7 +134,10 @@ async fn run_without_db(config: conrogate_contract::config::Config) -> anyhow::R
         match loader.load_routes().await {
             Ok(routes) => {
                 let upstreams = loader.load_upstreams().await.unwrap_or_default();
-                let bindings = loader.load_all_plugin_bindings(&routes).await.unwrap_or_default();
+                let bindings = loader
+                    .load_all_plugin_bindings(&routes)
+                    .await
+                    .unwrap_or_default();
                 server.reload_routes_with_bindings(routes, bindings);
                 server.reload_upstreams(upstreams);
                 tracing::debug!("config hot-reloaded from control HTTP API");
@@ -169,7 +154,8 @@ async fn run_without_db(config: conrogate_contract::config::Config) -> anyhow::R
 
         let poll_server = server.clone();
         tokio::spawn(async move {
-            let poll_loader = http_config_loader::HttpConfigLoader::new(&control_url, &control_token);
+            let poll_loader =
+                http_config_loader::HttpConfigLoader::new(&control_url, &control_token);
             loop {
                 tokio::time::sleep(poll_interval).await;
                 reload_from_http(&poll_server, &poll_loader).await;
@@ -183,7 +169,10 @@ async fn run_without_db(config: conrogate_contract::config::Config) -> anyhow::R
         tracing::warn!("control_api_url is empty, no config loaded");
     }
 
-    server.run().await.map_err(|e| anyhow::anyhow!("gateway server error: {e}"))?;
+    server
+        .run()
+        .await
+        .map_err(|e| anyhow::anyhow!("gateway server error: {e}"))?;
 
     Ok(())
 }

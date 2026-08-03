@@ -3,8 +3,7 @@
 use conrogate_contract::dto::{RouteDto, RouteSnapshot};
 use conrogate_contract::gateway::RouteLookup;
 use conrogate_contract::protocol::{
-    HeaderMatch, MatchOp, PathMatch, ProtocolId, QueryMatch, RouteMatchConditions,
-    RouteMatchInfo,
+    HeaderMatch, MatchOp, PathMatch, ProtocolId, QueryMatch, RouteMatchConditions, RouteMatchInfo,
 };
 use conrogate_contract::ConrogateError;
 use std::collections::HashMap;
@@ -12,7 +11,8 @@ use std::sync::RwLock;
 
 // ── 模块级正则缓存（进程级单例）──
 // 配置加载时预编译，运行时直接从缓存读取
-static REGEX_CACHE: std::sync::OnceLock<RwLock<HashMap<String, regex::Regex>>> = std::sync::OnceLock::new();
+static REGEX_CACHE: std::sync::OnceLock<RwLock<HashMap<String, regex::Regex>>> =
+    std::sync::OnceLock::new();
 
 fn regex_cache() -> &'static RwLock<HashMap<String, regex::Regex>> {
     REGEX_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
@@ -54,7 +54,8 @@ impl RouteMatcher {
         routes.clear();
 
         // 按 route_id 分组绑定
-        let mut binding_map: HashMap<u64, Vec<conrogate_contract::dto::PluginBindingDto>> = HashMap::new();
+        let mut binding_map: HashMap<u64, Vec<conrogate_contract::dto::PluginBindingDto>> =
+            HashMap::new();
         for b in bindings {
             if b.enabled {
                 binding_map.entry(b.route_id).or_default().push(b);
@@ -95,10 +96,7 @@ impl RouteMatcher {
                 },
             };
 
-            routes
-                .entry(dto.protocol)
-                .or_default()
-                .push(entry);
+            routes.entry(dto.protocol).or_default().push(entry);
         }
 
         // 每个协议组按 priority 降序排列，同 priority 时取 id 较小者
@@ -214,9 +212,9 @@ impl RouteMatcher {
             MatchOp::Prefix => headers
                 .iter()
                 .any(|(k, v)| k.eq_ignore_ascii_case(&hm.key) && v.starts_with(&hm.value)),
-            MatchOp::Regex => headers.iter().any(|(k, v)| {
-                k.eq_ignore_ascii_case(&hm.key) && safe_regex_match(&hm.value, v)
-            }),
+            MatchOp::Regex => headers
+                .iter()
+                .any(|(k, v)| k.eq_ignore_ascii_case(&hm.key) && safe_regex_match(&hm.value, v)),
             MatchOp::NotEmpty => headers
                 .iter()
                 .any(|(k, v)| k.eq_ignore_ascii_case(&hm.key) && !v.is_empty()),
@@ -225,18 +223,14 @@ impl RouteMatcher {
 
     fn match_query(qm: &QueryMatch, params: &[(String, String)]) -> bool {
         match qm.op {
-            MatchOp::Exact => params
-                .iter()
-                .any(|(k, v)| k == &qm.key && v == &qm.value),
+            MatchOp::Exact => params.iter().any(|(k, v)| k == &qm.key && v == &qm.value),
             MatchOp::Prefix => params
                 .iter()
                 .any(|(k, v)| k == &qm.key && v.starts_with(&qm.value)),
             MatchOp::Regex => params
                 .iter()
                 .any(|(k, v)| k == &qm.key && safe_regex_match(&qm.value, v)),
-            MatchOp::NotEmpty => params
-                .iter()
-                .any(|(k, v)| k == &qm.key && !v.is_empty()),
+            MatchOp::NotEmpty => params.iter().any(|(k, v)| k == &qm.key && !v.is_empty()),
         }
     }
 }
@@ -371,7 +365,11 @@ fn has_redos_risk(pattern: &str) -> bool {
     // 简易检查：(.+)+ 或 (.*)* 模式
     if pattern.contains("(.+") && pattern.contains("+") {
         // 检查嵌套量词
-        if pattern.contains("(.+)+") || pattern.contains("(.*)*") || pattern.contains("(.+)*") || pattern.contains("(.*)+") {
+        if pattern.contains("(.+)+")
+            || pattern.contains("(.*)*")
+            || pattern.contains("(.+)*")
+            || pattern.contains("(.*)+")
+        {
             return true;
         }
     }
@@ -501,14 +499,29 @@ mod tests {
             headers: vec![],
             query_params: vec![],
         };
-        assert!(RouteMatcher::matches(&conditions, &mk(Some("a.example.com".into()))));
-        assert!(RouteMatcher::matches(&conditions, &mk(Some("A.Example.COM".into()))));
+        assert!(RouteMatcher::matches(
+            &conditions,
+            &mk(Some("a.example.com".into()))
+        ));
+        assert!(RouteMatcher::matches(
+            &conditions,
+            &mk(Some("A.Example.COM".into()))
+        ));
         // 要求至少一层子域：基域不匹配
-        assert!(!RouteMatcher::matches(&conditions, &mk(Some("example.com".into()))));
+        assert!(!RouteMatcher::matches(
+            &conditions,
+            &mk(Some("example.com".into()))
+        ));
         // 多层子域不匹配
-        assert!(!RouteMatcher::matches(&conditions, &mk(Some("a.b.example.com".into()))));
+        assert!(!RouteMatcher::matches(
+            &conditions,
+            &mk(Some("a.b.example.com".into()))
+        ));
         // 其他域不匹配
-        assert!(!RouteMatcher::matches(&conditions, &mk(Some("a.other.com".into()))));
+        assert!(!RouteMatcher::matches(
+            &conditions,
+            &mk(Some("a.other.com".into()))
+        ));
         // 无 Host 不匹配
         assert!(!RouteMatcher::matches(&conditions, &mk(None)));
     }

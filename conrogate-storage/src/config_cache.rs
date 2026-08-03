@@ -1,7 +1,9 @@
 //! 配置缓存与加载器实现。
 
 use conrogate_contract::dto::ConfigSnapshot;
-use conrogate_contract::storage::{ConfigCache, ConfigLoader, ReadOnlyRouteRepo, ReadOnlyUpstreamRepo, ReadOnlyPluginBindingRepo};
+use conrogate_contract::storage::{
+    ConfigCache, ConfigLoader, ReadOnlyPluginBindingRepo, ReadOnlyRouteRepo, ReadOnlyUpstreamRepo,
+};
 use conrogate_contract::ConrogateError;
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
@@ -27,7 +29,10 @@ impl ConfigCache for DbConfigCache {
             "SELECT MAX(version) as v FROM config_versions",
             [],
         );
-        let result = self.db.query_one(stmt).await
+        let result = self
+            .db
+            .query_one(stmt)
+            .await
             .map_err(|e| ConrogateError::Internal(format!("query version: {e}")))?;
         if let Some(row) = result {
             let v: Option<i64> = sea_orm::TryGetable::try_get(&row, "", "v")
@@ -40,15 +45,19 @@ impl ConfigCache for DbConfigCache {
 
     async fn get_snapshot(&self) -> Result<Option<ConfigSnapshot>, ConrogateError> {
         let route_repo = crate::repository::route_repo::RouteRepoImpl::new((*self.db).clone());
-        let upstream_repo = crate::repository::upstream_repo::UpstreamRepoImpl::new((*self.db).clone());
+        let upstream_repo =
+            crate::repository::upstream_repo::UpstreamRepoImpl::new((*self.db).clone());
 
         let routes = ReadOnlyRouteRepo::list_enabled(&route_repo).await?;
         let upstreams = ReadOnlyUpstreamRepo::list_all(&upstream_repo).await?;
 
         let mut bindings = Vec::new();
         for route in &routes {
-            let binding_repo = crate::repository::plugin_binding_repo::PluginBindingRepoImpl::new((*self.db).clone());
-            let route_bindings = ReadOnlyPluginBindingRepo::list_by_route(&binding_repo, route.id).await?;
+            let binding_repo = crate::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
+                (*self.db).clone(),
+            );
+            let route_bindings =
+                ReadOnlyPluginBindingRepo::list_by_route(&binding_repo, route.id).await?;
             bindings.extend(route_bindings);
         }
 
@@ -68,7 +77,9 @@ impl ConfigCache for DbConfigCache {
         Ok(())
     }
 
-    async fn subscribe_changes(&self) -> Result<Option<tokio::sync::watch::Receiver<u64>>, ConrogateError> {
+    async fn subscribe_changes(
+        &self,
+    ) -> Result<Option<tokio::sync::watch::Receiver<u64>>, ConrogateError> {
         // DB 模式不支持 Pub/Sub，返回 None（降级为轮询）
         Ok(None)
     }
@@ -104,13 +115,20 @@ impl RedisConfigCache {
 #[async_trait::async_trait]
 impl ConfigCache for RedisConfigCache {
     async fn get_version(&self) -> Result<Option<u64>, ConrogateError> {
-        let mut conn = self.redis.get_multiplexed_async_connection().await
+        let mut conn = self
+            .redis
+            .get_multiplexed_async_connection()
+            .await
             .map_err(|e| ConrogateError::Internal(format!("redis get_connection: {e}")))?;
-        let v: Option<String> = redis::cmd("GET").arg(Self::VERSION_KEY).query_async(&mut conn).await
+        let v: Option<String> = redis::cmd("GET")
+            .arg(Self::VERSION_KEY)
+            .query_async(&mut conn)
+            .await
             .map_err(|e| ConrogateError::Internal(format!("redis GET version: {e}")))?;
         match v {
             Some(s) => {
-                let version: u64 = s.parse()
+                let version: u64 = s
+                    .parse()
                     .map_err(|e| ConrogateError::Internal(format!("version parse: {e}")))?;
                 Ok(Some(version))
             }
@@ -124,11 +142,15 @@ impl ConfigCache for RedisConfigCache {
             None => return Ok(None),
         };
 
-        let mut conn = self.redis.get_multiplexed_async_connection().await
+        let mut conn = self
+            .redis
+            .get_multiplexed_async_connection()
+            .await
             .map_err(|e| ConrogateError::Internal(format!("redis get_connection: {e}")))?;
         let json: Option<String> = redis::cmd("GET")
             .arg(Self::snapshot_key(version))
-            .query_async(&mut conn).await
+            .query_async(&mut conn)
+            .await
             .map_err(|e| ConrogateError::Internal(format!("redis GET snapshot: {e}")))?;
 
         match json {
@@ -146,7 +168,10 @@ impl ConfigCache for RedisConfigCache {
         version: u64,
         snapshot: &ConfigSnapshot,
     ) -> Result<(), ConrogateError> {
-        let mut conn = self.redis.get_multiplexed_async_connection().await
+        let mut conn = self
+            .redis
+            .get_multiplexed_async_connection()
+            .await
             .map_err(|e| ConrogateError::Internal(format!("redis get_connection: {e}")))?;
 
         let json = serde_json::to_string(snapshot)
@@ -155,10 +180,17 @@ impl ConfigCache for RedisConfigCache {
         // 写入版本号 + 快照 + 发布通知
         let _: () = redis::pipe()
             .atomic()
-            .cmd("SET").arg(Self::VERSION_KEY).arg(version)
-            .cmd("SET").arg(Self::snapshot_key(version)).arg(&json)
-            .cmd("PUBLISH").arg(Self::NOTIFY_CHANNEL).arg(version)
-            .query_async(&mut conn).await
+            .cmd("SET")
+            .arg(Self::VERSION_KEY)
+            .arg(version)
+            .cmd("SET")
+            .arg(Self::snapshot_key(version))
+            .arg(&json)
+            .cmd("PUBLISH")
+            .arg(Self::NOTIFY_CHANNEL)
+            .arg(version)
+            .query_async(&mut conn)
+            .await
             .map_err(|e| ConrogateError::Internal(format!("redis pipe: {e}")))?;
 
         // 通知本地订阅者
@@ -166,7 +198,9 @@ impl ConfigCache for RedisConfigCache {
         Ok(())
     }
 
-    async fn subscribe_changes(&self) -> Result<Option<tokio::sync::watch::Receiver<u64>>, ConrogateError> {
+    async fn subscribe_changes(
+        &self,
+    ) -> Result<Option<tokio::sync::watch::Receiver<u64>>, ConrogateError> {
         Ok(Some(self.notify_tx.subscribe()))
     }
 }
@@ -185,12 +219,13 @@ impl ConfigLoaderImpl {
 #[async_trait::async_trait]
 impl ConfigLoader for ConfigLoaderImpl {
     async fn load_snapshot(&self) -> Result<ConfigSnapshot, ConrogateError> {
-        self.cache.get_snapshot().await?
+        self.cache
+            .get_snapshot()
+            .await?
             .ok_or_else(|| ConrogateError::Internal("config snapshot not available".into()))
     }
 
     async fn current_version(&self) -> Result<u64, ConrogateError> {
-        self.cache.get_version().await
-            .map(|v| v.unwrap_or(0))
+        self.cache.get_version().await.map(|v| v.unwrap_or(0))
     }
 }

@@ -9,10 +9,13 @@ use std::sync::{Arc, RwLock};
 
 use crate::health::PassiveHealthChecker;
 
+/// 上游配置映射类型别名（避免 clippy type_complexity）
+pub type UpstreamMap = HashMap<u64, (BalancerAlgorithm, Vec<UpstreamNodeDto>)>;
+
 pub struct UpstreamSelectorImpl {
     registry: BalancerRegistry,
     // upstream_id → (algorithm, nodes)
-    upstreams: Arc<RwLock<HashMap<u64, (BalancerAlgorithm, Vec<UpstreamNodeDto>)>>>,
+    upstreams: Arc<RwLock<UpstreamMap>>,
     // 被动健康检查器（可选）
     health_checker: Option<Arc<PassiveHealthChecker>>,
 }
@@ -33,7 +36,7 @@ impl UpstreamSelectorImpl {
     }
 
     /// 获取上游节点映射的共享引用（用于主动健康检查等）
-    pub fn shared_upstreams(&self) -> Arc<RwLock<HashMap<u64, (BalancerAlgorithm, Vec<UpstreamNodeDto>)>>> {
+    pub fn shared_upstreams(&self) -> Arc<RwLock<UpstreamMap>> {
         self.upstreams.clone()
     }
 
@@ -47,7 +50,10 @@ impl UpstreamSelectorImpl {
     }
 
     /// 获取节点列表
-    fn get_nodes(&self, upstream_id: u64) -> Result<(BalancerAlgorithm, Vec<UpstreamNodeDto>), ConrogateError> {
+    fn get_nodes(
+        &self,
+        upstream_id: u64,
+    ) -> Result<(BalancerAlgorithm, Vec<UpstreamNodeDto>), ConrogateError> {
         let upstreams = self.upstreams.read().unwrap();
         upstreams
             .get(&upstream_id)

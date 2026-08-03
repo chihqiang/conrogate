@@ -35,7 +35,9 @@ impl LoadBalancer for RoundRobin {
         _key: Option<&str>,
     ) -> Result<UpstreamNodeDto, ConrogateError> {
         if nodes.is_empty() {
-            return Err(ConrogateError::UpstreamNotFound("no nodes available".into()));
+            return Err(ConrogateError::UpstreamNotFound(
+                "no nodes available".into(),
+            ));
         }
 
         let enabled: Vec<&UpstreamNodeDto> = nodes.iter().filter(|n| n.enabled).collect();

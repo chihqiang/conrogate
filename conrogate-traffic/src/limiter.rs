@@ -91,7 +91,7 @@ impl Limiter for SlidingWindowLimiter {
         let mut windows = self.windows.lock().unwrap();
         let now = Instant::now();
 
-        let timestamps = windows.entry(key.to_string()).or_insert(Vec::new());
+        let timestamps = windows.entry(key.to_string()).or_default();
 
         // 清除窗口外的记录
         timestamps.retain(|t| now.duration_since(*t) < window);
@@ -140,12 +140,18 @@ if current > tonumber(ARGV[2]) then
     return 0
 end
 return 1
-"#.to_string(),
+"#
+            .to_string(),
         }
     }
 
     /// 尝试从 Redis 获取令牌（fail-closed：Redis 不可用时拒绝请求）
-    pub async fn acquire(&self, key: &str, limit: u32, window: Duration) -> Result<(), ConrogateError> {
+    pub async fn acquire(
+        &self,
+        key: &str,
+        limit: u32,
+        window: Duration,
+    ) -> Result<(), ConrogateError> {
         let client = match redis::Client::open(self.redis_url.as_str()) {
             Ok(c) => c,
             Err(_) => return Err(ConrogateError::Limited),

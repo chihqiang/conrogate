@@ -1,8 +1,8 @@
 //! 请求过滤器：限流拦截 + 熔断检查 + 配置刷新热载。
 
 use conrogate_contract::config::Config;
-use conrogate_contract::ConrogateError;
 use conrogate_contract::health::HealthChecker;
+use conrogate_contract::ConrogateError;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -97,11 +97,7 @@ impl TrafficControlAdapter {
 
 #[async_trait::async_trait]
 impl conrogate_contract::gateway::TrafficControl for TrafficControlAdapter {
-    async fn check_rate_limit(
-        &self,
-        route_id: u64,
-        client_ip: &str,
-    ) -> Result<(), ConrogateError> {
+    async fn check_rate_limit(&self, route_id: u64, client_ip: &str) -> Result<(), ConrogateError> {
         // 开关关闭：不限流
         if !self.rate_limit_enabled {
             return Ok(());
@@ -112,13 +108,17 @@ impl conrogate_contract::gateway::TrafficControl for TrafficControlAdapter {
         // 1. 全局 QPS 限流（0 = 不限）
         if self.global_qps > 0 {
             let global_key = "rate:global".to_string();
-            self.limiter.acquire(&global_key, self.global_qps, window).await?;
+            self.limiter
+                .acquire(&global_key, self.global_qps, window)
+                .await?;
         }
 
         // 2. 单路由 QPS 限流（0 = 不限）
         if self.route_qps > 0 {
             let route_key = format!("rate:route:{route_id}");
-            self.limiter.acquire(&route_key, self.route_qps, window).await?;
+            self.limiter
+                .acquire(&route_key, self.route_qps, window)
+                .await?;
         }
 
         // 3. 单路由+单 IP QPS 限流（0 = 不限）
@@ -139,25 +139,14 @@ impl conrogate_contract::gateway::TrafficControl for TrafficControlAdapter {
         if !self.breaker_enabled {
             return Ok(());
         }
-        let breaker = self
-            .breaker_factory
-            .get_or_create(route_id, node_id)
-            .await;
+        let breaker = self.breaker_factory.get_or_create(route_id, node_id).await;
         breaker.allow().await
     }
 
-    async fn record_result(
-        &self,
-        route_id: u64,
-        node_id: u64,
-        success: bool,
-    ) {
+    async fn record_result(&self, route_id: u64, node_id: u64, success: bool) {
         // 熔断开启时反馈计数；被动健康检查始终反馈
         if self.breaker_enabled {
-            let breaker = self
-                .breaker_factory
-                .get_or_create(route_id, node_id)
-                .await;
+            let breaker = self.breaker_factory.get_or_create(route_id, node_id).await;
             if success {
                 breaker.record_success().await;
             } else {
@@ -195,10 +184,7 @@ mod tests {
         }
     }
 
-    fn adapter(
-        rate: RateLimitConfig,
-        breaker: ContractBreakerConfig,
-    ) -> TrafficControlAdapter {
+    fn adapter(rate: RateLimitConfig, breaker: ContractBreakerConfig) -> TrafficControlAdapter {
         TrafficControlAdapter::with_governance_config(
             Arc::new(FixedWindowLimiter::new()),
             Arc::new(BreakerFactoryImpl::default()),
@@ -261,7 +247,10 @@ mod tests {
         breaker.allow().await.unwrap();
         breaker.record_failure().await;
         assert!(breaker.allow().await.is_err());
-        assert_eq!(breaker.state(), conrogate_contract::traffic::BreakerState::Open);
+        assert_eq!(
+            breaker.state(),
+            conrogate_contract::traffic::BreakerState::Open
+        );
 
         // 熔断开关关闭 → 放行
         assert!(adapter.check_circuit_breaker(1, 1).await.is_ok());

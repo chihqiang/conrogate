@@ -12,11 +12,11 @@ pub struct TelemetryReportImpl {
 }
 
 impl TelemetryReportImpl {
-    pub fn new(
-        metric_tx: mpsc::Sender<MetricRow>,
-        event_tx: mpsc::Sender<EventRow>,
-    ) -> Self {
-        Self { metric_tx, event_tx }
+    pub fn new(metric_tx: mpsc::Sender<MetricRow>, event_tx: mpsc::Sender<EventRow>) -> Self {
+        Self {
+            metric_tx,
+            event_tx,
+        }
     }
 }
 
@@ -36,7 +36,10 @@ impl TelemetryReport for TelemetryReportImpl {
 pub struct MetricAggregator {
     metric_rx: mpsc::Receiver<MetricRow>,
     // (gate_id, route_id, bucket_ts) → 聚合数据
-    buckets: std::collections::HashMap<(String, Option<u64>, chrono::DateTime<chrono::Utc>), MetricBucket>,
+    buckets: std::collections::HashMap<
+        (String, Option<u64>, chrono::DateTime<chrono::Utc>),
+        MetricBucket,
+    >,
     bucket_sec: u32,
     /// 落库通道
     metric_repo: Option<Arc<dyn conrogate_contract::storage::MetricRepo>>,
@@ -127,7 +130,10 @@ impl MetricAggregator {
     }
 
     /// 设置落库仓储
-    pub fn with_metric_repo(mut self, repo: Arc<dyn conrogate_contract::storage::MetricRepo>) -> Self {
+    pub fn with_metric_repo(
+        mut self,
+        repo: Arc<dyn conrogate_contract::storage::MetricRepo>,
+    ) -> Self {
         self.metric_repo = Some(repo);
         self
     }
@@ -210,7 +216,10 @@ impl MetricAggregator {
         }
     }
 
-    fn align_to_bucket(ts: chrono::DateTime<chrono::Utc>, bucket_sec: u32) -> chrono::DateTime<chrono::Utc> {
+    fn align_to_bucket(
+        ts: chrono::DateTime<chrono::Utc>,
+        bucket_sec: u32,
+    ) -> chrono::DateTime<chrono::Utc> {
         let secs = ts.timestamp();
         let aligned = secs - (secs % bucket_sec as i64);
         chrono::DateTime::from_timestamp(aligned, 0).unwrap_or(ts)

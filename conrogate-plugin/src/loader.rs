@@ -18,10 +18,7 @@ impl PluginLoader {
         let mut chain: Vec<Arc<dyn Plugin>> = Vec::new();
 
         // 按 order 排序
-        let mut sorted: Vec<&PluginBindingDto> = bindings
-            .iter()
-            .filter(|b| b.enabled)
-            .collect();
+        let mut sorted: Vec<&PluginBindingDto> = bindings.iter().filter(|b| b.enabled).collect();
         sorted.sort_by_key(|b| b.order);
 
         for binding in sorted {

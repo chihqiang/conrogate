@@ -20,10 +20,7 @@ pub enum NodeHealth {
 pub trait HealthChecker: Send + Sync {
     fn name(&self) -> &'static str;
 
-    async fn check(
-        &self,
-        node: &UpstreamNodeDto,
-    ) -> Result<NodeHealth, ConrogateError>;
+    async fn check(&self, node: &UpstreamNodeDto) -> Result<NodeHealth, ConrogateError>;
 
     async fn mark_failure(&self, node_id: u64);
 

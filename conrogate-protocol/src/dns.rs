@@ -78,11 +78,14 @@ impl DnsResolver {
     /// 写入缓存
     fn put_cache(&self, key: String, addrs: Vec<SocketAddr>) {
         let mut cache = self.cache.write().unwrap();
-        cache.insert(key, DnsCacheEntry {
-            addrs,
-            resolved_at: Instant::now(),
-            ttl: self.default_ttl,
-        });
+        cache.insert(
+            key,
+            DnsCacheEntry {
+                addrs,
+                resolved_at: Instant::now(),
+                ttl: self.default_ttl,
+            },
+        );
     }
 
     /// 清除缓存

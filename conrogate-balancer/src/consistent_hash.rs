@@ -100,9 +100,27 @@ mod tests {
     async fn test_consistent_hash_same_key() {
         let lb = ConsistentHash::new();
         let nodes = vec![
-            UpstreamNodeDto { id: 1, upstream_id: 1, address: "10.0.0.1:8080".into(), weight: 1, enabled: true },
-            UpstreamNodeDto { id: 2, upstream_id: 1, address: "10.0.0.2:8080".into(), weight: 1, enabled: true },
-            UpstreamNodeDto { id: 3, upstream_id: 1, address: "10.0.0.3:8080".into(), weight: 1, enabled: true },
+            UpstreamNodeDto {
+                id: 1,
+                upstream_id: 1,
+                address: "10.0.0.1:8080".into(),
+                weight: 1,
+                enabled: true,
+            },
+            UpstreamNodeDto {
+                id: 2,
+                upstream_id: 1,
+                address: "10.0.0.2:8080".into(),
+                weight: 1,
+                enabled: true,
+            },
+            UpstreamNodeDto {
+                id: 3,
+                upstream_id: 1,
+                address: "10.0.0.3:8080".into(),
+                weight: 1,
+                enabled: true,
+            },
         ];
 
         // 相同 key 应选到相同节点
@@ -115,9 +133,27 @@ mod tests {
     async fn test_consistent_hash_distribution() {
         let lb = ConsistentHash::new();
         let nodes = vec![
-            UpstreamNodeDto { id: 1, upstream_id: 1, address: "10.0.0.1:8080".into(), weight: 1, enabled: true },
-            UpstreamNodeDto { id: 2, upstream_id: 1, address: "10.0.0.2:8080".into(), weight: 1, enabled: true },
-            UpstreamNodeDto { id: 3, upstream_id: 1, address: "10.0.0.3:8080".into(), weight: 1, enabled: true },
+            UpstreamNodeDto {
+                id: 1,
+                upstream_id: 1,
+                address: "10.0.0.1:8080".into(),
+                weight: 1,
+                enabled: true,
+            },
+            UpstreamNodeDto {
+                id: 2,
+                upstream_id: 1,
+                address: "10.0.0.2:8080".into(),
+                weight: 1,
+                enabled: true,
+            },
+            UpstreamNodeDto {
+                id: 3,
+                upstream_id: 1,
+                address: "10.0.0.3:8080".into(),
+                weight: 1,
+                enabled: true,
+            },
         ];
 
         // 1000 个不同 key 应分散到多个节点

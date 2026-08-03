@@ -44,7 +44,8 @@ impl LoadBalancer for LeastConnections {
         let mut conns = self.connections.lock().unwrap();
 
         // 清理已移除的节点
-        let current_addrs: std::collections::HashSet<&String> = enabled.iter().map(|n| &n.address).collect();
+        let current_addrs: std::collections::HashSet<&String> =
+            enabled.iter().map(|n| &n.address).collect();
         conns.retain(|addr, _| current_addrs.contains(addr));
 
         // 选择连接数最少的节点

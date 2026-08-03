@@ -38,9 +38,12 @@ impl LoadBalancer for WeightedRoundRobin {
         nodes: &[UpstreamNodeDto],
         _key: Option<&str>,
     ) -> Result<UpstreamNodeDto, ConrogateError> {
-        let enabled: Vec<&UpstreamNodeDto> = nodes.iter().filter(|n| n.enabled && n.weight > 0).collect();
+        let enabled: Vec<&UpstreamNodeDto> =
+            nodes.iter().filter(|n| n.enabled && n.weight > 0).collect();
         if enabled.is_empty() {
-            return Err(ConrogateError::UpstreamNotFound("no enabled weighted nodes".into()));
+            return Err(ConrogateError::UpstreamNotFound(
+                "no enabled weighted nodes".into(),
+            ));
         }
 
         let mut cw = self.current_weights.lock().unwrap();
@@ -83,16 +86,32 @@ mod tests {
     async fn test_weighted_round_robin() {
         let lb = WeightedRoundRobin::new();
         let nodes = vec![
-            UpstreamNodeDto { id: 1, upstream_id: 1, address: "10.0.0.1:8080".into(), weight: 5, enabled: true },
-            UpstreamNodeDto { id: 2, upstream_id: 1, address: "10.0.0.2:8080".into(), weight: 1, enabled: true },
+            UpstreamNodeDto {
+                id: 1,
+                upstream_id: 1,
+                address: "10.0.0.1:8080".into(),
+                weight: 5,
+                enabled: true,
+            },
+            UpstreamNodeDto {
+                id: 2,
+                upstream_id: 1,
+                address: "10.0.0.2:8080".into(),
+                weight: 1,
+                enabled: true,
+            },
         ];
 
         let mut count_1 = 0;
         let mut count_2 = 0;
         for _ in 0..6 {
             let node = lb.select(&nodes, None).await.unwrap();
-            if node.id == 1 { count_1 += 1; }
-            if node.id == 2 { count_2 += 1; }
+            if node.id == 1 {
+                count_1 += 1;
+            }
+            if node.id == 2 {
+                count_2 += 1;
+            }
         }
 
         assert_eq!(count_1, 5);

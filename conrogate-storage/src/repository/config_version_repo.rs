@@ -9,8 +9,8 @@ use conrogate_contract::dto::*;
 use conrogate_contract::storage::ConfigVersionRepo;
 use conrogate_contract::ConrogateError;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, QuerySelect, Set, TransactionTrait, sea_query::Expr,
+    sea_query::Expr, ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, TransactionTrait,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -68,8 +68,9 @@ impl ConfigVersionRepo for ConfigVersionRepoImpl {
             .await
             .map_err(|e| ConrogateError::DataMapping(e.to_string()))?;
 
-        convert::config_version_model_to_dto(model)
-            .ok_or(ConrogateError::DataMapping("insert returned no model".into()))
+        convert::config_version_model_to_dto(model).ok_or(ConrogateError::DataMapping(
+            "insert returned no model".into(),
+        ))
     }
 
     async fn list_versions(
@@ -78,10 +79,13 @@ impl ConfigVersionRepo for ConfigVersionRepoImpl {
         page_size: u32,
     ) -> Result<PaginatedResult<ConfigVersionDto>, ConrogateError> {
         let page_size = page_size.clamp(1, 200);
-        let query = ConfigVersionEntity::find()
-            .order_by_desc(config_versions::Column::Version);
+        let query = ConfigVersionEntity::find().order_by_desc(config_versions::Column::Version);
 
-        let total = query.clone().count(&self.db).await.map_err(|_| ConrogateError::DatabaseInternal)?;
+        let total = query
+            .clone()
+            .count(&self.db)
+            .await
+            .map_err(|_| ConrogateError::DatabaseInternal)?;
 
         let models = query
             .offset(((page - 1) * page_size) as u64)
@@ -90,11 +94,22 @@ impl ConfigVersionRepo for ConfigVersionRepoImpl {
             .await
             .map_err(|_| ConrogateError::DatabaseInternal)?;
 
-        let list: Vec<ConfigVersionDto> = models.into_iter().filter_map(convert::config_version_model_to_dto).collect();
-        Ok(PaginatedResult { list, total, page, page_size })
+        let list: Vec<ConfigVersionDto> = models
+            .into_iter()
+            .filter_map(convert::config_version_model_to_dto)
+            .collect();
+        Ok(PaginatedResult {
+            list,
+            total,
+            page,
+            page_size,
+        })
     }
 
-    async fn find_by_version(&self, version: u64) -> Result<Option<ConfigVersionDto>, ConrogateError> {
+    async fn find_by_version(
+        &self,
+        version: u64,
+    ) -> Result<Option<ConfigVersionDto>, ConrogateError> {
         let model = ConfigVersionEntity::find()
             .filter(config_versions::Column::Version.eq(version as i64))
             .one(&self.db)
@@ -148,11 +163,15 @@ impl ConfigVersionRepo for ConfigVersionRepoImpl {
             .await
             .map_err(|e| ConrogateError::DataMapping(e.to_string()))?;
 
-        convert::config_version_model_to_dto(model)
-            .ok_or(ConrogateError::DataMapping("insert returned no model".into()))
+        convert::config_version_model_to_dto(model).ok_or(ConrogateError::DataMapping(
+            "insert returned no model".into(),
+        ))
     }
 
-    async fn get_snapshot_by_version(&self, version: u64) -> Result<Option<ConfigSnapshot>, ConrogateError> {
+    async fn get_snapshot_by_version(
+        &self,
+        version: u64,
+    ) -> Result<Option<ConfigSnapshot>, ConrogateError> {
         let model = ConfigVersionEntity::find()
             .filter(config_versions::Column::Version.eq(version as i64))
             .one(&self.db)
@@ -170,7 +189,11 @@ impl ConfigVersionRepo for ConfigVersionRepoImpl {
     }
 
     async fn apply_snapshot(&self, snapshot: &ConfigSnapshot) -> Result<(), ConrogateError> {
-        let tx = self.db.begin().await.map_err(|_| ConrogateError::DatabaseInternal)?;
+        let tx = self
+            .db
+            .begin()
+            .await
+            .map_err(|_| ConrogateError::DatabaseInternal)?;
 
         // ── 1. 上游 upsert（按 name 匹配），建立 快照 id → 实际 id 映射 ──
         let mut upstream_id_map: HashMap<u64, i64> = HashMap::new();
@@ -302,10 +325,8 @@ impl ConfigVersionRepo for ConfigVersionRepoImpl {
                 Some(m) => {
                     let mut active: routes::ActiveModel = m.clone().into();
                     active.protocol = Set(convert::protocol_to_i16(r.protocol));
-                    active.match_conditions = Set(
-                        serde_json::to_value(&r.match_conditions)
-                            .map_err(|e| ConrogateError::DataMapping(e.to_string()))?,
-                    );
+                    active.match_conditions = Set(serde_json::to_value(&r.match_conditions)
+                        .map_err(|e| ConrogateError::DataMapping(e.to_string()))?);
                     active.priority = Set(r.priority);
                     active.upstream_id = Set(upstream_id);
                     active.host_header = Set(r.host_header.clone());
@@ -479,17 +500,25 @@ impl ConfigVersionRepo for ConfigVersionRepoImpl {
                 let to_snap: ConfigSnapshot = serde_json::from_value(to_m.snapshot_content)
                     .map_err(|e| ConrogateError::DataMapping(e.to_string()))?;
 
-                let from_names: std::collections::HashSet<String> = from_snap.routes.iter().map(|r| r.name.clone()).collect();
-                let to_names: std::collections::HashSet<String> = to_snap.routes.iter().map(|r| r.name.clone()).collect();
+                let from_names: std::collections::HashSet<String> =
+                    from_snap.routes.iter().map(|r| r.name.clone()).collect();
+                let to_names: std::collections::HashSet<String> =
+                    to_snap.routes.iter().map(|r| r.name.clone()).collect();
 
                 let added: Vec<String> = to_names.difference(&from_names).cloned().collect();
                 let removed: Vec<String> = from_names.difference(&to_names).cloned().collect();
-                let modified: Vec<String> = to_snap.routes.iter()
+                let modified: Vec<String> = to_snap
+                    .routes
+                    .iter()
                     .filter(|r| from_names.contains(&r.name))
                     .map(|r| r.name.clone())
                     .collect();
 
-                Ok(ConfigDiff { added, modified, removed })
+                Ok(ConfigDiff {
+                    added,
+                    modified,
+                    removed,
+                })
             }
             _ => Err(ConrogateError::NotFound("version not found".into())),
         }
@@ -498,7 +527,7 @@ impl ConfigVersionRepo for ConfigVersionRepoImpl {
 
 /// 计算字符串的 SHA-256 哈希（返回 64 位十六进制字符串）
 fn sha256_hash(s: &str) -> String {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(s.as_bytes());
     let result = hasher.finalize();

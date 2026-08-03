@@ -94,10 +94,7 @@ pub async fn delete_route(
     }
 }
 
-pub async fn get_route(
-    State(state): State<AppState>,
-    Path(id): Path<u64>,
-) -> Response {
+pub async fn get_route(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
     match state.svc.get_route(id).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
@@ -114,7 +111,11 @@ pub async fn list_routes(
     State(state): State<AppState>,
     Query(q): Query<PaginationQuery>,
 ) -> Response {
-    match state.svc.list_routes(q.page.unwrap_or(1), q.page_size.unwrap_or(20)).await {
+    match state
+        .svc
+        .list_routes(q.page.unwrap_or(1), q.page_size.unwrap_or(20))
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -185,10 +186,7 @@ pub async fn patch_upstream(
     }
 }
 
-pub async fn get_upstream(
-    State(state): State<AppState>,
-    Path(id): Path<u64>,
-) -> Response {
+pub async fn get_upstream(State(state): State<AppState>, Path(id): Path<u64>) -> Response {
     match state.svc.get_upstream(id).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
@@ -199,7 +197,11 @@ pub async fn list_upstreams(
     State(state): State<AppState>,
     Query(q): Query<PaginationQuery>,
 ) -> Response {
-    match state.svc.list_upstreams(q.page.unwrap_or(1), q.page_size.unwrap_or(20)).await {
+    match state
+        .svc
+        .list_upstreams(q.page.unwrap_or(1), q.page_size.unwrap_or(20))
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -234,7 +236,11 @@ pub async fn update_plugin_binding(
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.update_plugin_binding(route_id, &plugin_name, dto, Some(&operator)).await {
+    match state
+        .svc
+        .update_plugin_binding(route_id, &plugin_name, dto, Some(&operator))
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -249,7 +255,11 @@ pub async fn unbind_plugin(
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.unbind_plugin(route_id, &plugin_name, Some(&operator)).await {
+    match state
+        .svc
+        .unbind_plugin(route_id, &plugin_name, Some(&operator))
+        .await
+    {
         Ok(_) => response::ok_empty(),
         Err(e) => response::err(e),
     }
@@ -282,7 +292,15 @@ pub async fn publish_config(
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.publish_config(q.base_version.unwrap_or(0), Some(&operator), q.remark.as_deref()).await {
+    match state
+        .svc
+        .publish_config(
+            q.base_version.unwrap_or(0),
+            Some(&operator),
+            q.remark.as_deref(),
+        )
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -307,7 +325,11 @@ pub async fn list_config_versions(
     State(state): State<AppState>,
     Query(q): Query<PaginationQuery>,
 ) -> Response {
-    match state.svc.list_config_versions(q.page.unwrap_or(1), q.page_size.unwrap_or(20)).await {
+    match state
+        .svc
+        .list_config_versions(q.page.unwrap_or(1), q.page_size.unwrap_or(20))
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -319,10 +341,7 @@ pub struct DiffQuery {
     pub to: u64,
 }
 
-pub async fn diff_config(
-    State(state): State<AppState>,
-    Query(q): Query<DiffQuery>,
-) -> Response {
+pub async fn diff_config(State(state): State<AppState>, Query(q): Query<DiffQuery>) -> Response {
     match state.svc.diff_config(q.from, q.to).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
@@ -392,7 +411,11 @@ pub async fn insights_status_codes(
     State(state): State<AppState>,
     Query(q): Query<OverviewQuery>,
 ) -> Response {
-    match state.svc.insights_status_codes(q.range_min.unwrap_or(5)).await {
+    match state
+        .svc
+        .insights_status_codes(q.range_min.unwrap_or(5))
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -402,7 +425,11 @@ pub async fn insights_top_routes(
     State(state): State<AppState>,
     Query(q): Query<OverviewQuery>,
 ) -> Response {
-    match state.svc.insights_top_routes(q.range_min.unwrap_or(5)).await {
+    match state
+        .svc
+        .insights_top_routes(q.range_min.unwrap_or(5))
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -415,7 +442,11 @@ pub async fn query_events(
     Query(filter): Query<EventQuery>,
     Query(page): Query<PaginationQuery>,
 ) -> Response {
-    match state.svc.query_events(filter, page.page.unwrap_or(1), page.page_size.unwrap_or(20)).await {
+    match state
+        .svc
+        .query_events(filter, page.page.unwrap_or(1), page.page_size.unwrap_or(20))
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -428,7 +459,11 @@ pub async fn query_audit_logs(
     Query(filter): Query<AuditLogQuery>,
     Query(page): Query<PaginationQuery>,
 ) -> Response {
-    match state.svc.query_audit_logs(filter, page.page.unwrap_or(1), page.page_size.unwrap_or(20)).await {
+    match state
+        .svc
+        .query_audit_logs(filter, page.page.unwrap_or(1), page.page_size.unwrap_or(20))
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -436,9 +471,7 @@ pub async fn query_audit_logs(
 
 // ── 节点 ──
 
-pub async fn list_nodes(
-    State(state): State<AppState>,
-) -> Response {
+pub async fn list_nodes(State(state): State<AppState>) -> Response {
     match state.svc.list_nodes().await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
@@ -484,13 +517,16 @@ pub async fn list_plugins(
     State(state): State<AppState>,
     Query(q): Query<PluginStatusQuery>,
 ) -> Response {
-    let status = q.status.as_deref().and_then(|s| match s.to_lowercase().as_str() {
-        "installed" => Some(conrogate_contract::plugin::PluginStatus::Installed),
-        "active" => Some(conrogate_contract::plugin::PluginStatus::Active),
-        "disabled" => Some(conrogate_contract::plugin::PluginStatus::Disabled),
-        "uninstalled" => Some(conrogate_contract::plugin::PluginStatus::Uninstalled),
-        _ => None,
-    });
+    let status = q
+        .status
+        .as_deref()
+        .and_then(|s| match s.to_lowercase().as_str() {
+            "installed" => Some(conrogate_contract::plugin::PluginStatus::Installed),
+            "active" => Some(conrogate_contract::plugin::PluginStatus::Active),
+            "disabled" => Some(conrogate_contract::plugin::PluginStatus::Disabled),
+            "uninstalled" => Some(conrogate_contract::plugin::PluginStatus::Uninstalled),
+            _ => None,
+        });
     match state.svc.list_plugins(status).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
@@ -512,7 +548,15 @@ pub async fn activate_plugin(
     if let Err(e) = require_role(&role, Role::Admin) {
         return response::err(e);
     }
-    match state.svc.update_plugin_status(&name, conrogate_contract::plugin::PluginStatus::Active, Some(&operator)).await {
+    match state
+        .svc
+        .update_plugin_status(
+            &name,
+            conrogate_contract::plugin::PluginStatus::Active,
+            Some(&operator),
+        )
+        .await
+    {
         Ok(_) => response::ok_empty(),
         Err(e) => response::err(e),
     }
@@ -528,7 +572,15 @@ pub async fn disable_plugin(
     if let Err(e) = require_role(&role, Role::Admin) {
         return response::err(e);
     }
-    match state.svc.update_plugin_status(&name, conrogate_contract::plugin::PluginStatus::Disabled, Some(&operator)).await {
+    match state
+        .svc
+        .update_plugin_status(
+            &name,
+            conrogate_contract::plugin::PluginStatus::Disabled,
+            Some(&operator),
+        )
+        .await
+    {
         Ok(_) => response::ok_empty(),
         Err(e) => response::err(e),
     }
@@ -560,9 +612,7 @@ pub async fn healthz() -> Response {
     response::ok(serde_json::json!({"status": "ok"}))
 }
 
-pub async fn readyz(
-    State(state): State<AppState>,
-) -> Response {
+pub async fn readyz(State(state): State<AppState>) -> Response {
     // 1. 检查 DB 连通性
     if let Err(e) = state.svc.list_nodes().await {
         let body = serde_json::json!({
@@ -578,9 +628,7 @@ pub async fn readyz(
     }
     // 2. 检查路由是否已加载
     match state.svc.list_routes(1, 1).await {
-        Ok(routes) if routes.total > 0 => {
-            response::ok(serde_json::json!({"status": "ok"}))
-        }
+        Ok(routes) if routes.total > 0 => response::ok(serde_json::json!({"status": "ok"})),
         Ok(_) => {
             let body = serde_json::json!({
                 "code": 50001,

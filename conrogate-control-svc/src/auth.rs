@@ -23,7 +23,7 @@ pub enum Role {
 
 impl Role {
     /// 从字符串解析角色
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse_role(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "admin" => Self::Admin,
             "operator" => Self::Operator,
@@ -43,7 +43,7 @@ fn parse_token(token: &str) -> Option<(&str, &str, Role)> {
     if parts.len() != 3 {
         return None;
     }
-    let role = Role::from_str(parts[2]);
+    let role = Role::parse_role(parts[2]);
     Some((parts[0], parts[1], role))
 }
 
@@ -70,11 +70,7 @@ fn unauthorized_response() -> Response {
 }
 
 /// Bearer Token 认证中间件
-pub async fn auth_middleware(
-    State(state): State<AuthState>,
-    req: Request,
-    next: Next,
-) -> Response {
+pub async fn auth_middleware(State(state): State<AuthState>, req: Request, next: Next) -> Response {
     // 如果未配置 token，跳过认证
     if state.token.is_empty() {
         return next.run(req).await;

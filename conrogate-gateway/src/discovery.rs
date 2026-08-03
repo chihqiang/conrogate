@@ -46,10 +46,7 @@ impl ServiceDiscovery for StaticDiscovery {
         "static"
     }
 
-    async fn resolve(
-        &self,
-        service_name: &str,
-    ) -> Result<Vec<UpstreamNodeDto>, ConrogateError> {
+    async fn resolve(&self, service_name: &str) -> Result<Vec<UpstreamNodeDto>, ConrogateError> {
         // service_name 格式为 "upstream:{id}"
         let upstream_id: u64 = service_name
             .strip_prefix("upstream:")

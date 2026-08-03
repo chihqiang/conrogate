@@ -1,20 +1,21 @@
 //! 网关服务入口：启动 HTTP/TCP 监听 + 组装 ServiceContext。
 
 use crate::filter::ConfigReloader;
-use crate::route::RouteMatcher;
 use crate::pool::UpstreamSelectorImpl;
+use crate::route::RouteMatcher;
 use crate::telemetry::TelemetryReportImpl;
-use conrogate_protocol::{
-    HttpProtocolHandler, ProtocolHandler, ProtocolHandlerRegistry, TcpTunnelProtocolHandler,
-};
 use bytes::Bytes;
 use conrogate_balancer::registry::create_default_registry;
 use conrogate_contract::config::Config;
 use conrogate_contract::gateway::ServiceContext;
+use conrogate_contract::protocol::{ProtocolId, RouteMatchInfo};
 use conrogate_contract::ConrogateError;
 use conrogate_plugin::pipeline::PluginPipelineImpl;
 use conrogate_plugin::registry::PluginRegistryImpl;
 use conrogate_protocol::proxy::ReqBody;
+use conrogate_protocol::{
+    HttpProtocolHandler, ProtocolHandler, ProtocolHandlerRegistry, TcpTunnelProtocolHandler,
+};
 use conrogate_traffic::breaker::{BreakerConfig, BreakerFactoryImpl};
 use conrogate_traffic::limiter::TokenBucketLimiter;
 use http::{Request, Response};
@@ -25,7 +26,6 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
-use conrogate_contract::protocol::{ProtocolId, RouteMatchInfo};
 
 /// 网关服务
 pub struct GatewayServer {
@@ -67,15 +67,22 @@ impl GatewayServer {
             min_requests: config.gate.breaker.min_requests,
             wait: config.gate.breaker.wait,
             half_open_max: config.gate.breaker.half_open_max,
-            redis_url: config.gate.breaker.cluster_store.as_ref().map(|c| c.redis_url.clone()),
+            redis_url: config
+                .gate
+                .breaker
+                .cluster_store
+                .as_ref()
+                .map(|c| c.redis_url.clone()),
         };
         let breaker_factory = Arc::new(BreakerFactoryImpl::new(breaker_config));
-        let traffic = Arc::new(crate::filter::TrafficControlAdapter::with_governance_config(
-            limiter,
-            breaker_factory,
-            &config.gate.rate_limit,
-            &config.gate.breaker,
-        ));
+        let traffic = Arc::new(
+            crate::filter::TrafficControlAdapter::with_governance_config(
+                limiter,
+                breaker_factory,
+                &config.gate.rate_limit,
+                &config.gate.breaker,
+            ),
+        );
 
         // 遥测
         let (metric_tx, metric_rx) = mpsc::channel(100_000);
@@ -117,7 +124,9 @@ impl GatewayServer {
         plugin_registry.register(cors_plugin.clone()).await;
         plugin_registry.register(auth_plugin.clone()).await;
         // 调用插件 init() 生命周期钩子
-        for p in [&*log_plugin, &*cors_plugin, &*auth_plugin] as [&dyn conrogate_contract::plugin::Plugin; 3] {
+        for p in [&*log_plugin, &*cors_plugin, &*auth_plugin]
+            as [&dyn conrogate_contract::plugin::Plugin; 3]
+        {
             if let Err(e) = p.init(&serde_json::Value::Null).await {
                 if p.is_blocking() {
                     tracing::error!(plugin = p.name(), error = %e, "blocking plugin init failed, skipping registration");
@@ -135,9 +144,8 @@ impl GatewayServer {
             plugins: plugin_executor.clone(),
         });
 
-        let timeout = std::time::Duration::from_millis(
-            config.gate.timeouts.total.as_millis() as u64,
-        );
+        let timeout =
+            std::time::Duration::from_millis(config.gate.timeouts.total.as_millis() as u64);
 
         let rate_limit_enabled = config.gate.rate_limit.enabled;
         let conn_qps = if rate_limit_enabled {
@@ -193,9 +201,8 @@ impl GatewayServer {
         plugin_executor: Arc<PluginPipelineImpl>,
     ) -> Self {
         let config_reloader = ConfigReloader::new(config.clone());
-        let timeout = std::time::Duration::from_millis(
-            config.gate.timeouts.total.as_millis() as u64,
-        );
+        let timeout =
+            std::time::Duration::from_millis(config.gate.timeouts.total.as_millis() as u64);
         let rate_limit_enabled = config.gate.rate_limit.enabled;
         let conn_qps = if rate_limit_enabled {
             config.gate.rate_limit.conn_qps
@@ -246,7 +253,11 @@ impl GatewayServer {
         let redis_url = if !config.gate.refresh.config_cache_redis_url.is_empty() {
             Some(config.gate.refresh.config_cache_redis_url.clone())
         } else {
-            config.gate.rate_limit.cluster_store.as_ref()
+            config
+                .gate
+                .rate_limit
+                .cluster_store
+                .as_ref()
                 .filter(|s| !s.redis_url.is_empty())
                 .map(|s| s.redis_url.clone())
         };
@@ -267,36 +278,53 @@ impl GatewayServer {
         }
 
         // 加载初始路由 + 上游 + 插件绑定
-        let route_repo = conrogate_storage::repository::route_repo::RouteRepoImpl::new((*read_db).clone());
-        let upstream_repo = conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*read_db).clone());
-        let binding_repo = conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new((*read_db).clone());
+        let route_repo =
+            conrogate_storage::repository::route_repo::RouteRepoImpl::new((*read_db).clone());
+        let upstream_repo =
+            conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*read_db).clone());
+        let binding_repo =
+            conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
+                (*read_db).clone(),
+            );
 
-        let routes = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(&route_repo).await
+        let routes = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(&route_repo)
+            .await
             .unwrap_or_default();
-        let upstreams = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(&upstream_repo).await
+        let upstreams = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(&upstream_repo)
+            .await
             .unwrap_or_default();
         let mut all_bindings = Vec::new();
         for route in &routes {
             let rb = conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
-                &binding_repo, route.id,
-            ).await.unwrap_or_default();
+                &binding_repo,
+                route.id,
+            )
+            .await
+            .unwrap_or_default();
             all_bindings.extend(rb);
         }
 
         let body_required = server.plugin_registry.body_required_plugin_names();
         // 初始加载：预解析路由插件链并缓存到 PluginPipelineImpl
-        let mut init_chains: std::collections::HashMap<u64, Vec<Arc<dyn conrogate_contract::plugin::Plugin>>> =
-            std::collections::HashMap::new();
+        let mut init_chains: std::collections::HashMap<
+            u64,
+            Vec<Arc<dyn conrogate_contract::plugin::Plugin>>,
+        > = std::collections::HashMap::new();
         for binding in &all_bindings {
             if !binding.enabled {
                 continue;
             }
             if let Some(plugin) = server.plugin_registry.get(&binding.plugin_name) {
-                init_chains.entry(binding.route_id).or_default().push(plugin);
+                init_chains
+                    .entry(binding.route_id)
+                    .or_default()
+                    .push(plugin);
             }
         }
         server.plugin_executor.set_route_chains(init_chains);
-        server.route_matcher.load_with_bindings(routes, all_bindings, &body_required);
+        server
+            .route_matcher
+            .load_with_bindings(routes, all_bindings, &body_required);
         server.upstream_selector.load_upstreams(upstreams);
 
         // 启动配置热加载后台任务
@@ -317,7 +345,9 @@ impl GatewayServer {
                         sub_rx = Some(rx);
                     }
                     Ok(None) => {
-                        tracing::info!("ConfigCache does not support Pub/Sub, using poll-only mode");
+                        tracing::info!(
+                            "ConfigCache does not support Pub/Sub, using poll-only mode"
+                        );
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "subscribe_changes failed, using poll-only mode");
@@ -348,8 +378,12 @@ impl GatewayServer {
                         Ok(Some(snap)) => (snap.routes, snap.upstreams, snap.plugin_bindings),
                         _ => {
                             let r = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(
-                                &conrogate_storage::repository::route_repo::RouteRepoImpl::new((*db).clone()),
-                            ).await.unwrap_or_default();
+                                &conrogate_storage::repository::route_repo::RouteRepoImpl::new(
+                                    (*db).clone(),
+                                ),
+                            )
+                            .await
+                            .unwrap_or_default();
                             let u = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(
                                 &conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*db).clone()),
                             ).await.unwrap_or_default();
@@ -366,11 +400,19 @@ impl GatewayServer {
                     }
                 } else {
                     let r = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(
-                        &conrogate_storage::repository::route_repo::RouteRepoImpl::new((*db).clone()),
-                    ).await.unwrap_or_default();
+                        &conrogate_storage::repository::route_repo::RouteRepoImpl::new(
+                            (*db).clone(),
+                        ),
+                    )
+                    .await
+                    .unwrap_or_default();
                     let u = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(
-                        &conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*db).clone()),
-                    ).await.unwrap_or_default();
+                        &conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new(
+                            (*db).clone(),
+                        ),
+                    )
+                    .await
+                    .unwrap_or_default();
                     let mut bindings = Vec::new();
                     for route in &r {
                         let rb = conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
@@ -385,8 +427,10 @@ impl GatewayServer {
                     let body_req = registry.body_required_plugin_names();
                     // 热加载：更新路由插件链（set_route_chains）
                     // 按 route_id 分组绑定，解析插件实例，原子替换插件链缓存
-                    let mut chains: std::collections::HashMap<u64, Vec<Arc<dyn conrogate_contract::plugin::Plugin>>> =
-                        std::collections::HashMap::new();
+                    let mut chains: std::collections::HashMap<
+                        u64,
+                        Vec<Arc<dyn conrogate_contract::plugin::Plugin>>,
+                    > = std::collections::HashMap::new();
                     for binding in &bindings {
                         if !binding.enabled {
                             continue;
@@ -410,10 +454,7 @@ impl GatewayServer {
     ///
     /// `shutdown` 为停机 Future：完成后停止 accept 新连接，
     /// 等待宽限期 `long_conn_drain` 后强制结束。
-    pub async fn run_with_shutdown<F>(
-        &self,
-        shutdown: F,
-    ) -> Result<(), ConrogateError>
+    pub async fn run_with_shutdown<F>(&self, shutdown: F) -> Result<(), ConrogateError>
     where
         F: std::future::Future<Output = ()>,
     {
@@ -582,7 +623,10 @@ impl GatewayServer {
         }
 
         // 宽限期：等待存量连接自然结束
-        tracing::info!(drain_ms = long_conn_drain.as_millis(), "graceful shutdown: draining in-flight connections");
+        tracing::info!(
+            drain_ms = long_conn_drain.as_millis(),
+            "graceful shutdown: draining in-flight connections"
+        );
         tokio::time::sleep(long_conn_drain).await;
 
         // 宽限期结束，强制释放所有并发许可（触发连接清理）
@@ -598,7 +642,8 @@ impl GatewayServer {
         let (_tx, rx) = tokio::sync::oneshot::channel::<()>();
         self.run_with_shutdown(async move {
             let _ = rx.await;
-        }).await
+        })
+        .await
     }
 
     /// 热加载路由
@@ -614,7 +659,8 @@ impl GatewayServer {
         bindings: Vec<conrogate_contract::dto::PluginBindingDto>,
     ) {
         let body_required = self.plugin_registry.body_required_plugin_names();
-        self.route_matcher.load_with_bindings(routes, bindings, &body_required);
+        self.route_matcher
+            .load_with_bindings(routes, bindings, &body_required);
         tracing::info!("routes reloaded with bindings");
     }
 
@@ -678,7 +724,9 @@ where
 {
     let mut builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
     builder.http1().max_buf_size(max_header_bytes);
-    builder.http2().max_header_list_size(max_header_bytes as u32);
+    builder
+        .http2()
+        .max_header_list_size(max_header_bytes as u32);
     builder.serve_connection(io, svc).await
 }
 
@@ -718,15 +766,20 @@ where
 /// 将 Bytes 包装为统一响应体（ReqBody），兼容 HTTP/1.1 与 HTTP/2
 fn boxed_body(bytes: Bytes) -> ReqBody {
     use http_body_util::combinators::BoxBody;
-    BoxBody::new(Full::new(bytes).map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { match e {} }))
+    BoxBody::new(
+        Full::new(bytes).map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { match e {} }),
+    )
 }
 
 /// 构造 JSON 错误响应体
 fn json_error(code: i32, msg: &str) -> Bytes {
-    let trace_id = format!("{:032x}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0));
+    let trace_id = format!(
+        "{:032x}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
     let body = serde_json::json!({
         "code": code,
         "msg": msg,
@@ -747,7 +800,9 @@ fn error_response(status: http::StatusCode, code: i32, msg: &str) -> Response<Re
 impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
     type Response = Response<ReqBody>;
     type Error = ConrogateError;
-    type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
+    >;
 
     fn call(&self, mut req: Request<Incoming>) -> Self::Future {
         let handler = self.handler.clone();
@@ -783,7 +838,9 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
 
             // WebSocket 升级检测：在拆分请求前提取 OnUpgrade future
             let is_ws_upgrade = req.method() == http::Method::GET
-                && req.headers().get("upgrade")
+                && req
+                    .headers()
+                    .get("upgrade")
                     .and_then(|v| v.to_str().ok())
                     .map(|s| s.eq_ignore_ascii_case("websocket"))
                     .unwrap_or(false);
@@ -805,11 +862,8 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
 
             // 拆分请求：先匹配路由，判定是否需要缓冲 body
             let (parts, body) = req.into_parts();
-            let match_info = RouteMatchInfo::from_http_request(
-                &parts.method,
-                &parts.uri,
-                &parts.headers,
-            );
+            let match_info =
+                RouteMatchInfo::from_http_request(&parts.method, &parts.uri, &parts.headers);
 
             // 尝试路由匹配
             let matched_route = route_matcher.match_route(ProtocolId::Http, &match_info);
@@ -818,7 +872,9 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
             if let Some(ref route) = matched_route {
                 if !route.requires_body {
                     // 流式模式请求体大小限制（通过 Content-Length 头检查）
-                    if let Some(cl) = parts.headers.get("content-length")
+                    if let Some(cl) = parts
+                        .headers
+                        .get("content-length")
                         .and_then(|v| v.to_str().ok())
                         .and_then(|s| s.parse::<usize>().ok())
                     {
@@ -830,7 +886,10 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                             ));
                         }
                     }
-                    let resp = match handler.handle_http_stream(parts, body, route.clone(), client_ip).await {
+                    let resp = match handler
+                        .handle_http_stream(parts, body, route.clone(), client_ip)
+                        .await
+                    {
                         Ok(resp) => resp,
                         Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
                             return Ok(error_response(
@@ -857,9 +916,16 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                     };
                     // WebSocket 升级响应检测（流式路径）
                     if resp.status() == http::StatusCode::SWITCHING_PROTOCOLS {
-                        if let Some(upstream_addr) = resp.headers().get("X-WS-Upstream-Addr").and_then(|v| v.to_str().ok()).map(|s| s.to_string()) {
+                        if let Some(upstream_addr) = resp
+                            .headers()
+                            .get("X-WS-Upstream-Addr")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|s| s.to_string())
+                        {
                             // 启动 WS 双向转发任务
-                            if let (Some(on_upgrade), Some((method, uri, headers))) = (on_upgrade, ws_req_info) {
+                            if let (Some(on_upgrade), Some((method, uri, headers))) =
+                                (on_upgrade, ws_req_info)
+                            {
                                 let ws_timeout = idle_timeout;
                                 tokio::spawn(async move {
                                     match on_upgrade.await {
@@ -871,13 +937,16 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                                 .body(Bytes::new())
                                                 .unwrap();
                                             *upgrade_req.headers_mut() = headers;
-                                            if let Err(e) = conrogate_protocol::upgrade::forward_websocket(
-                                                &upstream_addr,
-                                                io,
-                                                upgrade_req,
-                                                ws_timeout,
-                                                upgrade_buffer_size,
-                                            ).await {
+                                            if let Err(e) =
+                                                conrogate_protocol::upgrade::forward_websocket(
+                                                    &upstream_addr,
+                                                    io,
+                                                    upgrade_req,
+                                                    ws_timeout,
+                                                    upgrade_buffer_size,
+                                                )
+                                                .await
+                                            {
                                                 tracing::warn!(error = %e, "websocket forwarding error");
                                             }
                                         }
@@ -945,9 +1014,16 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
 
             // WebSocket 升级检测：101 响应 + X-WS-Upstream-Addr 头
             if resp.status() == http::StatusCode::SWITCHING_PROTOCOLS {
-                if let Some(upstream_addr) = resp.headers().get("X-WS-Upstream-Addr").and_then(|v| v.to_str().ok()).map(|s| s.to_string()) {
+                if let Some(upstream_addr) = resp
+                    .headers()
+                    .get("X-WS-Upstream-Addr")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.to_string())
+                {
                     // 启动 WS 双向转发任务
-                    if let (Some(on_upgrade), Some((method, uri, headers))) = (on_upgrade, ws_req_info) {
+                    if let (Some(on_upgrade), Some((method, uri, headers))) =
+                        (on_upgrade, ws_req_info)
+                    {
                         let ws_timeout = idle_timeout;
                         tokio::spawn(async move {
                             match on_upgrade.await {
@@ -965,7 +1041,9 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                         upgrade_req,
                                         ws_timeout,
                                         upgrade_buffer_size,
-                                    ).await {
+                                    )
+                                    .await
+                                    {
                                         tracing::warn!(error = %e, "websocket forwarding error");
                                     }
                                 }
@@ -979,7 +1057,10 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                     let mut clean_resp = resp;
                     clean_resp.headers_mut().remove("X-WS-Upstream-Addr");
                     clean_resp.headers_mut().remove("X-WS-Trace-Id");
-                    return Ok(Response::from_parts(clean_resp.into_parts().0, boxed_body(Bytes::new())));
+                    return Ok(Response::from_parts(
+                        clean_resp.into_parts().0,
+                        boxed_body(Bytes::new()),
+                    ));
                 }
             }
 
@@ -1003,8 +1084,9 @@ mod tests {
     impl Service<Request<Incoming>> for H2ProbeService {
         type Response = Response<ReqBody>;
         type Error = ConrogateError;
-        type Future =
-            std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+        type Future = std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
+        >;
 
         fn call(&self, _req: Request<Incoming>) -> Self::Future {
             Box::pin(async move {

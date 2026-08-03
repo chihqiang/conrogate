@@ -4,10 +4,10 @@ use crate::entity::{
     audit_logs, config_versions, gateway_events, installed_plugins, metric_aggregates,
     node_applications, route_plugin_bindings, routes, upstream_nodes, upstreams,
 };
+use conrogate_contract::balancer::BalancerAlgorithm;
 use conrogate_contract::dto::*;
 use conrogate_contract::plugin::{PluginKind, PluginStatus};
 use conrogate_contract::protocol::{ProtocolId, RouteMatchConditions};
-use conrogate_contract::balancer::BalancerAlgorithm;
 use sea_orm::Set;
 use serde_json;
 
@@ -97,8 +97,7 @@ fn i16_to_plugin_status(v: i16) -> PluginStatus {
 // ── routes ──
 
 pub fn route_model_to_dto(m: routes::Model) -> Option<RouteDto> {
-    let conditions: RouteMatchConditions =
-        serde_json::from_value(m.match_conditions).ok()?;
+    let conditions: RouteMatchConditions = serde_json::from_value(m.match_conditions).ok()?;
     Some(RouteDto {
         id: m.id as u64,
         name: m.name,
@@ -134,13 +133,19 @@ pub fn route_create_to_active_model(dto: CreateRouteDto) -> routes::ActiveModel 
 
 // ── upstreams + nodes ──
 
-pub fn upstream_model_to_dto(m: upstreams::Model, nodes: Vec<upstream_nodes::Model>) -> Option<UpstreamDto> {
+pub fn upstream_model_to_dto(
+    m: upstreams::Model,
+    nodes: Vec<upstream_nodes::Model>,
+) -> Option<UpstreamDto> {
     Some(UpstreamDto {
         id: m.id as u64,
         name: m.name,
         algorithm: i16_to_algorithm(m.algorithm),
         retry_enabled: m.retry_enabled,
-        nodes: nodes.into_iter().filter_map(upstream_node_model_to_dto).collect(),
+        nodes: nodes
+            .into_iter()
+            .filter_map(upstream_node_model_to_dto)
+            .collect(),
         created_at: m.created_at,
         updated_at: m.updated_at,
     })
@@ -168,7 +173,10 @@ pub fn upstream_create_to_active_model(dto: CreateUpstreamDto) -> upstreams::Act
     }
 }
 
-pub fn node_create_to_active_model(upstream_id: i64, dto: CreateUpstreamNodeDto) -> upstream_nodes::ActiveModel {
+pub fn node_create_to_active_model(
+    upstream_id: i64,
+    dto: CreateUpstreamNodeDto,
+) -> upstream_nodes::ActiveModel {
     upstream_nodes::ActiveModel {
         upstream_id: Set(upstream_id),
         address: Set(dto.address),
@@ -195,7 +203,10 @@ pub fn binding_model_to_dto(m: route_plugin_bindings::Model) -> Option<PluginBin
     })
 }
 
-pub fn binding_create_to_active_model(route_id: i64, dto: BindPluginDto) -> route_plugin_bindings::ActiveModel {
+pub fn binding_create_to_active_model(
+    route_id: i64,
+    dto: BindPluginDto,
+) -> route_plugin_bindings::ActiveModel {
     route_plugin_bindings::ActiveModel {
         route_id: Set(route_id),
         plugin_name: Set(dto.plugin_name),
@@ -354,7 +365,9 @@ pub fn installed_plugin_model_to_dto(m: installed_plugins::Model) -> Option<Inst
     })
 }
 
-pub fn installed_plugin_dto_to_active_model(dto: &InstalledPluginDto) -> installed_plugins::ActiveModel {
+pub fn installed_plugin_dto_to_active_model(
+    dto: &InstalledPluginDto,
+) -> installed_plugins::ActiveModel {
     installed_plugins::ActiveModel {
         name: Set(dto.name.clone()),
         version: Set(dto.version.clone()),

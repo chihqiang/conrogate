@@ -26,6 +26,7 @@ pub struct ControlService {
 }
 
 impl ControlService {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         route_repo: Arc<dyn RouteRepo>,
         upstream_repo: Arc<dyn UpstreamRepo>,
@@ -61,42 +62,60 @@ impl ControlService {
 
     // ── 路由管理 ──
 
-    pub async fn create_route(&self, dto: CreateRouteDto, operator: Option<&str>) -> Result<RouteDto, ConrogateError> {
+    pub async fn create_route(
+        &self,
+        dto: CreateRouteDto,
+        operator: Option<&str>,
+    ) -> Result<RouteDto, ConrogateError> {
         let route = self.route_repo.create(dto).await?;
-        self.audit.log(
-            operator,
-            "create",
-            "route",
-            Some(route.id),
-            serde_json::to_value(&route).unwrap_or_default(),
-            None,
-        ).await;
+        self.audit
+            .log(
+                operator,
+                "create",
+                "route",
+                Some(route.id),
+                serde_json::to_value(&route).unwrap_or_default(),
+                None,
+            )
+            .await;
         Ok(route)
     }
 
-    pub async fn update_route(&self, dto: UpdateRouteDto, operator: Option<&str>) -> Result<RouteDto, ConrogateError> {
+    pub async fn update_route(
+        &self,
+        dto: UpdateRouteDto,
+        operator: Option<&str>,
+    ) -> Result<RouteDto, ConrogateError> {
         let route = self.route_repo.update(dto).await?;
-        self.audit.log(
-            operator,
-            "update",
-            "route",
-            Some(route.id),
-            serde_json::to_value(&route).unwrap_or_default(),
-            None,
-        ).await;
+        self.audit
+            .log(
+                operator,
+                "update",
+                "route",
+                Some(route.id),
+                serde_json::to_value(&route).unwrap_or_default(),
+                None,
+            )
+            .await;
         Ok(route)
     }
 
-    pub async fn delete_route(&self, id: u64, operator: Option<&str>) -> Result<(), ConrogateError> {
+    pub async fn delete_route(
+        &self,
+        id: u64,
+        operator: Option<&str>,
+    ) -> Result<(), ConrogateError> {
         self.route_repo.soft_delete(id).await?;
-        self.audit.log(
-            operator,
-            "delete",
-            "route",
-            Some(id),
-            serde_json::json!({"id": id}),
-            None,
-        ).await;
+        self.audit
+            .log(
+                operator,
+                "delete",
+                "route",
+                Some(id),
+                serde_json::json!({"id": id}),
+                None,
+            )
+            .await;
         Ok(())
     }
 
@@ -104,48 +123,70 @@ impl ControlService {
         self.route_repo.find_by_id(id).await
     }
 
-    pub async fn list_routes(&self, page: u32, page_size: u32) -> Result<PaginatedResult<RouteDto>, ConrogateError> {
+    pub async fn list_routes(
+        &self,
+        page: u32,
+        page_size: u32,
+    ) -> Result<PaginatedResult<RouteDto>, ConrogateError> {
         self.route_repo.list_paginated(page, page_size).await
     }
 
     // ── 上游管理 ──
 
-    pub async fn create_upstream(&self, dto: CreateUpstreamDto, operator: Option<&str>) -> Result<UpstreamDto, ConrogateError> {
+    pub async fn create_upstream(
+        &self,
+        dto: CreateUpstreamDto,
+        operator: Option<&str>,
+    ) -> Result<UpstreamDto, ConrogateError> {
         let upstream = self.upstream_repo.create(dto).await?;
-        self.audit.log(
-            operator,
-            "create",
-            "upstream",
-            Some(upstream.id),
-            serde_json::to_value(&upstream).unwrap_or_default(),
-            None,
-        ).await;
+        self.audit
+            .log(
+                operator,
+                "create",
+                "upstream",
+                Some(upstream.id),
+                serde_json::to_value(&upstream).unwrap_or_default(),
+                None,
+            )
+            .await;
         Ok(upstream)
     }
 
-    pub async fn update_upstream(&self, dto: UpdateUpstreamDto, operator: Option<&str>) -> Result<UpstreamDto, ConrogateError> {
+    pub async fn update_upstream(
+        &self,
+        dto: UpdateUpstreamDto,
+        operator: Option<&str>,
+    ) -> Result<UpstreamDto, ConrogateError> {
         let upstream = self.upstream_repo.update(dto).await?;
-        self.audit.log(
-            operator,
-            "update",
-            "upstream",
-            Some(upstream.id),
-            serde_json::to_value(&upstream).unwrap_or_default(),
-            None,
-        ).await;
+        self.audit
+            .log(
+                operator,
+                "update",
+                "upstream",
+                Some(upstream.id),
+                serde_json::to_value(&upstream).unwrap_or_default(),
+                None,
+            )
+            .await;
         Ok(upstream)
     }
 
-    pub async fn delete_upstream(&self, id: u64, operator: Option<&str>) -> Result<(), ConrogateError> {
+    pub async fn delete_upstream(
+        &self,
+        id: u64,
+        operator: Option<&str>,
+    ) -> Result<(), ConrogateError> {
         self.upstream_repo.soft_delete(id).await?;
-        self.audit.log(
-            operator,
-            "delete",
-            "upstream",
-            Some(id),
-            serde_json::json!({"id": id}),
-            None,
-        ).await;
+        self.audit
+            .log(
+                operator,
+                "delete",
+                "upstream",
+                Some(id),
+                serde_json::json!({"id": id}),
+                None,
+            )
+            .await;
         Ok(())
     }
 
@@ -153,39 +194,60 @@ impl ControlService {
         self.upstream_repo.find_by_id(id).await
     }
 
-    pub async fn list_upstreams(&self, page: u32, page_size: u32) -> Result<PaginatedResult<UpstreamDto>, ConrogateError> {
+    pub async fn list_upstreams(
+        &self,
+        page: u32,
+        page_size: u32,
+    ) -> Result<PaginatedResult<UpstreamDto>, ConrogateError> {
         self.upstream_repo.list_paginated(page, page_size).await
     }
 
     // ── 插件绑定 ──
 
-    pub async fn bind_plugin(&self, route_id: u64, dto: BindPluginDto, operator: Option<&str>) -> Result<PluginBindingDto, ConrogateError> {
+    pub async fn bind_plugin(
+        &self,
+        route_id: u64,
+        dto: BindPluginDto,
+        operator: Option<&str>,
+    ) -> Result<PluginBindingDto, ConrogateError> {
         let binding = self.binding_repo.bind(route_id, dto).await?;
-        self.audit.log(
-            operator,
-            "bind",
-            "plugin_binding",
-            Some(binding.id),
-            serde_json::to_value(&binding).unwrap_or_default(),
-            None,
-        ).await;
+        self.audit
+            .log(
+                operator,
+                "bind",
+                "plugin_binding",
+                Some(binding.id),
+                serde_json::to_value(&binding).unwrap_or_default(),
+                None,
+            )
+            .await;
         Ok(binding)
     }
 
-    pub async fn unbind_plugin(&self, route_id: u64, plugin_name: &str, operator: Option<&str>) -> Result<(), ConrogateError> {
+    pub async fn unbind_plugin(
+        &self,
+        route_id: u64,
+        plugin_name: &str,
+        operator: Option<&str>,
+    ) -> Result<(), ConrogateError> {
         self.binding_repo.unbind(route_id, plugin_name).await?;
-        self.audit.log(
-            operator,
-            "unbind",
-            "plugin_binding",
-            None,
-            serde_json::json!({"route_id": route_id, "plugin": plugin_name}),
-            None,
-        ).await;
+        self.audit
+            .log(
+                operator,
+                "unbind",
+                "plugin_binding",
+                None,
+                serde_json::json!({"route_id": route_id, "plugin": plugin_name}),
+                None,
+            )
+            .await;
         Ok(())
     }
 
-    pub async fn list_plugin_bindings(&self, route_id: u64) -> Result<Vec<PluginBindingDto>, ConrogateError> {
+    pub async fn list_plugin_bindings(
+        &self,
+        route_id: u64,
+    ) -> Result<Vec<PluginBindingDto>, ConrogateError> {
         self.binding_repo.list_by_route(route_id).await
     }
 
@@ -197,14 +259,16 @@ impl ControlService {
         operator: Option<&str>,
     ) -> Result<PluginBindingDto, ConrogateError> {
         let binding = self.binding_repo.update(route_id, plugin_name, dto).await?;
-        self.audit.log(
-            operator,
-            "update",
-            "plugin_binding",
-            Some(binding.id),
-            serde_json::to_value(&binding).unwrap_or_default(),
-            None,
-        ).await;
+        self.audit
+            .log(
+                operator,
+                "update",
+                "plugin_binding",
+                Some(binding.id),
+                serde_json::to_value(&binding).unwrap_or_default(),
+                None,
+            )
+            .await;
         Ok(binding)
     }
 
@@ -232,7 +296,10 @@ impl ControlService {
             plugin_bindings: bindings,
         };
 
-        let version = self.config_repo.publish(base_version, &snapshot, operator, remark).await?;
+        let version = self
+            .config_repo
+            .publish(base_version, &snapshot, operator, remark)
+            .await?;
 
         // 写 Redis 配置缓存（失败不阻断发布，仅告警）
         if let Some(ref cache) = self.config_cache {
@@ -245,21 +312,30 @@ impl ControlService {
             }
         }
 
-        self.audit.log(
-            operator,
-            "publish",
-            "config_version",
-            Some(version.version),
-            serde_json::json!({"version": version.version, "base": version.base_version}),
-            None,
-        ).await;
+        self.audit
+            .log(
+                operator,
+                "publish",
+                "config_version",
+                Some(version.version),
+                serde_json::json!({"version": version.version, "base": version.base_version}),
+                None,
+            )
+            .await;
 
         Ok(version)
     }
 
-    pub async fn rollback_config(&self, target_version: u64, operator: Option<&str>) -> Result<ConfigVersionDto, ConrogateError> {
+    pub async fn rollback_config(
+        &self,
+        target_version: u64,
+        operator: Option<&str>,
+    ) -> Result<ConfigVersionDto, ConrogateError> {
         // 1. 取目标快照
-        let target_snapshot = self.config_repo.get_snapshot_by_version(target_version).await?
+        let target_snapshot = self
+            .config_repo
+            .get_snapshot_by_version(target_version)
+            .await?
             .ok_or_else(|| ConrogateError::NotFound(format!("version {}", target_version)))?;
 
         // 2. 回写业务表（gate 热加载直接读业务表，回滚依赖这一步生效）
@@ -270,7 +346,11 @@ impl ControlService {
 
         // 写 Redis 配置缓存（失败不阻断回滚，仅告警）
         if let Some(ref cache) = self.config_cache {
-            match self.config_repo.get_snapshot_by_version(version.version).await? {
+            match self
+                .config_repo
+                .get_snapshot_by_version(version.version)
+                .await?
+            {
                 Some(snapshot) => {
                     if let Err(e) = cache.put_snapshot(version.version, &snapshot).await {
                         tracing::warn!(
@@ -289,19 +369,25 @@ impl ControlService {
             }
         }
 
-        self.audit.log(
-            operator,
-            "rollback",
-            "config_version",
-            Some(version.version),
-            serde_json::json!({"target": target_version, "new_version": version.version}),
-            None,
-        ).await;
+        self.audit
+            .log(
+                operator,
+                "rollback",
+                "config_version",
+                Some(version.version),
+                serde_json::json!({"target": target_version, "new_version": version.version}),
+                None,
+            )
+            .await;
 
         Ok(version)
     }
 
-    pub async fn list_config_versions(&self, page: u32, page_size: u32) -> Result<PaginatedResult<ConfigVersionDto>, ConrogateError> {
+    pub async fn list_config_versions(
+        &self,
+        page: u32,
+        page_size: u32,
+    ) -> Result<PaginatedResult<ConfigVersionDto>, ConrogateError> {
         self.config_repo.list_versions(page, page_size).await
     }
 
@@ -311,7 +397,10 @@ impl ControlService {
 
     // ── 指标查询 ──
 
-    pub async fn query_metrics(&self, filter: MetricQuery) -> Result<Vec<MetricRow>, ConrogateError> {
+    pub async fn query_metrics(
+        &self,
+        filter: MetricQuery,
+    ) -> Result<Vec<MetricRow>, ConrogateError> {
         self.metric_repo.query(&filter).await
     }
 
@@ -322,24 +411,72 @@ impl ControlService {
     // ── Insights 聚合查询 ──
 
     pub async fn insights_qps(&self, range_min: u32) -> Result<serde_json::Value, ConrogateError> {
-        let rows = self.metric_repo.query(&MetricQuery { range_min, route_id: None, gate_id: None }).await?;
-        let series: Vec<serde_json::Value> = rows.iter().map(|r| serde_json::json!({
-            "ts": r.ts, "qps": r.qps, "route_id": r.route_id
-        })).collect();
+        let rows = self
+            .metric_repo
+            .query(&MetricQuery {
+                range_min,
+                route_id: None,
+                gate_id: None,
+            })
+            .await?;
+        let series: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|r| {
+                serde_json::json!({
+                    "ts": r.ts, "qps": r.qps, "route_id": r.route_id
+                })
+            })
+            .collect();
         Ok(serde_json::json!({ "series": series }))
     }
 
-    pub async fn insights_latency(&self, range_min: u32) -> Result<serde_json::Value, ConrogateError> {
-        let rows = self.metric_repo.query(&MetricQuery { range_min, route_id: None, gate_id: None }).await?;
-        let p50: f64 = if rows.is_empty() { 0.0 } else { rows.iter().map(|r| r.p50_ms as f64).sum::<f64>() / rows.len() as f64 };
-        let p90: f64 = if rows.is_empty() { 0.0 } else { rows.iter().map(|r| r.p90_ms as f64).sum::<f64>() / rows.len() as f64 };
-        let p99: f64 = if rows.is_empty() { 0.0 } else { rows.iter().map(|r| r.p99_ms as f64).sum::<f64>() / rows.len() as f64 };
-        let avg: f64 = if rows.is_empty() { 0.0 } else { rows.iter().map(|r| r.avg_latency_ms).sum::<f64>() / rows.len() as f64 };
+    pub async fn insights_latency(
+        &self,
+        range_min: u32,
+    ) -> Result<serde_json::Value, ConrogateError> {
+        let rows = self
+            .metric_repo
+            .query(&MetricQuery {
+                range_min,
+                route_id: None,
+                gate_id: None,
+            })
+            .await?;
+        let p50: f64 = if rows.is_empty() {
+            0.0
+        } else {
+            rows.iter().map(|r| r.p50_ms as f64).sum::<f64>() / rows.len() as f64
+        };
+        let p90: f64 = if rows.is_empty() {
+            0.0
+        } else {
+            rows.iter().map(|r| r.p90_ms as f64).sum::<f64>() / rows.len() as f64
+        };
+        let p99: f64 = if rows.is_empty() {
+            0.0
+        } else {
+            rows.iter().map(|r| r.p99_ms as f64).sum::<f64>() / rows.len() as f64
+        };
+        let avg: f64 = if rows.is_empty() {
+            0.0
+        } else {
+            rows.iter().map(|r| r.avg_latency_ms).sum::<f64>() / rows.len() as f64
+        };
         Ok(serde_json::json!({ "avg_ms": avg, "p50_ms": p50, "p90_ms": p90, "p99_ms": p99 }))
     }
 
-    pub async fn insights_status_codes(&self, range_min: u32) -> Result<serde_json::Value, ConrogateError> {
-        let rows = self.metric_repo.query(&MetricQuery { range_min, route_id: None, gate_id: None }).await?;
+    pub async fn insights_status_codes(
+        &self,
+        range_min: u32,
+    ) -> Result<serde_json::Value, ConrogateError> {
+        let rows = self
+            .metric_repo
+            .query(&MetricQuery {
+                range_min,
+                route_id: None,
+                gate_id: None,
+            })
+            .await?;
         let s2xx: u64 = rows.iter().map(|r| r.status_2xx).sum();
         let s3xx: u64 = rows.iter().map(|r| r.status_3xx).sum();
         let s4xx: u64 = rows.iter().map(|r| r.status_4xx).sum();
@@ -347,8 +484,18 @@ impl ControlService {
         Ok(serde_json::json!({ "2xx": s2xx, "3xx": s3xx, "4xx": s4xx, "5xx": s5xx }))
     }
 
-    pub async fn insights_top_routes(&self, range_min: u32) -> Result<serde_json::Value, ConrogateError> {
-        let rows = self.metric_repo.query(&MetricQuery { range_min, route_id: None, gate_id: None }).await?;
+    pub async fn insights_top_routes(
+        &self,
+        range_min: u32,
+    ) -> Result<serde_json::Value, ConrogateError> {
+        let rows = self
+            .metric_repo
+            .query(&MetricQuery {
+                range_min,
+                route_id: None,
+                gate_id: None,
+            })
+            .await?;
         use std::collections::HashMap;
         let mut by_route: HashMap<u64, u64> = HashMap::new();
         for r in &rows {
@@ -357,23 +504,38 @@ impl ControlService {
             }
         }
         let mut top: Vec<(u64, u64)> = by_route.into_iter().collect();
-        top.sort_by(|a, b| b.1.cmp(&a.1));
+        top.sort_by_key(|(_, v)| std::cmp::Reverse(*v));
         top.truncate(10);
-        let result: Vec<serde_json::Value> = top.iter().map(|(rid, reqs)| serde_json::json!({
-            "route_id": rid, "total_requests": reqs
-        })).collect();
+        let result: Vec<serde_json::Value> = top
+            .iter()
+            .map(|(rid, reqs)| {
+                serde_json::json!({
+                    "route_id": rid, "total_requests": reqs
+                })
+            })
+            .collect();
         Ok(serde_json::json!({ "top_routes": result }))
     }
 
     // ── 事件查询 ──
 
-    pub async fn query_events(&self, filter: EventQuery, page: u32, page_size: u32) -> Result<PaginatedResult<EventRow>, ConrogateError> {
+    pub async fn query_events(
+        &self,
+        filter: EventQuery,
+        page: u32,
+        page_size: u32,
+    ) -> Result<PaginatedResult<EventRow>, ConrogateError> {
         self.event_repo.query(&filter, page, page_size).await
     }
 
     // ── 审计查询 ──
 
-    pub async fn query_audit_logs(&self, filter: AuditLogQuery, page: u32, page_size: u32) -> Result<PaginatedResult<AuditLogRow>, ConrogateError> {
+    pub async fn query_audit_logs(
+        &self,
+        filter: AuditLogQuery,
+        page: u32,
+        page_size: u32,
+    ) -> Result<PaginatedResult<AuditLogRow>, ConrogateError> {
         self.audit_repo.query(&filter, page, page_size).await
     }
 
@@ -385,40 +547,58 @@ impl ControlService {
 
     // ── 插件管理 ──
 
-    pub async fn list_plugins(&self, status: Option<conrogate_contract::plugin::PluginStatus>) -> Result<Vec<InstalledPluginDto>, ConrogateError> {
+    pub async fn list_plugins(
+        &self,
+        status: Option<conrogate_contract::plugin::PluginStatus>,
+    ) -> Result<Vec<InstalledPluginDto>, ConrogateError> {
         self.plugin_repo.list(status).await
     }
 
     /// 更新插件状态（Admin 专属操作）
-    pub async fn update_plugin_status(&self, name: &str, status: conrogate_contract::plugin::PluginStatus, operator: Option<&str>) -> Result<(), ConrogateError> {
+    pub async fn update_plugin_status(
+        &self,
+        name: &str,
+        status: conrogate_contract::plugin::PluginStatus,
+        operator: Option<&str>,
+    ) -> Result<(), ConrogateError> {
         self.plugin_repo.update_status(name, status).await?;
-        self.audit.log(
-            operator,
-            "update_status",
-            "plugin",
-            None,
-            serde_json::json!({"name": name, "status": format!("{:?}", status)}),
-            None,
-        ).await;
+        self.audit
+            .log(
+                operator,
+                "update_status",
+                "plugin",
+                None,
+                serde_json::json!({"name": name, "status": format!("{:?}", status)}),
+                None,
+            )
+            .await;
         Ok(())
     }
 
     /// 卸载插件（Admin 专属操作）
-    pub async fn delete_plugin(&self, name: &str, operator: Option<&str>) -> Result<(), ConrogateError> {
+    pub async fn delete_plugin(
+        &self,
+        name: &str,
+        operator: Option<&str>,
+    ) -> Result<(), ConrogateError> {
         self.plugin_repo.soft_delete(name).await?;
-        self.audit.log(
-            operator,
-            "delete",
-            "plugin",
-            None,
-            serde_json::json!({"name": name}),
-            None,
-        ).await;
+        self.audit
+            .log(
+                operator,
+                "delete",
+                "plugin",
+                None,
+                serde_json::json!({"name": name}),
+                None,
+            )
+            .await;
         Ok(())
     }
 
     pub async fn receive_heartbeat(&self, heartbeat: Heartbeat) -> Result<(), ConrogateError> {
-        self.node_app_repo.upsert(&heartbeat.gate_id, heartbeat.version).await
+        self.node_app_repo
+            .upsert(&heartbeat.gate_id, heartbeat.version)
+            .await
     }
 
     pub async fn receive_metrics(&self, batch: MetricsBatch) -> Result<(), ConrogateError> {

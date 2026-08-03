@@ -11,8 +11,5 @@ use async_trait::async_trait;
 pub trait ServiceDiscovery: Send + Sync {
     fn name(&self) -> &'static str;
 
-    async fn resolve(
-        &self,
-        service_name: &str,
-    ) -> Result<Vec<UpstreamNodeDto>, ConrogateError>;
+    async fn resolve(&self, service_name: &str) -> Result<Vec<UpstreamNodeDto>, ConrogateError>;
 }

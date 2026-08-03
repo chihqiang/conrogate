@@ -274,19 +274,10 @@ impl Default for TelemetryConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct NodeConfig {
     pub auto_migrate: bool,
     pub seed_demo: bool,
-}
-
-impl Default for NodeConfig {
-    fn default() -> Self {
-        Self {
-            auto_migrate: false,
-            seed_demo: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -316,17 +307,9 @@ impl Default for ControlListenConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AuthConfig {
     pub token: String,
-}
-
-impl Default for AuthConfig {
-    fn default() -> Self {
-        Self {
-            token: String::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -418,7 +401,9 @@ impl std::str::FromStr for ConfigSource {
             "redis" => Ok(Self::Redis),
             "db" => Ok(Self::Db),
             "http" => Ok(Self::Http),
-            _ => Err(ConrogateError::ConfigInvalid(format!("unknown config source: {s}"))),
+            _ => Err(ConrogateError::ConfigInvalid(format!(
+                "unknown config source: {s}"
+            ))),
         }
     }
 }
@@ -606,10 +591,7 @@ impl Config {
                     ),
                     config_source: env_str("CONROGATE_GATE_REFRESH_CONFIG_SOURCE", "db"),
                     control_api_url: env_str("CONROGATE_GATE_REFRESH_CONTROL_API_URL", ""),
-                    control_api_token: env_str(
-                        "CONROGATE_GATE_REFRESH_CONTROL_API_TOKEN",
-                        "",
-                    ),
+                    control_api_token: env_str("CONROGATE_GATE_REFRESH_CONTROL_API_TOKEN", ""),
                     config_cache_redis_url,
                     config_cache_connect_timeout: env_duration_ms(
                         "CONROGATE_GATE_CONFIG_CACHE_REDIS_CONNECT_TIMEOUT_MS",
@@ -692,8 +674,7 @@ impl Config {
                     "CONROGATE_LOG_OUTPUT_FILE_PATH",
                     "/var/log/conrogate/conrogate.log",
                 ),
-                rotation_size_mb: env_u32("CONROGATE_LOG_OUTPUT_FILE_ROTATION_SIZE_MB", 100)
-                    as u64,
+                rotation_size_mb: env_u32("CONROGATE_LOG_OUTPUT_FILE_ROTATION_SIZE_MB", 100) as u64,
                 retention_days: env_u32("CONROGATE_LOG_OUTPUT_FILE_RETENTION_DAYS", 7),
             },
         };

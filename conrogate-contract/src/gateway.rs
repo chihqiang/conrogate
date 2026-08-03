@@ -37,11 +37,7 @@ pub trait UpstreamSelector: Send + Sync {
 
 #[async_trait]
 pub trait TrafficControl: Send + Sync {
-    async fn check_rate_limit(
-        &self,
-        route_id: u64,
-        client_ip: &str,
-    ) -> Result<(), ConrogateError>;
+    async fn check_rate_limit(&self, route_id: u64, client_ip: &str) -> Result<(), ConrogateError>;
 
     async fn check_circuit_breaker(
         &self,
@@ -49,12 +45,7 @@ pub trait TrafficControl: Send + Sync {
         node_id: u64,
     ) -> Result<(), ConrogateError>;
 
-    async fn record_result(
-        &self,
-        route_id: u64,
-        node_id: u64,
-        success: bool,
-    );
+    async fn record_result(&self, route_id: u64, node_id: u64, success: bool);
 }
 
 // ── 遥测上报 ──

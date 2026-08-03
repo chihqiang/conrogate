@@ -176,11 +176,35 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Upstreams::Name).string().not_null())
-                    .col(ColumnDef::new(Upstreams::Algorithm).small_integer().not_null().default(1))
-                    .col(ColumnDef::new(Upstreams::RetryEnabled).boolean().not_null().default(true))
-                    .col(ColumnDef::new(Upstreams::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
-                    .col(ColumnDef::new(Upstreams::UpdatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
-                    .col(ColumnDef::new(Upstreams::DeletedAt).timestamp_with_time_zone().null())
+                    .col(
+                        ColumnDef::new(Upstreams::Algorithm)
+                            .small_integer()
+                            .not_null()
+                            .default(1),
+                    )
+                    .col(
+                        ColumnDef::new(Upstreams::RetryEnabled)
+                            .boolean()
+                            .not_null()
+                            .default(true),
+                    )
+                    .col(
+                        ColumnDef::new(Upstreams::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        ColumnDef::new(Upstreams::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        ColumnDef::new(Upstreams::DeletedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -207,13 +231,41 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(UpstreamNodes::UpstreamId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(UpstreamNodes::UpstreamId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(UpstreamNodes::Address).string().not_null())
-                    .col(ColumnDef::new(UpstreamNodes::Weight).integer().not_null().default(1))
-                    .col(ColumnDef::new(UpstreamNodes::Enabled).boolean().not_null().default(true))
-                    .col(ColumnDef::new(UpstreamNodes::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
-                    .col(ColumnDef::new(UpstreamNodes::UpdatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
-                    .col(ColumnDef::new(UpstreamNodes::DeletedAt).timestamp_with_time_zone().null())
+                    .col(
+                        ColumnDef::new(UpstreamNodes::Weight)
+                            .integer()
+                            .not_null()
+                            .default(1),
+                    )
+                    .col(
+                        ColumnDef::new(UpstreamNodes::Enabled)
+                            .boolean()
+                            .not_null()
+                            .default(true),
+                    )
+                    .col(
+                        ColumnDef::new(UpstreamNodes::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        ColumnDef::new(UpstreamNodes::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        ColumnDef::new(UpstreamNodes::DeletedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_nodes_upstream")
@@ -249,16 +301,50 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Routes::Name).string().not_null())
-                    .col(ColumnDef::new(Routes::Protocol).small_integer().not_null().default(1))
+                    .col(
+                        ColumnDef::new(Routes::Protocol)
+                            .small_integer()
+                            .not_null()
+                            .default(1),
+                    )
                     .col(ColumnDef::new(Routes::MatchConditions).json().not_null())
-                    .col(ColumnDef::new(Routes::Priority).integer().not_null().default(10))
+                    .col(
+                        ColumnDef::new(Routes::Priority)
+                            .integer()
+                            .not_null()
+                            .default(10),
+                    )
                     .col(ColumnDef::new(Routes::UpstreamId).big_integer().null())
                     .col(ColumnDef::new(Routes::HostHeader).string().null())
-                    .col(ColumnDef::new(Routes::AllowRetryNonIdempotent).boolean().not_null().default(false))
-                    .col(ColumnDef::new(Routes::Enabled).boolean().not_null().default(true))
-                    .col(ColumnDef::new(Routes::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
-                    .col(ColumnDef::new(Routes::UpdatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
-                    .col(ColumnDef::new(Routes::DeletedAt).timestamp_with_time_zone().null())
+                    .col(
+                        ColumnDef::new(Routes::AllowRetryNonIdempotent)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .col(
+                        ColumnDef::new(Routes::Enabled)
+                            .boolean()
+                            .not_null()
+                            .default(true),
+                    )
+                    .col(
+                        ColumnDef::new(Routes::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        ColumnDef::new(Routes::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        ColumnDef::new(Routes::DeletedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_routes_upstream")
@@ -272,7 +358,9 @@ impl MigrationTrait for Migration {
 
         manager
             .get_connection()
-            .execute_unprepared("CREATE UNIQUE INDEX idx_routes_name ON routes (name) WHERE deleted_at IS NULL")
+            .execute_unprepared(
+                "CREATE UNIQUE INDEX idx_routes_name ON routes (name) WHERE deleted_at IS NULL",
+            )
             .await?;
 
         manager
@@ -298,15 +386,57 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(RoutePluginBindings::RouteId).big_integer().not_null())
-                    .col(ColumnDef::new(RoutePluginBindings::PluginName).string().not_null())
-                    .col(ColumnDef::new(RoutePluginBindings::Config).json().not_null().default("{}"))
-                    .col(ColumnDef::new(RoutePluginBindings::Order).integer().not_null().default(1))
-                    .col(ColumnDef::new(RoutePluginBindings::Blocking).boolean().not_null().default(true))
-                    .col(ColumnDef::new(RoutePluginBindings::Enabled).boolean().not_null().default(true))
-                    .col(ColumnDef::new(RoutePluginBindings::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
-                    .col(ColumnDef::new(RoutePluginBindings::UpdatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
-                    .col(ColumnDef::new(RoutePluginBindings::DeletedAt).timestamp_with_time_zone().null())
+                    .col(
+                        ColumnDef::new(RoutePluginBindings::RouteId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(RoutePluginBindings::PluginName)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(RoutePluginBindings::Config)
+                            .json()
+                            .not_null()
+                            .default("{}"),
+                    )
+                    .col(
+                        ColumnDef::new(RoutePluginBindings::Order)
+                            .integer()
+                            .not_null()
+                            .default(1),
+                    )
+                    .col(
+                        ColumnDef::new(RoutePluginBindings::Blocking)
+                            .boolean()
+                            .not_null()
+                            .default(true),
+                    )
+                    .col(
+                        ColumnDef::new(RoutePluginBindings::Enabled)
+                            .boolean()
+                            .not_null()
+                            .default(true),
+                    )
+                    .col(
+                        ColumnDef::new(RoutePluginBindings::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        ColumnDef::new(RoutePluginBindings::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        ColumnDef::new(RoutePluginBindings::DeletedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_bindings_route")
@@ -337,14 +467,40 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(ConfigVersions::Version).big_integer().not_null())
-                    .col(ColumnDef::new(ConfigVersions::BaseVersion).big_integer().null())
-                    .col(ColumnDef::new(ConfigVersions::PublishType).small_integer().not_null().default(0))
-                    .col(ColumnDef::new(ConfigVersions::ContentHash).string().not_null())
-                    .col(ColumnDef::new(ConfigVersions::SnapshotContent).json().not_null())
+                    .col(
+                        ColumnDef::new(ConfigVersions::Version)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ConfigVersions::BaseVersion)
+                            .big_integer()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(ConfigVersions::PublishType)
+                            .small_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(ConfigVersions::ContentHash)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ConfigVersions::SnapshotContent)
+                            .json()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(ConfigVersions::CreatedBy).string().null())
                     .col(ColumnDef::new(ConfigVersions::Remark).string().null())
-                    .col(ColumnDef::new(ConfigVersions::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(
+                        ColumnDef::new(ConfigVersions::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -372,24 +528,107 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(MetricAggregates::Ts).timestamp_with_time_zone().not_null())
-                    .col(ColumnDef::new(MetricAggregates::BucketSec).integer().not_null().default(10))
-                    .col(ColumnDef::new(MetricAggregates::RouteId).big_integer().null())
+                    .col(
+                        ColumnDef::new(MetricAggregates::Ts)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::BucketSec)
+                            .integer()
+                            .not_null()
+                            .default(10),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::RouteId)
+                            .big_integer()
+                            .null(),
+                    )
                     .col(ColumnDef::new(MetricAggregates::GateId).string().null())
-                    .col(ColumnDef::new(MetricAggregates::Qps).integer().not_null().default(0))
-                    .col(ColumnDef::new(MetricAggregates::TotalRequests).big_integer().not_null().default(0))
-                    .col(ColumnDef::new(MetricAggregates::AvgLatencyMs).double().not_null().default(0.0))
-                    .col(ColumnDef::new(MetricAggregates::P50Ms).integer().not_null().default(0))
-                    .col(ColumnDef::new(MetricAggregates::P90Ms).integer().not_null().default(0))
-                    .col(ColumnDef::new(MetricAggregates::P99Ms).integer().not_null().default(0))
-                    .col(ColumnDef::new(MetricAggregates::Status2xx).big_integer().not_null().default(0))
-                    .col(ColumnDef::new(MetricAggregates::Status3xx).big_integer().not_null().default(0))
-                    .col(ColumnDef::new(MetricAggregates::Status4xx).big_integer().not_null().default(0))
-                    .col(ColumnDef::new(MetricAggregates::Status5xx).big_integer().not_null().default(0))
-                    .col(ColumnDef::new(MetricAggregates::Sessions).big_integer().not_null().default(0))
-                    .col(ColumnDef::new(MetricAggregates::BytesIn).big_integer().not_null().default(0))
-                    .col(ColumnDef::new(MetricAggregates::BytesOut).big_integer().not_null().default(0))
-                    .col(ColumnDef::new(MetricAggregates::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(
+                        ColumnDef::new(MetricAggregates::Qps)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::TotalRequests)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::AvgLatencyMs)
+                            .double()
+                            .not_null()
+                            .default(0.0),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::P50Ms)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::P90Ms)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::P99Ms)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::Status2xx)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::Status3xx)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::Status4xx)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::Status5xx)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::Sessions)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::BytesIn)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::BytesOut)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(MetricAggregates::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -430,13 +669,26 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(GatewayEvents::Ts).timestamp_with_time_zone().not_null())
+                    .col(
+                        ColumnDef::new(GatewayEvents::Ts)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(GatewayEvents::EventType).string().not_null())
                     .col(ColumnDef::new(GatewayEvents::RouteId).big_integer().null())
-                    .col(ColumnDef::new(GatewayEvents::UpstreamId).big_integer().null())
+                    .col(
+                        ColumnDef::new(GatewayEvents::UpstreamId)
+                            .big_integer()
+                            .null(),
+                    )
                     .col(ColumnDef::new(GatewayEvents::TraceId).string().null())
                     .col(ColumnDef::new(GatewayEvents::Detail).json().null())
-                    .col(ColumnDef::new(GatewayEvents::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(
+                        ColumnDef::new(GatewayEvents::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -477,14 +729,23 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(AuditLogs::Ts).timestamp_with_time_zone().not_null())
+                    .col(
+                        ColumnDef::new(AuditLogs::Ts)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(AuditLogs::Operator).string().null())
                     .col(ColumnDef::new(AuditLogs::Action).string().not_null())
                     .col(ColumnDef::new(AuditLogs::Resource).string().not_null())
                     .col(ColumnDef::new(AuditLogs::ResourceId).big_integer().null())
                     .col(ColumnDef::new(AuditLogs::Detail).json().null())
                     .col(ColumnDef::new(AuditLogs::TraceId).string().null())
-                    .col(ColumnDef::new(AuditLogs::CreatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(
+                        ColumnDef::new(AuditLogs::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -512,9 +773,24 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(NodeApplications::GateId).string().not_null())
-                    .col(ColumnDef::new(NodeApplications::Version).big_integer().not_null().default(0))
-                    .col(ColumnDef::new(NodeApplications::AppliedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
-                    .col(ColumnDef::new(NodeApplications::UpdatedAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
+                    .col(
+                        ColumnDef::new(NodeApplications::Version)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(NodeApplications::AppliedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        ColumnDef::new(NodeApplications::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -543,15 +819,56 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(InstalledPlugins::Name).string().not_null())
-                    .col(ColumnDef::new(InstalledPlugins::Version).string().not_null())
-                    .col(ColumnDef::new(InstalledPlugins::ApiVersion).integer().not_null().default(1))
-                    .col(ColumnDef::new(InstalledPlugins::Kind).small_integer().not_null().default(0))
-                    .col(ColumnDef::new(InstalledPlugins::Status).small_integer().not_null().default(0))
-                    .col(ColumnDef::new(InstalledPlugins::PackageHash).string().null())
-                    .col(ColumnDef::new(InstalledPlugins::Manifest).json().not_null().default("{}"))
-                    .col(ColumnDef::new(InstalledPlugins::InstalledAt).timestamp_with_time_zone().not_null().default(Expr::current_timestamp()))
-                    .col(ColumnDef::new(InstalledPlugins::ActivatedAt).timestamp_with_time_zone().null())
-                    .col(ColumnDef::new(InstalledPlugins::DeletedAt).timestamp_with_time_zone().null())
+                    .col(
+                        ColumnDef::new(InstalledPlugins::Version)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(InstalledPlugins::ApiVersion)
+                            .integer()
+                            .not_null()
+                            .default(1),
+                    )
+                    .col(
+                        ColumnDef::new(InstalledPlugins::Kind)
+                            .small_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(InstalledPlugins::Status)
+                            .small_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(InstalledPlugins::PackageHash)
+                            .string()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(InstalledPlugins::Manifest)
+                            .json()
+                            .not_null()
+                            .default("{}"),
+                    )
+                    .col(
+                        ColumnDef::new(InstalledPlugins::InstalledAt)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .col(
+                        ColumnDef::new(InstalledPlugins::ActivatedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(InstalledPlugins::DeletedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -584,7 +901,9 @@ impl MigrationTrait for Migration {
             "upstreams",
         ];
         for table in tables {
-            manager.drop_table(Table::drop().table(Alias::new(table)).to_owned()).await?;
+            manager
+                .drop_table(Table::drop().table(Alias::new(table)).to_owned())
+                .await?;
         }
         Ok(())
     }

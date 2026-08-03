@@ -1,11 +1,11 @@
 //! Conrogate 官方跨域插件：CORS 响应头注入与预检处理。
 
+use async_trait::async_trait;
 use conrogate_contract::{
-    plugin::{Plugin, PluginContext, PluginOutcome, PluginResponse, PluginKind},
+    plugin::{Plugin, PluginContext, PluginKind, PluginOutcome, PluginResponse},
     protocol::ProtocolId,
     ConrogateError,
 };
-use async_trait::async_trait;
 use serde_json::Value;
 
 /// CORS 插件配置

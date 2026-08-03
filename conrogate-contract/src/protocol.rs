@@ -3,21 +3,18 @@
 use serde::{Deserialize, Serialize};
 
 /// 数据面支持的协议标识，随协议扩展增量追加
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema, Default,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ProtocolId {
     /// HTTP/1.1 + HTTP/2
+    #[default]
     Http,
     /// WebSocket（HTTP 升级）
     WebSocket,
     /// TCP 隧道
     TcpTunnel,
-}
-
-impl Default for ProtocolId {
-    fn default() -> Self {
-        Self::Http
-    }
 }
 
 impl std::fmt::Display for ProtocolId {

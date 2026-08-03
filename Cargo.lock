@@ -458,6 +458,7 @@ dependencies = [
  "conrogate-traffic",
  "dotenvy",
  "sea-orm",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -618,10 +619,15 @@ name = "conrogate-plugin-auth"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bytes",
  "chrono",
  "conrogate-contract",
  "conrogate-plugin",
  "http",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
  "jsonwebtoken",
  "serde",
  "serde_json",

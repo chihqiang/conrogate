@@ -2,11 +2,11 @@
 
 use crate::handler::{NoopLogger, NoopMetrics, ProtocolHandler};
 use crate::proxy::{body_from_bytes, body_from_incoming, HttpClient, ReqBody};
+use bytes::Bytes;
 use conrogate_contract::gateway::ServiceContext;
 use conrogate_contract::plugin::{HttpContext, PluginContext, PluginOutcome, PluginResponse};
 use conrogate_contract::protocol::{ProtocolId, RouteMatchInfo};
 use conrogate_contract::ConrogateError;
-use bytes::Bytes;
 use http::{Request, Response, StatusCode};
 use hyper_util::client::legacy::Client;
 use std::sync::Arc;
@@ -45,7 +45,9 @@ impl HttpProtocolHandler {
     /// 构建出站客户端（支持 http/https；skip_verify 跳过上游证书校验，仅非生产）
     fn build_client(skip_verify: bool) -> HttpClient {
         if skip_verify {
-            tracing::warn!("outbound TLS: skipping upstream certificate verification (non-production only)");
+            tracing::warn!(
+                "outbound TLS: skipping upstream certificate verification (non-production only)"
+            );
             let verifier = Arc::new(crate::tls::NoVerifyServerCertVerifier);
             let tls_config = rustls::ClientConfig::builder()
                 .dangerous()
@@ -231,11 +233,7 @@ impl HttpProtocolHandler {
             http: Some(HttpContext {
                 method: method.clone(),
                 path: match_info.path.clone(),
-                query: match_info
-                    .query_params
-                    .iter()
-                    .cloned()
-                    .collect(),
+                query: match_info.query_params.iter().cloned().collect(),
                 headers: headers.clone(),
                 body: Some(body.clone()),
             }),
@@ -268,14 +266,11 @@ impl HttpProtocolHandler {
         }
 
         // 6. 流量治理检查（使用配置的 QPS）
-        if let Err(e) = self.svc
-            .traffic
-            .check_rate_limit(route.id, &real_ip)
-            .await
-        {
+        if let Err(e) = self.svc.traffic.check_rate_limit(route.id, &real_ip).await {
             // 上报限流事件到遥测
-            self.svc.telemetry.record_event(
-                conrogate_contract::dto::EventRow {
+            self.svc
+                .telemetry
+                .record_event(conrogate_contract::dto::EventRow {
                     ts: chrono::Utc::now(),
                     event_type: "rate_limited".into(),
                     route_id: Some(route.id),
@@ -285,13 +280,17 @@ impl HttpProtocolHandler {
                         "client_ip": real_ip,
                         "reason": e.to_string(),
                     }),
-                }
-            ).await;
+                })
+                .await;
             return Err(e);
         }
 
         // 7. 选择上游节点（一致性哈希按真实 client_ip）
-        let node = self.svc.balancer.select_upstream(&route, Some(&real_ip)).await?;
+        let node = self
+            .svc
+            .balancer
+            .select_upstream(&route, Some(&real_ip))
+            .await?;
 
         // 8. 熔断检查
         self.svc
@@ -364,10 +363,7 @@ impl HttpProtocolHandler {
             out_headers.insert("x-request-id", v);
         }
         // Host 头重写
-        let host_value = route
-            .host_header
-            .as_deref()
-            .unwrap_or(&node.address);
+        let host_value = route.host_header.as_deref().unwrap_or(&node.address);
         if let Ok(v) = host_value.parse() {
             out_headers.insert(http::header::HOST, v);
         }
@@ -385,8 +381,7 @@ impl HttpProtocolHandler {
         let body_bytes: Bytes = http_body_util::BodyExt::collect(full_body)
             .await
             .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("body collect: {e}")))?
-            .to_bytes()
-            .into();
+            .to_bytes();
 
         for attempt in 0..=self.max_retries {
             if attempt > 0 {
@@ -406,16 +401,13 @@ impl HttpProtocolHandler {
                 .method(method_clone.clone())
                 .uri(upstream_uri_clone.clone())
                 .body(body_from_bytes(body_bytes.clone()))
-                .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("request build: {e}")))?;
+                .map_err(|e| {
+                    ConrogateError::UpstreamConnectFailed(format!("request build: {e}"))
+                })?;
             *retry_req.headers_mut() = saved_headers.clone();
 
-            proxy_result = crate::proxy::forward_http(
-                &self.client,
-                &node,
-                retry_req,
-                self.timeout,
-            )
-            .await;
+            proxy_result =
+                crate::proxy::forward_http(&self.client, &node, retry_req, self.timeout).await;
 
             match &proxy_result {
                 Ok(r) => {
@@ -427,9 +419,9 @@ impl HttpProtocolHandler {
                 }
                 Err(e) => {
                     // 连接失败/超时可重试
-                    let retryable = matches!(e,
-                        ConrogateError::UpstreamTimeout |
-                        ConrogateError::UpstreamConnectFailed(_)
+                    let retryable = matches!(
+                        e,
+                        ConrogateError::UpstreamTimeout | ConrogateError::UpstreamConnectFailed(_)
                     );
                     if retryable && can_retry && attempt < self.max_retries {
                         continue;
@@ -465,14 +457,12 @@ impl HttpProtocolHandler {
             out_headers.insert("x-request-id", v);
         }
 
-        let resp = resp_builder
-            .body(proxy_result.body)
-            .unwrap_or_else(|_| {
-                Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Bytes::new())
-                    .unwrap()
-            });
+        let resp = resp_builder.body(proxy_result.body).unwrap_or_else(|_| {
+            Response::builder()
+                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .body(Bytes::new())
+                .unwrap()
+        });
 
         // 13. 插件 after_response
         let mut plugin_resp = PluginResponse {
@@ -492,8 +482,9 @@ impl HttpProtocolHandler {
         let is_5xx = proxy_result.status.as_u16() >= 500;
         let latency_ms = start.elapsed().as_millis() as f64;
 
-        self.svc.telemetry.record_metric(
-            conrogate_contract::dto::MetricRow {
+        self.svc
+            .telemetry
+            .record_metric(conrogate_contract::dto::MetricRow {
                 ts: chrono::Utc::now(),
                 bucket_sec: 10,
                 route_id: Some(route.id),
@@ -511,8 +502,8 @@ impl HttpProtocolHandler {
                 sessions: 0,
                 bytes_in: 0,
                 bytes_out: 0,
-            }
-        ).await;
+            })
+            .await;
 
         Ok(resp)
     }
@@ -554,11 +545,7 @@ impl HttpProtocolHandler {
             http: Some(HttpContext {
                 method: method.clone(),
                 path: match_info.path.clone(),
-                query: match_info
-                    .query_params
-                    .iter()
-                    .cloned()
-                    .collect(),
+                query: match_info.query_params.iter().cloned().collect(),
                 headers: headers.clone(),
                 body: None,
             }),
@@ -590,14 +577,11 @@ impl HttpProtocolHandler {
         }
 
         // 流量治理检查
-        if let Err(e) = self.svc
-            .traffic
-            .check_rate_limit(route.id, &real_ip)
-            .await
-        {
+        if let Err(e) = self.svc.traffic.check_rate_limit(route.id, &real_ip).await {
             // 上报限流事件到遥测
-            self.svc.telemetry.record_event(
-                conrogate_contract::dto::EventRow {
+            self.svc
+                .telemetry
+                .record_event(conrogate_contract::dto::EventRow {
                     ts: chrono::Utc::now(),
                     event_type: "rate_limited".into(),
                     route_id: Some(route.id),
@@ -607,13 +591,17 @@ impl HttpProtocolHandler {
                         "client_ip": real_ip,
                         "reason": e.to_string(),
                     }),
-                }
-            ).await;
+                })
+                .await;
             return Err(e);
         }
 
         // 选择上游节点
-        let node = self.svc.balancer.select_upstream(&route, Some(&real_ip)).await?;
+        let node = self
+            .svc
+            .balancer
+            .select_upstream(&route, Some(&real_ip))
+            .await?;
 
         // 熔断检查
         self.svc
@@ -679,23 +667,16 @@ impl HttpProtocolHandler {
         if let Ok(v) = request_id.parse() {
             out_headers.insert("x-request-id", v);
         }
-        let host_value = route
-            .host_header
-            .as_deref()
-            .unwrap_or(&node.address);
+        let host_value = route.host_header.as_deref().unwrap_or(&node.address);
         if let Ok(v) = host_value.parse() {
             out_headers.insert(http::header::HOST, v);
         }
         *upstream_req.headers_mut() = out_headers;
 
         // 流式转发（不重试：body 不可 clone）
-        let proxy_result = crate::proxy::forward_http_stream(
-            &self.client,
-            &node,
-            upstream_req,
-            self.timeout,
-        )
-        .await;
+        let proxy_result =
+            crate::proxy::forward_http_stream(&self.client, &node, upstream_req, self.timeout)
+                .await;
 
         // 记录结果
         let success = proxy_result.is_ok();
@@ -749,8 +730,9 @@ impl HttpProtocolHandler {
         let is_5xx = proxy_result.status.as_u16() >= 500;
         let latency_ms = start.elapsed().as_millis() as f64;
 
-        self.svc.telemetry.record_metric(
-            conrogate_contract::dto::MetricRow {
+        self.svc
+            .telemetry
+            .record_metric(conrogate_contract::dto::MetricRow {
                 ts: chrono::Utc::now(),
                 bucket_sec: 10,
                 route_id: Some(route.id),
@@ -768,8 +750,8 @@ impl HttpProtocolHandler {
                 sessions: 0,
                 bytes_in: 0,
                 bytes_out: 0,
-            }
-        ).await;
+            })
+            .await;
 
         Ok(resp)
     }
