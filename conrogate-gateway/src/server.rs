@@ -14,13 +14,13 @@ use conrogate_contract::gateway::ServiceContext;
 use conrogate_contract::ConrogateError;
 use conrogate_plugin::pipeline::PluginPipelineImpl;
 use conrogate_plugin::registry::PluginRegistryImpl;
+use conrogate_protocol::proxy::ReqBody;
 use conrogate_traffic::breaker::{BreakerConfig, BreakerFactoryImpl};
 use conrogate_traffic::limiter::TokenBucketLimiter;
 use http::{Request, Response};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
-use hyper::server::conn::http1;
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioExecutor, TokioIo};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -531,15 +531,19 @@ impl GatewayServer {
                             idle_timeout,
                             upgrade_buffer_size,
                         };
-                        let mut h1 = http1::Builder::new();
-                        h1.max_buf_size(max_header_bytes);
                         let result = if let Some(acc) = tls_acc {
                             match acc.accept(stream).await {
                                 Ok(tls_stream) => {
+                                    // ALPN 协商决定 HTTP/2 或 HTTP/1.1（docs/10 §2.1 入站 HTTP/2）
+                                    let alpn = tls_stream
+                                        .get_ref()
+                                        .1
+                                        .alpn_protocol()
+                                        .map(|p| p.to_vec());
                                     let io = TokioIo::new(tls_stream);
                                     tokio::time::timeout(
                                         idle_timeout,
-                                        h1.serve_connection(io, svc),
+                                        serve_tls_connection(io, svc, max_header_bytes, alpn),
                                     ).await
                                 }
                                 Err(e) => {
@@ -548,10 +552,11 @@ impl GatewayServer {
                                 }
                             }
                         } else {
+                            // 明文：auto builder 探测 h2c preface，否则回退 HTTP/1.1
                             let io = TokioIo::new(stream);
                             tokio::time::timeout(
                                 idle_timeout,
-                                h1.serve_connection(io, svc),
+                                serve_cleartext_connection(io, svc, max_header_bytes),
                             ).await
                         };
 
@@ -654,6 +659,68 @@ pub struct WsUpgradeInfo {
     pub trace_id: String,
 }
 
+/// 明文连接：auto builder 探测 h2c preface（HTTP/2 prior knowledge），否则回退 HTTP/1.1
+async fn serve_cleartext_connection<I, S>(
+    io: I,
+    svc: S,
+    max_header_bytes: usize,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    I: hyper::rt::Read + hyper::rt::Write + Unpin + Send + 'static,
+    S: hyper::service::Service<
+            hyper::Request<Incoming>,
+            Response = hyper::Response<ReqBody>,
+            Error = ConrogateError,
+        > + Send
+        + Clone
+        + 'static,
+    S::Future: Send + 'static,
+{
+    let mut builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
+    builder.http1().max_buf_size(max_header_bytes);
+    builder.http2().max_header_list_size(max_header_bytes as u32);
+    builder.serve_connection(io, svc).await
+}
+
+/// TLS 连接：按 ALPN 协商结果选择 HTTP/2（h2）或 HTTP/1.1
+async fn serve_tls_connection<I, S>(
+    io: I,
+    svc: S,
+    max_header_bytes: usize,
+    alpn: Option<Vec<u8>>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
+where
+    I: hyper::rt::Read + hyper::rt::Write + Unpin + Send + 'static,
+    S: hyper::service::Service<
+            hyper::Request<Incoming>,
+            Response = hyper::Response<ReqBody>,
+            Error = ConrogateError,
+        > + Send
+        + Clone
+        + 'static,
+    S::Future: Send + 'static,
+{
+    if alpn.as_deref() == Some(b"h2") {
+        hyper::server::conn::http2::Builder::new(TokioExecutor::new())
+            .max_header_list_size(max_header_bytes as u32)
+            .serve_connection(io, svc)
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    } else {
+        let mut h1 = hyper::server::conn::http1::Builder::new();
+        h1.max_buf_size(max_header_bytes);
+        h1.serve_connection(io, svc)
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+    }
+}
+
+/// 将 Bytes 包装为统一响应体（ReqBody），兼容 HTTP/1.1 与 HTTP/2
+fn boxed_body(bytes: Bytes) -> ReqBody {
+    use http_body_util::combinators::BoxBody;
+    BoxBody::new(Full::new(bytes).map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { match e {} }))
+}
+
 /// 构造 JSON 错误响应体
 fn json_error(code: i32, msg: &str) -> Bytes {
     let trace_id = format!("{:032x}", std::time::SystemTime::now()
@@ -669,16 +736,16 @@ fn json_error(code: i32, msg: &str) -> Bytes {
 }
 
 /// 构造 JSON 错误响应
-fn error_response(status: http::StatusCode, code: i32, msg: &str) -> Response<Full<Bytes>> {
+fn error_response(status: http::StatusCode, code: i32, msg: &str) -> Response<ReqBody> {
     Response::builder()
         .status(status)
         .header("Content-Type", "application/json")
-        .body(Full::new(json_error(code, msg)))
+        .body(boxed_body(json_error(code, msg)))
         .unwrap()
 }
 
 impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
-    type Response = Response<Full<Bytes>>;
+    type Response = Response<ReqBody>;
     type Error = ConrogateError;
     type Future = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
@@ -695,7 +762,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
             if req.method() == http::Method::GET && req.uri().path() == "/healthz" {
                 return Ok(Response::builder()
                     .status(http::StatusCode::OK)
-                    .body(Full::new(Bytes::from_static(b"ok")))
+                    .body(boxed_body(Bytes::from_static(b"ok")))
                     .unwrap());
             }
 
@@ -710,7 +777,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                 }
                 return Ok(Response::builder()
                     .status(http::StatusCode::OK)
-                    .body(Full::new(Bytes::from_static(b"ready")))
+                    .body(boxed_body(Bytes::from_static(b"ready")))
                     .unwrap());
             }
 
@@ -825,11 +892,11 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                             clean_resp.headers_mut().remove("X-WS-Upstream-Addr");
                             clean_resp.headers_mut().remove("X-WS-Trace-Id");
                             let (parts, _) = clean_resp.into_parts();
-                            return Ok(Response::from_parts(parts, Full::new(Bytes::new())));
+                            return Ok(Response::from_parts(parts, boxed_body(Bytes::new())));
                         }
                     }
                     let (parts, resp_body) = resp.into_parts();
-                    return Ok(Response::from_parts(parts, Full::new(resp_body)));
+                    return Ok(Response::from_parts(parts, resp_body));
                 }
             }
 
@@ -912,13 +979,102 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                     let mut clean_resp = resp;
                     clean_resp.headers_mut().remove("X-WS-Upstream-Addr");
                     clean_resp.headers_mut().remove("X-WS-Trace-Id");
-                    return Ok(Response::from_parts(clean_resp.into_parts().0, Full::new(Bytes::new())));
+                    return Ok(Response::from_parts(clean_resp.into_parts().0, boxed_body(Bytes::new())));
                 }
             }
 
-            // 转换为 hyper 兼容响应
+            // 转换为 hyper 兼容响应（缓冲模式 body → 统一 ReqBody）
             let (parts, body) = resp.into_parts();
-            Ok(Response::from_parts(parts, Full::new(body)))
+            Ok(Response::from_parts(parts, boxed_body(body)))
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use http_body_util::Full;
+    use hyper::service::Service;
+
+    /// 探针服务：任意请求返回固定响应体
+    #[derive(Clone)]
+    struct H2ProbeService;
+
+    impl Service<Request<Incoming>> for H2ProbeService {
+        type Response = Response<ReqBody>;
+        type Error = ConrogateError;
+        type Future =
+            std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+
+        fn call(&self, _req: Request<Incoming>) -> Self::Future {
+            Box::pin(async move {
+                Ok(Response::builder()
+                    .status(http::StatusCode::OK)
+                    .body(boxed_body(Bytes::from_static(b"probe-ok")))
+                    .unwrap())
+            })
+        }
+    }
+
+    /// 启动一个使用生产 `serve_cleartext_connection`（auto builder）的测试监听
+    async fn spawn_auto_server() -> SocketAddr {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let io = TokioIo::new(stream);
+            let _ = serve_cleartext_connection(io, H2ProbeService, 65536).await;
+        });
+        addr
+    }
+
+    /// 入站 HTTP/2：h2c prior-knowledge（PRI * HTTP/2.0 preface）应协商为 HTTP/2
+    #[tokio::test]
+    async fn inbound_http2_h2c_prior_knowledge() {
+        let addr = spawn_auto_server().await;
+        let stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let io = TokioIo::new(stream);
+        let (mut sender, conn) = hyper::client::conn::http2::Builder::new(TokioExecutor::new())
+            .handshake(io)
+            .await
+            .expect("h2 client handshake");
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+        let resp = sender
+            .send_request(
+                Request::builder()
+                    .uri("http://example.com/")
+                    .body(Full::new(Bytes::from_static(b"")))
+                    .unwrap(),
+            )
+            .await
+            .expect("h2 request");
+        assert_eq!(resp.version(), http::Version::HTTP_2);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&body[..], b"probe-ok");
+    }
+
+    /// 入站 HTTP/1.1：明文首包不是 h2 preface 时回退 HTTP/1.1
+    #[tokio::test]
+    async fn inbound_http1_fallback() {
+        let addr = spawn_auto_server().await;
+        let stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let io = TokioIo::new(stream);
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await.unwrap();
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+        let resp = sender
+            .send_request(
+                Request::builder()
+                    .uri("/")
+                    .body(Full::new(Bytes::from_static(b"")))
+                    .unwrap(),
+            )
+            .await
+            .expect("http1 request");
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&body[..], b"probe-ok");
     }
 }

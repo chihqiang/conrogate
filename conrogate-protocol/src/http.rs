@@ -1,7 +1,7 @@
 //! HTTP 协议处理器：完整转发链路（缓冲 / 流式两种模式）。
 
 use crate::handler::{NoopLogger, NoopMetrics, ProtocolHandler};
-use crate::proxy::{HttpClient, body_from_bytes, body_from_incoming};
+use crate::proxy::{body_from_bytes, body_from_incoming, HttpClient, ReqBody};
 use conrogate_contract::gateway::ServiceContext;
 use conrogate_contract::plugin::{HttpContext, PluginContext, PluginOutcome, PluginResponse};
 use conrogate_contract::protocol::{ProtocolId, RouteMatchInfo};
@@ -517,8 +517,8 @@ impl HttpProtocolHandler {
         Ok(resp)
     }
 
-    /// 流式处理 HTTP 请求 — 不缓冲 body，直接透传到上游。
-    /// 适用于路由无 requires_body 插件的场景（大文件上传等）。
+    /// 流式处理 HTTP 请求 — 请求体与响应体均不缓冲，直接透传上游。
+    /// 适用于路由无 requires_body 插件的场景（大文件上传/下载、SSE 等）。
     /// 路由已由 HyperServiceBridge 预匹配，不重试（body 不可 clone）。
     async fn handle_stream(
         &self,
@@ -526,7 +526,7 @@ impl HttpProtocolHandler {
         body: hyper::body::Incoming,
         route: conrogate_contract::dto::RouteSnapshot,
         client_ip: String,
-    ) -> Result<Response<Bytes>, ConrogateError> {
+    ) -> Result<Response<ReqBody>, ConrogateError> {
         let method = parts.method.clone();
         let uri = parts.uri.clone();
         let headers = parts.headers.clone();
@@ -580,11 +580,11 @@ impl HttpProtocolHandler {
         if let PluginOutcome::Terminate(code, body) = plugin_outcome {
             return Ok(Response::builder()
                 .status(code)
-                .body(Bytes::from(body.to_string().into_bytes()))
+                .body(body_from_bytes(Bytes::from(body.to_string().into_bytes())))
                 .unwrap_or_else(|_| {
                     Response::builder()
                         .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(Bytes::new())
+                        .body(body_from_bytes(Bytes::new()))
                         .unwrap()
                 }));
         }
@@ -640,7 +640,7 @@ impl HttpProtocolHandler {
                 upstream = %node.address,
                 "websocket upgrade request (stream), returning 101 with upstream addr"
             );
-            return Ok(resp);
+            return Ok(resp.map(|_| body_from_bytes(Bytes::new())));
         }
 
         // 构造上游请求（流式 body）
@@ -708,7 +708,7 @@ impl HttpProtocolHandler {
 
         let proxy_result = proxy_result?;
 
-        // 构造响应
+        // 构造响应（响应体保持流式：Incoming 包装为 ReqBody，不 collect）
         let mut resp_builder = Response::builder().status(proxy_result.status);
         if let Some(h) = resp_builder.headers_mut() {
             *h = proxy_result.headers.clone();
@@ -722,19 +722,20 @@ impl HttpProtocolHandler {
         }
 
         let resp = resp_builder
-            .body(proxy_result.body)
+            .body(body_from_incoming(proxy_result.body))
             .unwrap_or_else(|_| {
                 Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Bytes::new())
+                    .body(body_from_bytes(Bytes::new()))
                     .unwrap()
             });
 
-        // 插件 after_response
+        // 插件 after_response：流式模式下响应体不载入内存，
+        // body 字段为空（需要读响应体的插件必须走缓冲模式，即路由声明 requires_body）
         let mut plugin_resp = PluginResponse {
             status: proxy_result.status.as_u16(),
             headers: proxy_result.headers,
-            body: resp.body().clone(),
+            body: Bytes::new(),
         };
 
         self.svc
@@ -794,7 +795,7 @@ impl ProtocolHandler for HttpProtocolHandler {
         body: hyper::body::Incoming,
         route: conrogate_contract::dto::RouteSnapshot,
         client_ip: String,
-    ) -> Result<Response<Bytes>, ConrogateError> {
+    ) -> Result<Response<ReqBody>, ConrogateError> {
         self.handle_stream(parts, body, route, client_ip).await
     }
 }

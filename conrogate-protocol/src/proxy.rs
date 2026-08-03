@@ -18,11 +18,18 @@ pub type ReqBody = http_body_util::combinators::BoxBody<Bytes, Box<dyn std::erro
 /// 出站 HTTP 客户端：支持 http:// 与 https://（TLS）上游
 pub type HttpClient = Client<HttpsConnector<HttpConnector>, ReqBody>;
 
-/// 代理转发结果
+/// 代理转发结果（缓冲模式：响应体已 collect 进内存）
 pub struct ProxyResult {
     pub status: http::StatusCode,
     pub headers: http::HeaderMap,
     pub body: Bytes,
+}
+
+/// 代理转发结果（流式模式：响应体保持流式，不载入内存）
+pub struct ProxyStreamResult {
+    pub status: http::StatusCode,
+    pub headers: http::HeaderMap,
+    pub body: Incoming,
 }
 
 /// 转发 HTTP 请求到上游节点（缓冲模式：body 已在内存中）
@@ -32,28 +39,41 @@ pub async fn forward_http(
     req: Request<ReqBody>,
     timeout: Duration,
 ) -> Result<ProxyResult, ConrogateError> {
-    forward_internal(client, node, req, timeout).await
+    let (status, headers, body) = forward_common(client, node, req, timeout).await?;
+    let body_bytes = body
+        .collect()
+        .await
+        .map_err(|e| ConrogateError::UpstreamBadResponse(e.to_string()))?
+        .to_bytes();
+    Ok(ProxyResult {
+        status,
+        headers,
+        body: body_bytes,
+    })
 }
 
-/// 转发 HTTP 请求到上游节点（流式模式：body 以 BoxBody 包装 Incoming，不提前 collect）
+/// 转发 HTTP 请求到上游节点（流式模式：请求体与响应体均以流透传，不载入内存）
 pub async fn forward_http_stream(
     client: &HttpClient,
     node: &UpstreamNodeDto,
     req: Request<ReqBody>,
     timeout: Duration,
-) -> Result<ProxyResult, ConrogateError> {
-    // 流式与缓冲走同一条 client.request() 路径
-    // 区别在 body 类型：Incoming 会按帧流式发送，不提前载入内存
-    forward_internal(client, node, req, timeout).await
+) -> Result<ProxyStreamResult, ConrogateError> {
+    let (status, headers, body) = forward_common(client, node, req, timeout).await?;
+    Ok(ProxyStreamResult {
+        status,
+        headers,
+        body,
+    })
 }
 
-/// 内部转发逻辑
-async fn forward_internal(
+/// 内部转发逻辑：返回未 collect 的响应体（由调用方决定缓冲或流式）
+async fn forward_common(
     client: &HttpClient,
     node: &UpstreamNodeDto,
     req: Request<ReqBody>,
     timeout: Duration,
-) -> Result<ProxyResult, ConrogateError> {
+) -> Result<(http::StatusCode, http::HeaderMap, Incoming), ConrogateError> {
     // 地址支持显式 scheme（https://host:port）；缺省按 http
     let addr = if node.address.contains("://") {
         node.address.clone()
@@ -91,17 +111,7 @@ async fn forward_internal(
         .map_err(|e| ConrogateError::UpstreamConnectFailed(e.to_string()))?;
 
     let (parts, body) = response.into_parts();
-    let body_bytes = body
-        .collect()
-        .await
-        .map_err(|e| ConrogateError::UpstreamBadResponse(e.to_string()))?
-        .to_bytes();
-
-    Ok(ProxyResult {
-        status: parts.status,
-        headers: parts.headers,
-        body: body_bytes,
-    })
+    Ok((parts.status, parts.headers, body))
 }
 
 /// 将 Bytes 包装为 ReqBody（缓冲模式）
@@ -194,4 +204,67 @@ where
         }
     }
     Ok(copied)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// 启动一个简单的上游 HTTP 服务器，返回 chunked 响应体
+    async fn spawn_upstream() -> (String, std::net::SocketAddr) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = [0u8; 2048];
+                let _ = sock.read(&mut buf).await;
+                let _ = sock
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n5\r\nworld\r\n0\r\n\r\n",
+                    )
+                    .await;
+                let _ = sock.flush().await;
+            }
+        });
+        ("127.0.0.1".to_string(), addr)
+    }
+
+    fn test_client() -> HttpClient {
+        let connector = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_native_roots()
+            .expect("native roots")
+            .https_or_http();
+        Client::builder(hyper_util::rt::TokioExecutor::new())
+            .build(connector.enable_http1().enable_http2().build())
+    }
+
+    /// 流式转发：响应体以 Incoming 流式返回，不提前 collect（docs/10 §11.1 响应侧流式）
+    #[tokio::test]
+    async fn forward_http_stream_returns_streamed_body() {
+        let (host, addr) = spawn_upstream().await;
+        let node = UpstreamNodeDto {
+            id: 1,
+            upstream_id: 1,
+            address: format!("{host}:{}", addr.port()),
+            weight: 1,
+            enabled: true,
+        };
+        let req = Request::builder()
+            .uri("http://upstream/")
+            .body(body_from_bytes(Bytes::new()))
+            .unwrap();
+
+        let result = forward_http_stream(&test_client(), &node, req, Duration::from_secs(5))
+            .await
+            .expect("forward");
+        // 流式结果携带 Incoming 体（不载入内存的强类型保证）
+        let body: Incoming = result.body;
+        let collected = body
+            .collect()
+            .await
+            .expect("collect streamed body")
+            .to_bytes();
+        assert_eq!(&collected[..], b"helloworld");
+    }
 }

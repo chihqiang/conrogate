@@ -30,14 +30,14 @@ pub trait ProtocolHandler: Send + Sync {
         Err(ConrogateError::ProtocolNotSupported(self.protocol().to_string()))
     }
 
-    /// HTTP 请求处理（流式模式：body 不缓冲，直接透传）
+    /// HTTP 请求处理（流式模式：请求体与响应体均不缓冲，直接透传）
     async fn handle_http_stream(
         &self,
         _parts: http::request::Parts,
         _body: Incoming,
         _route: RouteSnapshot,
         _client_ip: String,
-    ) -> Result<Response<Bytes>, ConrogateError> {
+    ) -> Result<Response<crate::proxy::ReqBody>, ConrogateError> {
         Err(ConrogateError::ProtocolNotSupported(self.protocol().to_string()))
     }
 

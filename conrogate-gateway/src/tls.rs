@@ -36,10 +36,13 @@ pub fn build_tls_acceptor(tls_config: &TlsConfig) -> Result<TlsAcceptor, String>
         .ok_or_else(|| "no private key found in PEM".to_string())?;
 
     // 构建 ServerConfig
-    let server_config = ServerConfig::builder()
+    let mut server_config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)
         .map_err(|e| format!("build TLS server config: {e}"))?;
+
+    // ALPN：优先 h2，其次 http/1.1（docs/10 §2.1 入站 HTTP/2）
+    server_config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
     let server_config = Arc::new(server_config);
     Ok(TlsAcceptor::from(server_config))
