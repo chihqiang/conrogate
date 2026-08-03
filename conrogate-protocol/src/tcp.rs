@@ -64,6 +64,10 @@ impl TcpTunnelProtocolHandler {
             .ok_or_else(|| ConrogateError::RouteNotFound(listen_addr.clone()))?;
 
         // 2. 插件 on_connect
+        let listen_port = listen_addr
+            .rsplit_once(':')
+            .and_then(|(_, p)| p.parse::<u16>().ok())
+            .unwrap_or(0);
         let mut plugin_ctx = PluginContext {
             request_id: uuid::Uuid::new_v4().to_string(),
             trace_id: uuid::Uuid::new_v4().to_string(),
@@ -75,7 +79,7 @@ impl TcpTunnelProtocolHandler {
                 remote_addr: listen_addr.clone(),
                 sni: sni.clone(),
                 alpn: None,
-                listen_port: 0,
+                listen_port,
             }),
             services: plugin_services(&self.svc),
         };
@@ -146,33 +150,34 @@ impl TcpTunnelProtocolHandler {
         // 连接结束，释放节点（LeastConnections 递减计数）
         self.svc.balancer.release_node(&route, &node).await;
 
-        // 7a. 隧道遥测：记录会话数与字节数（docs/10 §2.4）
-        if let Ok(stats) = &result {
-            let duration_secs = start_ts.elapsed().as_secs().max(1);
-            let sessions = if duration_secs > 0 { 1u64 } else { 0u64 };
-            self.svc
-                .telemetry
-                .record_metric(conrogate_contract::dto::MetricRow {
-                    ts: chrono::Utc::now(),
-                    bucket_sec: 10,
-                    route_id: Some(route.id),
-                    gate_id: String::new(),
-                    qps: sessions as u32,
-                    total_requests: sessions,
-                    avg_latency_ms: start_ts.elapsed().as_millis() as f64,
-                    p50_ms: 0,
-                    p90_ms: 0,
-                    p99_ms: 0,
-                    status_2xx: 0,
-                    status_3xx: 0,
-                    status_4xx: 0,
-                    status_5xx: 0,
-                    sessions,
-                    bytes_in: stats.bytes_in,
-                    bytes_out: stats.bytes_out,
-                })
-                .await;
-        }
+        // 7a. 隧道遥测：成功/失败都上报会话与字节数（docs/10 §2.4）。
+        // 失败会话无响应体，若不记录则在指标中完全不可观测。
+        let (bytes_in, bytes_out) = match &result {
+            Ok(stats) => (stats.bytes_in, stats.bytes_out),
+            Err(_) => (0, 0),
+        };
+        self.svc
+            .telemetry
+            .record_metric(conrogate_contract::dto::MetricRow {
+                ts: chrono::Utc::now(),
+                bucket_sec: 10,
+                route_id: Some(route.id),
+                gate_id: String::new(),
+                qps: 1,
+                total_requests: 1,
+                avg_latency_ms: start_ts.elapsed().as_millis() as f64,
+                p50_ms: 0,
+                p90_ms: 0,
+                p99_ms: 0,
+                status_2xx: if success { 1 } else { 0 },
+                status_3xx: 0,
+                status_4xx: 0,
+                status_5xx: if success { 0 } else { 1 },
+                sessions: 1,
+                bytes_in,
+                bytes_out,
+            })
+            .await;
 
         // 8. 插件 on_disconnect
         let _ = self

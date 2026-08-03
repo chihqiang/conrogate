@@ -337,6 +337,11 @@ impl HttpProtocolHandler {
 
                 // 11. 记录结果（成功/失败反馈给熔断器）
                 self.record_outcome(&route, &node, proxy_result.is_ok()).await;
+                if proxy_result.is_err() {
+                    // 上游传输失败（超时/连接错误）：无响应体可返回，记录 5xx 指标
+                    self.record_terminal_metric(&route, &meta, false, false, true, 0, 0)
+                        .await;
+                }
                 let proxy_result = proxy_result?;
 
                 let resp_body = proxy_result.body;
@@ -426,6 +431,11 @@ impl HttpProtocolHandler {
 
                 // 记录结果
                 self.record_outcome(&route, &node, proxy_result.is_ok()).await;
+                if proxy_result.is_err() {
+                    // 上游传输失败：无响应体可返回，记录 5xx 指标
+                    self.record_terminal_metric(&route, &meta, false, false, true, 0, 0)
+                        .await;
+                }
                 let proxy_result = proxy_result?;
 
                 self.finalize_response(
@@ -533,6 +543,9 @@ impl HttpProtocolHandler {
                     }),
                 })
                 .await;
+            // 限流请求无响应体可转发，直接记录 4xx 指标
+            self.record_terminal_metric(&route, meta, false, true, false, 0, 0)
+                .await;
             return Err(e);
         }
 
@@ -544,10 +557,17 @@ impl HttpProtocolHandler {
             .await?;
 
         // 8. 熔断检查
-        self.svc
+        if let Err(e) = self
+            .svc
             .traffic
             .check_circuit_breaker(route.id, node.id)
-            .await?;
+            .await
+        {
+            // 熔断拒绝的请求不转发，记录 5xx 指标
+            self.record_terminal_metric(&route, meta, false, false, true, 0, 0)
+                .await;
+            return Err(e);
+        }
 
         // 8a. WebSocket 升级检测（路由匹配 + 上游选择完成后）
         let upgrade_check_req = Request::builder()
@@ -684,8 +704,28 @@ impl HttpProtocolHandler {
         let is_2xx = status.as_u16() >= 200 && status.as_u16() < 300;
         let is_4xx = status.as_u16() >= 400 && status.as_u16() < 500;
         let is_5xx = status.as_u16() >= 500;
-        let latency_ms = meta.start.elapsed().as_millis() as f64;
+        self.record_terminal_metric(route, meta, is_2xx, is_4xx, is_5xx, 0, 0)
+            .await;
 
+        Ok(resp)
+    }
+
+    /// 上报终端指标（成功/失败共用）。
+    ///
+    /// 失败路径（限流、熔断、上游传输错误）没有可转发的响应体，
+    /// 若不在此记录，错误请求在指标中完全不可观测。
+    #[allow(clippy::too_many_arguments)]
+    async fn record_terminal_metric(
+        &self,
+        route: &RouteSnapshot,
+        meta: &RequestMeta,
+        status_2xx: bool,
+        status_4xx: bool,
+        status_5xx: bool,
+        bytes_in: u64,
+        bytes_out: u64,
+    ) {
+        let latency_ms = meta.start.elapsed().as_millis() as f64;
         self.svc
             .telemetry
             .record_metric(conrogate_contract::dto::MetricRow {
@@ -699,17 +739,15 @@ impl HttpProtocolHandler {
                 p50_ms: latency_ms as u32,
                 p90_ms: latency_ms as u32,
                 p99_ms: latency_ms as u32,
-                status_2xx: if is_2xx { 1 } else { 0 },
+                status_2xx: if status_2xx { 1 } else { 0 },
                 status_3xx: 0,
-                status_4xx: if is_4xx { 1 } else { 0 },
-                status_5xx: if is_5xx { 1 } else { 0 },
+                status_4xx: if status_4xx { 1 } else { 0 },
+                status_5xx: if status_5xx { 1 } else { 0 },
                 sessions: 0,
-                bytes_in: 0,
-                bytes_out: 0,
+                bytes_in,
+                bytes_out,
             })
             .await;
-
-        Ok(resp)
     }
 }
 
@@ -826,10 +864,29 @@ mod tests {
         async fn record_result(&self, _route_id: u64, _node_id: u64, _success: bool) {}
     }
 
-    struct StubTelemetry;
+    /// 恒限流的流量桩：验证限流失败路径指标
+    struct FailingRateLimitTraffic;
+    #[async_trait::async_trait]
+    impl TrafficControl for FailingRateLimitTraffic {
+        async fn check_rate_limit(&self, _route_id: u64, _client_ip: &str) -> Result<(), ConrogateError> {
+            Err(ConrogateError::RateLimited)
+        }
+        async fn check_circuit_breaker(&self, _route_id: u64, _node_id: u64) -> Result<(), ConrogateError> {
+            Ok(())
+        }
+        async fn record_result(&self, _route_id: u64, _node_id: u64, _success: bool) {}
+    }
+
+    /// 收集指标的遥测桩
+    #[derive(Clone)]
+    struct StubTelemetry {
+        metrics: Arc<std::sync::Mutex<Vec<MetricRow>>>,
+    }
     #[async_trait::async_trait]
     impl TelemetryReport for StubTelemetry {
-        async fn record_metric(&self, _metric: MetricRow) {}
+        async fn record_metric(&self, metric: MetricRow) {
+            self.metrics.lock().unwrap().push(metric);
+        }
         async fn record_event(&self, _event: EventRow) {}
     }
 
@@ -880,16 +937,30 @@ mod tests {
     }
 
     fn make_handler(upstream_addr: SocketAddr) -> HttpProtocolHandler {
+        make_handler_with(Some(upstream_addr), Arc::new(StubTraffic)).0
+    }
+
+    /// 构造 handler + 指标收集器（可自定义流量桩）
+    fn make_handler_with(
+        upstream: Option<SocketAddr>,
+        traffic: Arc<dyn TrafficControl>,
+    ) -> (HttpProtocolHandler, Arc<std::sync::Mutex<Vec<MetricRow>>>) {
+        let metrics = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let telemetry = StubTelemetry {
+            metrics: metrics.clone(),
+        };
         let svc = Arc::new(ServiceContext {
             routes: Arc::new(StubRoutes),
             balancer: Arc::new(StubSelector {
-                addr: upstream_addr.to_string(),
+                addr: upstream
+                    .map(|a| a.to_string())
+                    .unwrap_or_else(|| "127.0.0.1:1".to_string()),
             }),
-            traffic: Arc::new(StubTraffic),
-            telemetry: Arc::new(StubTelemetry),
+            traffic,
+            telemetry: Arc::new(telemetry),
             plugins: Arc::new(StubPlugins),
         });
-        HttpProtocolHandler::with_timeout(svc, Duration::from_secs(5))
+        (HttpProtocolHandler::with_timeout(svc, Duration::from_secs(5)), metrics)
     }
 
     /// 上游回显服务器：请求体原样回显（响应带 x-upstream 头）
@@ -964,6 +1035,71 @@ mod tests {
             "trace-123"
         );
         assert!(resp.headers().contains_key("x-request-id"));
+    }
+
+    /// 上游连接失败：应上报 5xx 指标（失败路径可观测）
+    #[tokio::test]
+    async fn upstream_connect_failure_emits_5xx_metric() {
+        // 指向未监听端口 127.0.0.1:1 → 连接拒绝
+        let (handler, metrics) = make_handler_with(None, Arc::new(StubTraffic));
+
+        let req = Request::builder()
+            .method(Method::POST) // 非幂等：不重试，单次尝试
+            .uri("http://gateway.local/echo")
+            .body(Bytes::new())
+            .unwrap();
+        let result = handler.handle(req, "192.168.1.10".into()).await;
+        assert!(result.is_err(), "connect to closed port should fail");
+
+        let rows = metrics.lock().unwrap();
+        assert_eq!(rows.len(), 1, "should emit exactly one metric row");
+        assert_eq!(rows[0].status_5xx, 1);
+        assert_eq!(rows[0].status_2xx, 0);
+        assert_eq!(rows[0].status_4xx, 0);
+        assert_eq!(rows[0].total_requests, 1);
+    }
+
+    /// 限流拒绝：应上报 4xx 指标
+    #[tokio::test]
+    async fn rate_limited_emits_4xx_metric() {
+        let upstream = spawn_echo_upstream().await;
+        let (handler, metrics) =
+            make_handler_with(Some(upstream), Arc::new(FailingRateLimitTraffic));
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("http://gateway.local/echo")
+            .body(Bytes::new())
+            .unwrap();
+        let result = handler.handle(req, "192.168.1.10".into()).await;
+        assert!(matches!(result, Err(ConrogateError::RateLimited)));
+
+        let rows = metrics.lock().unwrap();
+        assert_eq!(rows.len(), 1, "should emit exactly one metric row");
+        assert_eq!(rows[0].status_4xx, 1);
+        assert_eq!(rows[0].status_5xx, 0);
+        assert_eq!(rows[0].status_2xx, 0);
+    }
+
+    /// 成功请求：应上报 2xx 指标
+    #[tokio::test]
+    async fn successful_request_emits_2xx_metric() {
+        let upstream = spawn_echo_upstream().await;
+        let (handler, metrics) = make_handler_with(Some(upstream), Arc::new(StubTraffic));
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("http://gateway.local/echo")
+            .body(Bytes::from_static(b"ping"))
+            .unwrap();
+        let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let rows = metrics.lock().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].status_2xx, 1);
+        assert_eq!(rows[0].status_4xx, 0);
+        assert_eq!(rows[0].status_5xx, 0);
     }
 
     /// 流式模式：通过真实 hyper 服务器（Incoming body）端到端转发
