@@ -25,6 +25,13 @@ const SENSITIVE_HEADERS: &[&str] = &[
     "x-trace-id",
 ];
 
+/// 从 HeaderMap 中移除敏感头（HTTP 转发路径的透传规则；WS 隧道按路由配置复用）
+pub fn strip_sensitive_headers(headers: &mut HeaderMap) {
+    for name in SENSITIVE_HEADERS {
+        headers.remove(*name);
+    }
+}
+
 /// HTTP 协议处理器
 pub struct HttpProtocolHandler {
     svc: Arc<ServiceContext>,
@@ -609,6 +616,16 @@ impl HttpProtocolHandler {
             if let Ok(v) = upstream_addr.parse() {
                 resp.headers_mut().insert("X-WS-Upstream-Addr", v);
             }
+            // 设置上游 Host 头（与 HTTP 转发路径一致：host_header 或节点地址），
+            // 供 HyperServiceBridge 在 WS 转发前重写请求 Host
+            let host_value = route.host_header.as_deref().unwrap_or(&node.address);
+            if let Ok(v) = host_value.parse() {
+                resp.headers_mut().insert("X-WS-Host-Header", v);
+            }
+            // 通知桥接器：WS 隧道转发前剥离敏感头（按路由配置，默认透传）
+            if route.ws_strip_sensitive_headers {
+                resp.headers_mut().insert("X-WS-Strip-Sensitive", "1".parse().unwrap());
+            }
             if let Ok(v) = meta.trace_id.parse() {
                 resp.headers_mut().insert("X-WS-Trace-Id", v);
             }
@@ -648,13 +665,8 @@ impl HttpProtocolHandler {
         request_id: &str,
         real_ip: &str,
     ) -> HeaderMap {
-        let mut out_headers = HeaderMap::new();
-        for (name, value) in headers.iter() {
-            let name_lower = name.as_str().to_lowercase();
-            if !SENSITIVE_HEADERS.contains(&name_lower.as_str()) {
-                out_headers.insert(name, value.clone());
-            }
-        }
+        let mut out_headers = headers.clone();
+        strip_sensitive_headers(&mut out_headers);
         if let Ok(v) = trace_id.parse() {
             out_headers.insert("x-trace-id", v);
         }
@@ -901,7 +913,9 @@ mod tests {
 
     // ── 测试桩 ──
 
-    struct StubRoutes;
+    struct StubRoutes {
+        strip_sensitive: bool,
+    }
     #[async_trait::async_trait]
     impl RouteLookup for StubRoutes {
         async fn lookup_route(
@@ -909,7 +923,9 @@ mod tests {
             _protocol: ProtocolId,
             _info: &RouteMatchInfo,
         ) -> Result<Option<RouteSnapshot>, ConrogateError> {
-            Ok(Some(route_snapshot()))
+            let mut snapshot = route_snapshot();
+            snapshot.ws_strip_sensitive_headers = self.strip_sensitive;
+            Ok(Some(snapshot))
         }
     }
 
@@ -1029,6 +1045,7 @@ mod tests {
             upstream_id: Some(1),
             host_header: None,
             allow_retry_non_idempotent: false,
+            ws_strip_sensitive_headers: false,
             plugin_chain: vec![],
             requires_body: true,
         }
@@ -1047,6 +1064,32 @@ mod tests {
         Arc<std::sync::Mutex<Vec<MetricRow>>>,
         Arc<std::sync::Mutex<Vec<EventRow>>>,
     ) {
+        make_handler_inner(upstream, traffic, false)
+    }
+
+    /// 构造 handler（WS 敏感头剥离开启）+ 指标/事件收集器
+    #[allow(clippy::type_complexity)]
+    fn make_handler_strip(
+        upstream: Option<SocketAddr>,
+        traffic: Arc<dyn TrafficControl>,
+    ) -> (
+        HttpProtocolHandler,
+        Arc<std::sync::Mutex<Vec<MetricRow>>>,
+        Arc<std::sync::Mutex<Vec<EventRow>>>,
+    ) {
+        make_handler_inner(upstream, traffic, true)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn make_handler_inner(
+        upstream: Option<SocketAddr>,
+        traffic: Arc<dyn TrafficControl>,
+        strip_sensitive: bool,
+    ) -> (
+        HttpProtocolHandler,
+        Arc<std::sync::Mutex<Vec<MetricRow>>>,
+        Arc<std::sync::Mutex<Vec<EventRow>>>,
+    ) {
         let metrics = Arc::new(std::sync::Mutex::new(Vec::new()));
         let events = Arc::new(std::sync::Mutex::new(Vec::new()));
         let telemetry = StubTelemetry {
@@ -1054,7 +1097,7 @@ mod tests {
             events: events.clone(),
         };
         let svc = Arc::new(ServiceContext {
-            routes: Arc::new(StubRoutes),
+            routes: Arc::new(StubRoutes { strip_sensitive }),
             balancer: Arc::new(StubSelector {
                 addr: upstream
                     .map(|a| a.to_string())
@@ -1310,12 +1353,82 @@ mod tests {
             .unwrap();
         let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
         assert_eq!(resp.status(), StatusCode::SWITCHING_PROTOCOLS);
+        // 上游 Host 头（host_header 未配置时回落到节点地址）
+        assert_eq!(
+            resp.headers().get("X-WS-Host-Header").and_then(|v| v.to_str().ok()),
+            Some(upstream.to_string().as_str())
+        );
+        assert_eq!(
+            resp.headers().get("X-WS-Upstream-Addr").and_then(|v| v.to_str().ok()),
+            Some(upstream.to_string().as_str())
+        );
 
         let rows = metrics.lock().unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status_2xx, 1, "101 视为成功隧道建立");
         assert_eq!(rows[0].sessions, 1);
         assert_eq!(rows[0].route_id, Some(1));
+    }
+
+    /// 路由开启 ws_strip_sensitive_headers：101 响应应携带 X-WS-Strip-Sensitive 头
+    #[tokio::test]
+    async fn ws_strip_sensitive_flag_emitted_when_enabled() {
+        let upstream = spawn_echo_upstream().await;
+        let (handler, _metrics, _events) = make_handler_strip(Some(upstream), Arc::new(StubTraffic));
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("http://gateway.local/ws")
+            .header("connection", "Upgrade")
+            .header("upgrade", "websocket")
+            .header("sec-websocket-key", "x3JJHMbDL1EzLkh9GBhXDw==")
+            .header("authorization", "Bearer top-secret")
+            .body(Bytes::new())
+            .unwrap();
+        let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
+        assert_eq!(resp.status(), StatusCode::SWITCHING_PROTOCOLS);
+        assert!(
+            resp.headers().contains_key("X-WS-Strip-Sensitive"),
+            "开启剥离时应在 101 响应携带内部开关头"
+        );
+    }
+
+    /// 路由默认（关闭剥离）：101 响应不携带 X-WS-Strip-Sensitive 头
+    #[tokio::test]
+    async fn ws_strip_sensitive_flag_absent_by_default() {
+        let upstream = spawn_echo_upstream().await;
+        let (handler, _metrics, _events) = make_handler_with(Some(upstream), Arc::new(StubTraffic));
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("http://gateway.local/ws")
+            .header("connection", "Upgrade")
+            .header("upgrade", "websocket")
+            .header("sec-websocket-key", "x3JJHMbDL1EzLkh9GBhXDw==")
+            .body(Bytes::new())
+            .unwrap();
+        let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
+        assert_eq!(resp.status(), StatusCode::SWITCHING_PROTOCOLS);
+        assert!(!resp.headers().contains_key("X-WS-Strip-Sensitive"));
+    }
+
+    /// 敏感头剥离函数：仅移除黑名单头
+    #[test]
+    fn strip_sensitive_headers_removes_blacklist() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert("authorization", "Bearer x".parse().unwrap());
+        headers.insert("cookie", "sid=1".parse().unwrap());
+        headers.insert("x-api-key", "k".parse().unwrap());
+        headers.insert("x-trace-id", "t".parse().unwrap());
+        headers.insert("content-type", "application/json".parse().unwrap());
+        headers.insert("user-agent", "curl".parse().unwrap());
+        super::strip_sensitive_headers(&mut headers);
+        assert!(!headers.contains_key("authorization"));
+        assert!(!headers.contains_key("cookie"));
+        assert!(!headers.contains_key("x-api-key"));
+        assert!(!headers.contains_key("x-trace-id"));
+        assert!(headers.contains_key("content-type"));
+        assert!(headers.contains_key("user-agent"));
     }
 
     /// 流式模式：通过真实 hyper 服务器（Incoming body）端到端转发

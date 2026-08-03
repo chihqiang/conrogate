@@ -91,6 +91,7 @@ impl RouteMatcher {
                     upstream_id: dto.upstream_id,
                     host_header: dto.host_header.clone(),
                     allow_retry_non_idempotent: dto.allow_retry_non_idempotent,
+                    ws_strip_sensitive_headers: dto.ws_strip_sensitive_headers,
                     plugin_chain: route_bindings,
                     requires_body,
                 },

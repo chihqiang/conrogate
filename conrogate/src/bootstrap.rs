@@ -466,6 +466,7 @@ async fn seed_demo_data(main_db: &Arc<sea_orm::DatabaseConnection>) -> anyhow::R
             upstream_id: Some(upstream.id),
             host_header: None,
             allow_retry_non_idempotent: Some(false),
+            ws_strip_sensitive_headers: Some(false),
             enabled: Some(true),
         })
         .await?;

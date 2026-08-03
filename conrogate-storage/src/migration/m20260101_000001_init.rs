@@ -22,6 +22,7 @@ enum Routes {
     UpstreamId,
     HostHeader,
     AllowRetryNonIdempotent,
+    WsStripSensitiveHeaders,
     Enabled,
     CreatedAt,
     UpdatedAt,
@@ -173,37 +174,48 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null()
                             .auto_increment()
-                            .primary_key(),
+                            .primary_key()
+                            .comment("上游组主键"),
                     )
-                    .col(ColumnDef::new(Upstreams::Name).string().not_null())
+                    .col(
+                        ColumnDef::new(Upstreams::Name)
+                            .string()
+                            .not_null()
+                            .comment("上游组名称"),
+                    )
                     .col(
                         ColumnDef::new(Upstreams::Algorithm)
                             .small_integer()
                             .not_null()
-                            .default(1),
+                            .default(1)
+                            .comment("负载均衡算法：1=round_robin 2=weighted_round_robin 3=least_connections 4=consistent_hash"),
                     )
                     .col(
                         ColumnDef::new(Upstreams::RetryEnabled)
                             .boolean()
                             .not_null()
-                            .default(true),
+                            .default(true)
+                            .comment("是否启用失败自动重试"),
                     )
                     .col(
                         ColumnDef::new(Upstreams::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("创建时间"),
                     )
                     .col(
                         ColumnDef::new(Upstreams::UpdatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("更新时间"),
                     )
                     .col(
                         ColumnDef::new(Upstreams::DeletedAt)
                             .timestamp_with_time_zone()
-                            .null(),
+                            .null()
+                            .comment("软删除时间"),
                     )
                     .to_owned(),
             )
@@ -229,42 +241,54 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null()
                             .auto_increment()
-                            .primary_key(),
+                            .primary_key()
+                            .comment("节点主键"),
                     )
                     .col(
                         ColumnDef::new(UpstreamNodes::UpstreamId)
                             .big_integer()
-                            .not_null(),
+                            .not_null()
+                            .comment("所属上游组 ID"),
                     )
-                    .col(ColumnDef::new(UpstreamNodes::Address).string().not_null())
+                    .col(
+                        ColumnDef::new(UpstreamNodes::Address)
+                            .string()
+                            .not_null()
+                            .comment("节点地址 host:port（可带 http(s):// scheme）"),
+                    )
                     .col(
                         ColumnDef::new(UpstreamNodes::Weight)
                             .integer()
                             .not_null()
-                            .default(1),
+                            .default(1)
+                            .comment("加权轮询权重"),
                     )
                     .col(
                         ColumnDef::new(UpstreamNodes::Enabled)
                             .boolean()
                             .not_null()
-                            .default(true),
+                            .default(true)
+                            .comment("是否启用该节点"),
                     )
                     .col(
                         ColumnDef::new(UpstreamNodes::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("创建时间"),
                     )
                     .col(
                         ColumnDef::new(UpstreamNodes::UpdatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("更新时间"),
                     )
                     .col(
                         ColumnDef::new(UpstreamNodes::DeletedAt)
                             .timestamp_with_time_zone()
-                            .null(),
+                            .null()
+                            .comment("软删除时间"),
                     )
                     .foreign_key(
                         ForeignKey::create()
@@ -298,52 +322,87 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null()
                             .auto_increment()
-                            .primary_key(),
+                            .primary_key()
+                            .comment("路由主键"),
                     )
-                    .col(ColumnDef::new(Routes::Name).string().not_null())
+                    .col(
+                        ColumnDef::new(Routes::Name)
+                            .string()
+                            .not_null()
+                            .comment("路由名称"),
+                    )
                     .col(
                         ColumnDef::new(Routes::Protocol)
                             .small_integer()
                             .not_null()
-                            .default(1),
+                            .default(1)
+                            .comment("协议：1=http 2=websocket 3=tcp_tunnel"),
                     )
-                    .col(ColumnDef::new(Routes::MatchConditions).json().not_null())
+                    .col(
+                        ColumnDef::new(Routes::MatchConditions)
+                            .json()
+                            .not_null()
+                            .comment("匹配条件 JSON（path/methods/host/headers/query_params）"),
+                    )
                     .col(
                         ColumnDef::new(Routes::Priority)
                             .integer()
                             .not_null()
-                            .default(10),
+                            .default(10)
+                            .comment("匹配优先级，越大越先匹配"),
                     )
-                    .col(ColumnDef::new(Routes::UpstreamId).big_integer().null())
-                    .col(ColumnDef::new(Routes::HostHeader).string().null())
+                    .col(
+                        ColumnDef::new(Routes::UpstreamId)
+                            .big_integer()
+                            .null()
+                            .comment("绑定的上游组 ID"),
+                    )
+                    .col(
+                        ColumnDef::new(Routes::HostHeader)
+                            .string()
+                            .null()
+                            .comment("转发时覆盖的 Host 头（缺省用节点地址）"),
+                    )
                     .col(
                         ColumnDef::new(Routes::AllowRetryNonIdempotent)
                             .boolean()
                             .not_null()
-                            .default(false),
+                            .default(false)
+                            .comment("允许重试非幂等请求（POST/PUT 等）"),
+                    )
+                    .col(
+                        ColumnDef::new(Routes::WsStripSensitiveHeaders)
+                            .boolean()
+                            .not_null()
+                            .default(false)
+                            .comment("WS 隧道转发上游时是否剥离敏感头（authorization/cookie 等）"),
                     )
                     .col(
                         ColumnDef::new(Routes::Enabled)
                             .boolean()
                             .not_null()
-                            .default(true),
+                            .default(true)
+                            .comment("是否启用该路由"),
                     )
                     .col(
                         ColumnDef::new(Routes::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("创建时间"),
                     )
                     .col(
                         ColumnDef::new(Routes::UpdatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("更新时间"),
                     )
                     .col(
                         ColumnDef::new(Routes::DeletedAt)
                             .timestamp_with_time_zone()
-                            .null(),
+                            .null()
+                            .comment("软删除时间"),
                     )
                     .foreign_key(
                         ForeignKey::create()
@@ -384,58 +443,68 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null()
                             .auto_increment()
-                            .primary_key(),
+                            .primary_key()
+                            .comment("绑定主键"),
                     )
                     .col(
                         ColumnDef::new(RoutePluginBindings::RouteId)
                             .big_integer()
-                            .not_null(),
+                            .not_null()
+                            .comment("路由 ID"),
                     )
                     .col(
                         ColumnDef::new(RoutePluginBindings::PluginName)
                             .string()
-                            .not_null(),
+                            .not_null()
+                            .comment("插件名"),
                     )
                     .col(
                         ColumnDef::new(RoutePluginBindings::Config)
                             .json()
                             .not_null()
-                            .default("{}"),
+                            .default("{}")
+                            .comment("插件配置 JSON"),
                     )
                     .col(
                         ColumnDef::new(RoutePluginBindings::Order)
                             .integer()
                             .not_null()
-                            .default(1),
+                            .default(1)
+                            .comment("执行顺序，越小越先执行"),
                     )
                     .col(
                         ColumnDef::new(RoutePluginBindings::Blocking)
                             .boolean()
                             .not_null()
-                            .default(true),
+                            .default(true)
+                            .comment("是否阻塞式插件（阻塞式拦截请求/响应，非阻塞仅旁路观测）"),
                     )
                     .col(
                         ColumnDef::new(RoutePluginBindings::Enabled)
                             .boolean()
                             .not_null()
-                            .default(true),
+                            .default(true)
+                            .comment("是否启用该绑定"),
                     )
                     .col(
                         ColumnDef::new(RoutePluginBindings::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("创建时间"),
                     )
                     .col(
                         ColumnDef::new(RoutePluginBindings::UpdatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("更新时间"),
                     )
                     .col(
                         ColumnDef::new(RoutePluginBindings::DeletedAt)
                             .timestamp_with_time_zone()
-                            .null(),
+                            .null()
+                            .comment("软删除时间"),
                     )
                     .foreign_key(
                         ForeignKey::create()
@@ -465,41 +534,58 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null()
                             .auto_increment()
-                            .primary_key(),
+                            .primary_key()
+                            .comment("版本记录主键"),
                     )
                     .col(
                         ColumnDef::new(ConfigVersions::Version)
                             .big_integer()
-                            .not_null(),
+                            .not_null()
+                            .comment("配置版本号（单调递增）"),
                     )
                     .col(
                         ColumnDef::new(ConfigVersions::BaseVersion)
                             .big_integer()
-                            .null(),
+                            .null()
+                            .comment("基础版本号（回滚前的版本）"),
                     )
                     .col(
                         ColumnDef::new(ConfigVersions::PublishType)
                             .small_integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("发布类型：0=发布 1=回滚"),
                     )
                     .col(
                         ColumnDef::new(ConfigVersions::ContentHash)
                             .string()
-                            .not_null(),
+                            .not_null()
+                            .comment("快照内容哈希（内容一致性校验）"),
                     )
                     .col(
                         ColumnDef::new(ConfigVersions::SnapshotContent)
                             .json()
-                            .not_null(),
+                            .not_null()
+                            .comment("配置快照 JSON"),
                     )
-                    .col(ColumnDef::new(ConfigVersions::CreatedBy).string().null())
-                    .col(ColumnDef::new(ConfigVersions::Remark).string().null())
+                    .col(
+                        ColumnDef::new(ConfigVersions::CreatedBy)
+                            .string()
+                            .null()
+                            .comment("创建人"),
+                    )
+                    .col(
+                        ColumnDef::new(ConfigVersions::Remark)
+                            .string()
+                            .null()
+                            .comment("发布备注"),
+                    )
                     .col(
                         ColumnDef::new(ConfigVersions::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("创建时间"),
                     )
                     .to_owned(),
             )
@@ -526,108 +612,131 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null()
                             .auto_increment()
-                            .primary_key(),
+                            .primary_key()
+                            .comment("指标主键"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::Ts)
                             .timestamp_with_time_zone()
-                            .not_null(),
+                            .not_null()
+                            .comment("时间桶起点"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::BucketSec)
                             .integer()
                             .not_null()
-                            .default(10),
+                            .default(10)
+                            .comment("时间桶时长（秒）"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::RouteId)
                             .big_integer()
-                            .null(),
+                            .null()
+                            .comment("路由 ID（NULL=非路由维度汇总）"),
                     )
-                    .col(ColumnDef::new(MetricAggregates::GateId).string().null())
+                    .col(
+                        ColumnDef::new(MetricAggregates::GateId)
+                            .string()
+                            .null()
+                            .comment("网关实例 ID"),
+                    )
                     .col(
                         ColumnDef::new(MetricAggregates::Qps)
                             .integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("桶内统计 QPS"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::TotalRequests)
                             .big_integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("桶内总请求数"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::AvgLatencyMs)
                             .double()
                             .not_null()
-                            .default(0.0),
+                            .default(0.0)
+                            .comment("桶内平均延迟（ms）"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::P50Ms)
                             .integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("P50 延迟（ms）"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::P90Ms)
                             .integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("P90 延迟（ms）"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::P99Ms)
                             .integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("P99 延迟（ms）"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::Status2xx)
                             .big_integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("2xx 响应数"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::Status3xx)
                             .big_integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("3xx 响应数"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::Status4xx)
                             .big_integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("4xx 响应数"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::Status5xx)
                             .big_integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("5xx 响应数"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::Sessions)
                             .big_integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("WebSocket 会话数"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::BytesIn)
                             .big_integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("入站字节数（上游→客户端）"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::BytesOut)
                             .big_integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("出站字节数（客户端→上游）"),
                     )
                     .col(
                         ColumnDef::new(MetricAggregates::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("创建时间"),
                     )
                     .to_owned(),
             )
@@ -667,27 +776,51 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null()
                             .auto_increment()
-                            .primary_key(),
+                            .primary_key()
+                            .comment("事件主键"),
                     )
                     .col(
                         ColumnDef::new(GatewayEvents::Ts)
                             .timestamp_with_time_zone()
-                            .not_null(),
+                            .not_null()
+                            .comment("事件发生时间"),
                     )
-                    .col(ColumnDef::new(GatewayEvents::EventType).string().not_null())
-                    .col(ColumnDef::new(GatewayEvents::RouteId).big_integer().null())
+                    .col(
+                        ColumnDef::new(GatewayEvents::EventType)
+                            .string()
+                            .not_null()
+                            .comment("事件类型（rate_limited/circuit_breaker_open/upstream_failed 等）"),
+                    )
+                    .col(
+                        ColumnDef::new(GatewayEvents::RouteId)
+                            .big_integer()
+                            .null()
+                            .comment("相关路由 ID"),
+                    )
                     .col(
                         ColumnDef::new(GatewayEvents::UpstreamId)
                             .big_integer()
-                            .null(),
+                            .null()
+                            .comment("相关上游组 ID"),
                     )
-                    .col(ColumnDef::new(GatewayEvents::TraceId).string().null())
-                    .col(ColumnDef::new(GatewayEvents::Detail).json().null())
+                    .col(
+                        ColumnDef::new(GatewayEvents::TraceId)
+                            .string()
+                            .null()
+                            .comment("追踪 ID（参与幂等去重）"),
+                    )
+                    .col(
+                        ColumnDef::new(GatewayEvents::Detail)
+                            .json()
+                            .null()
+                            .comment("事件详情 JSON"),
+                    )
                     .col(
                         ColumnDef::new(GatewayEvents::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("入库时间"),
                     )
                     .to_owned(),
             )
@@ -727,24 +860,57 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null()
                             .auto_increment()
-                            .primary_key(),
+                            .primary_key()
+                            .comment("审计日志主键"),
                     )
                     .col(
                         ColumnDef::new(AuditLogs::Ts)
                             .timestamp_with_time_zone()
-                            .not_null(),
+                            .not_null()
+                            .comment("操作时间"),
                     )
-                    .col(ColumnDef::new(AuditLogs::Operator).string().null())
-                    .col(ColumnDef::new(AuditLogs::Action).string().not_null())
-                    .col(ColumnDef::new(AuditLogs::Resource).string().not_null())
-                    .col(ColumnDef::new(AuditLogs::ResourceId).big_integer().null())
-                    .col(ColumnDef::new(AuditLogs::Detail).json().null())
-                    .col(ColumnDef::new(AuditLogs::TraceId).string().null())
+                    .col(
+                        ColumnDef::new(AuditLogs::Operator)
+                            .string()
+                            .null()
+                            .comment("操作人"),
+                    )
+                    .col(
+                        ColumnDef::new(AuditLogs::Action)
+                            .string()
+                            .not_null()
+                            .comment("操作动作"),
+                    )
+                    .col(
+                        ColumnDef::new(AuditLogs::Resource)
+                            .string()
+                            .not_null()
+                            .comment("操作资源"),
+                    )
+                    .col(
+                        ColumnDef::new(AuditLogs::ResourceId)
+                            .big_integer()
+                            .null()
+                            .comment("资源 ID"),
+                    )
+                    .col(
+                        ColumnDef::new(AuditLogs::Detail)
+                            .json()
+                            .null()
+                            .comment("操作详情 JSON"),
+                    )
+                    .col(
+                        ColumnDef::new(AuditLogs::TraceId)
+                            .string()
+                            .null()
+                            .comment("追踪 ID"),
+                    )
                     .col(
                         ColumnDef::new(AuditLogs::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("入库时间"),
                     )
                     .to_owned(),
             )
@@ -770,26 +936,35 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null()
                             .auto_increment()
-                            .primary_key(),
+                            .primary_key()
+                            .comment("应用记录主键"),
                     )
-                    .col(ColumnDef::new(NodeApplications::GateId).string().not_null())
+                    .col(
+                        ColumnDef::new(NodeApplications::GateId)
+                            .string()
+                            .not_null()
+                            .comment("网关实例 ID"),
+                    )
                     .col(
                         ColumnDef::new(NodeApplications::Version)
                             .big_integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("已应用的配置版本号"),
                     )
                     .col(
                         ColumnDef::new(NodeApplications::AppliedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("配置应用时间"),
                     )
                     .col(
                         ColumnDef::new(NodeApplications::UpdatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("更新时间"),
                     )
                     .to_owned(),
             )
@@ -816,58 +991,73 @@ impl MigrationTrait for Migration {
                             .big_integer()
                             .not_null()
                             .auto_increment()
-                            .primary_key(),
+                            .primary_key()
+                            .comment("插件主键"),
                     )
-                    .col(ColumnDef::new(InstalledPlugins::Name).string().not_null())
+                    .col(
+                        ColumnDef::new(InstalledPlugins::Name)
+                            .string()
+                            .not_null()
+                            .comment("插件名"),
+                    )
                     .col(
                         ColumnDef::new(InstalledPlugins::Version)
                             .string()
-                            .not_null(),
+                            .not_null()
+                            .comment("插件版本"),
                     )
                     .col(
                         ColumnDef::new(InstalledPlugins::ApiVersion)
                             .integer()
                             .not_null()
-                            .default(1),
+                            .default(1)
+                            .comment("插件 API 版本"),
                     )
                     .col(
                         ColumnDef::new(InstalledPlugins::Kind)
                             .small_integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("插件类型：0=Native 1=Wasm"),
                     )
                     .col(
                         ColumnDef::new(InstalledPlugins::Status)
                             .small_integer()
                             .not_null()
-                            .default(0),
+                            .default(0)
+                            .comment("插件状态：0=Installed 1=Active 2=Disabled 3=Uninstalled"),
                     )
                     .col(
                         ColumnDef::new(InstalledPlugins::PackageHash)
                             .string()
-                            .null(),
+                            .null()
+                            .comment("插件包哈希（完整性校验）"),
                     )
                     .col(
                         ColumnDef::new(InstalledPlugins::Manifest)
                             .json()
                             .not_null()
-                            .default("{}"),
+                            .default("{}")
+                            .comment("插件清单 JSON"),
                     )
                     .col(
                         ColumnDef::new(InstalledPlugins::InstalledAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            .default(Expr::current_timestamp())
+                            .comment("安装时间"),
                     )
                     .col(
                         ColumnDef::new(InstalledPlugins::ActivatedAt)
                             .timestamp_with_time_zone()
-                            .null(),
+                            .null()
+                            .comment("激活时间"),
                     )
                     .col(
                         ColumnDef::new(InstalledPlugins::DeletedAt)
                             .timestamp_with_time_zone()
-                            .null(),
+                            .null()
+                            .comment("软删除时间"),
                     )
                     .to_owned(),
             )

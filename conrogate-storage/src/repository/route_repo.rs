@@ -89,6 +89,9 @@ impl RouteRepo for RouteRepoImpl {
         if let Some(retry) = dto.allow_retry_non_idempotent {
             active.allow_retry_non_idempotent = Set(retry);
         }
+        if let Some(strip) = dto.ws_strip_sensitive_headers {
+            active.ws_strip_sensitive_headers = Set(strip);
+        }
         if let Some(enabled) = dto.enabled {
             active.enabled = Set(enabled);
         }

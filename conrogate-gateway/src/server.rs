@@ -1009,6 +1009,16 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                             .and_then(|v| v.to_str().ok())
                             .map(|s| s.to_string())
                         {
+                            // 上游 Host 头（来自路由配置，与 HTTP 转发路径一致）
+                            let upstream_host = resp
+                                .headers()
+                                .get("X-WS-Host-Header")
+                                .and_then(|v| v.to_str().ok())
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| upstream_addr.clone());
+                            // 按路由配置剥离敏感头（authorization/cookie 等，与 HTTP 路径一致）
+                            let strip_sensitive =
+                                resp.headers().contains_key("X-WS-Strip-Sensitive");
                             // 启动 WS 双向转发任务
                             if let (Some(on_upgrade), Some((method, uri, headers))) =
                                 (on_upgrade, ws_req_info)
@@ -1024,6 +1034,17 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                                 .body(Bytes::new())
                                                 .unwrap();
                                             *upgrade_req.headers_mut() = headers;
+                                            if strip_sensitive {
+                                                conrogate_protocol::http::strip_sensitive_headers(
+                                                    upgrade_req.headers_mut(),
+                                                );
+                                            }
+                                            // 重写 Host 头为上游主机（否则上游看到的是网关的 Host）
+                                            if let Ok(v) = upstream_host.parse() {
+                                                upgrade_req
+                                                    .headers_mut()
+                                                    .insert(http::header::HOST, v);
+                                            }
                                             let forward = conrogate_protocol::upgrade::forward_websocket(
                                                 &upstream_addr,
                                                 io,
@@ -1052,6 +1073,8 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                             // 清除扩展头（不透传给客户端）
                             let mut clean_resp = resp;
                             clean_resp.headers_mut().remove("X-WS-Upstream-Addr");
+                            clean_resp.headers_mut().remove("X-WS-Host-Header");
+                            clean_resp.headers_mut().remove("X-WS-Strip-Sensitive");
                             clean_resp.headers_mut().remove("X-WS-Trace-Id");
                             let (parts, _) = clean_resp.into_parts();
                             return Ok(Response::from_parts(parts, boxed_body(Bytes::new())));
@@ -1126,6 +1149,16 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                     .and_then(|v| v.to_str().ok())
                     .map(|s| s.to_string())
                 {
+                    // 上游 Host 头（来自路由配置，与 HTTP 转发路径一致）
+                    let upstream_host = resp
+                        .headers()
+                        .get("X-WS-Host-Header")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| upstream_addr.clone());
+                    // 按路由配置剥离敏感头（authorization/cookie 等，与 HTTP 路径一致）
+                    let strip_sensitive =
+                        resp.headers().contains_key("X-WS-Strip-Sensitive");
                     // 启动 WS 双向转发任务
                     if let (Some(on_upgrade), Some((method, uri, headers))) =
                         (on_upgrade, ws_req_info)
@@ -1141,6 +1174,17 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                         .body(Bytes::new())
                                         .unwrap();
                                     *upgrade_req.headers_mut() = headers;
+                                    if strip_sensitive {
+                                        conrogate_protocol::http::strip_sensitive_headers(
+                                            upgrade_req.headers_mut(),
+                                        );
+                                    }
+                                    // 重写 Host 头为上游主机（否则上游看到的是网关的 Host）
+                                    if let Ok(v) = upstream_host.parse() {
+                                        upgrade_req
+                                            .headers_mut()
+                                            .insert(http::header::HOST, v);
+                                    }
                                     let forward = conrogate_protocol::upgrade::forward_websocket(
                                         &upstream_addr,
                                         io,
@@ -1169,6 +1213,8 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                     // 清除扩展头（不透传给客户端）
                     let mut clean_resp = resp;
                     clean_resp.headers_mut().remove("X-WS-Upstream-Addr");
+                    clean_resp.headers_mut().remove("X-WS-Host-Header");
+                    clean_resp.headers_mut().remove("X-WS-Strip-Sensitive");
                     clean_resp.headers_mut().remove("X-WS-Trace-Id");
                     return Ok(Response::from_parts(
                         clean_resp.into_parts().0,

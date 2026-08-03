@@ -17,6 +17,10 @@ pub struct RouteDto {
     pub upstream_id: Option<u64>,
     pub host_header: Option<String>,
     pub allow_retry_non_idempotent: bool,
+    /// WS 隧道转发上游时是否剥离敏感头（authorization/cookie/x-api-key 等）。
+    /// 默认 false（透传，保留当前行为）；启用后与 HTTP 转发路径的安全模型一致。
+    #[serde(default)]
+    pub ws_strip_sensitive_headers: bool,
     pub enabled: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -31,6 +35,8 @@ pub struct CreateRouteDto {
     pub upstream_id: Option<u64>,
     pub host_header: Option<String>,
     pub allow_retry_non_idempotent: Option<bool>,
+    #[serde(default)]
+    pub ws_strip_sensitive_headers: Option<bool>,
     pub enabled: Option<bool>,
 }
 
@@ -43,6 +49,8 @@ pub struct UpdateRouteDto {
     pub upstream_id: Option<u64>,
     pub host_header: Option<String>,
     pub allow_retry_non_idempotent: Option<bool>,
+    #[serde(default)]
+    pub ws_strip_sensitive_headers: Option<bool>,
     pub enabled: Option<bool>,
 }
 
@@ -324,6 +332,8 @@ pub struct RouteSnapshot {
     pub upstream_id: Option<u64>,
     pub host_header: Option<String>,
     pub allow_retry_non_idempotent: bool,
+    /// WS 隧道转发上游时是否剥离敏感头（与 HTTP 路径安全模型一致）
+    pub ws_strip_sensitive_headers: bool,
     pub plugin_chain: Vec<PluginBindingDto>,
     /// 该路由是否有 requires_body 插件 → true 时网关以缓冲模式处理请求体
     pub requires_body: bool,

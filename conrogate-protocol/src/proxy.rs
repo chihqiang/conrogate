@@ -59,17 +59,23 @@ pub async fn forward_http(
     req: Request<ReqBody>,
     timeout: Duration,
 ) -> Result<ProxyResult, ConrogateError> {
-    let (status, headers, body) = forward_common(client, node, req, timeout).await?;
-    let body_bytes = body
-        .collect()
-        .await
-        .map_err(|e| ConrogateError::UpstreamBadResponse(e.to_string()))?
-        .to_bytes();
-    Ok(ProxyResult {
-        status,
-        headers,
-        body: body_bytes,
+    // 整个响应（头 + 体）受 total 超时约束：上游发完响应头后中途停滞也会超时，避免挂死
+    let result = tokio::time::timeout(timeout, async {
+        let (status, headers, body) = forward_common(client, node, req, timeout).await?;
+        let body_bytes = body
+            .collect()
+            .await
+            .map_err(|e| ConrogateError::UpstreamBadResponse(e.to_string()))?
+            .to_bytes();
+        Ok::<_, ConrogateError>(ProxyResult {
+            status,
+            headers,
+            body: body_bytes,
+        })
     })
+    .await
+    .map_err(|_| ConrogateError::UpstreamTimeout)??;
+    Ok(result)
 }
 
 /// 转发 HTTP 请求到上游节点（流式模式：请求体与响应体均以流透传，不载入内存）
@@ -275,5 +281,40 @@ mod tests {
             .expect("collect streamed body")
             .to_bytes();
         assert_eq!(&collected[..], b"helloworld");
+    }
+
+    /// 缓冲模式：上游发完响应头后停滞 → 整个响应受 total 超时约束，不挂死
+    #[tokio::test]
+    async fn forward_http_times_out_on_stalled_body() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            if let Ok((mut sock, _)) = listener.accept().await {
+                let mut buf = [0u8; 2048];
+                let _ = sock.read(&mut buf).await;
+                // 只发响应头不发体，然后停滞
+                let _ = sock
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n")
+                    .await;
+                let _ = sock.flush().await;
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+        });
+        let node = UpstreamNodeDto {
+            id: 1,
+            upstream_id: 1,
+            address: format!("127.0.0.1:{}", addr.port()),
+            weight: 1,
+            enabled: true,
+        };
+        let req = Request::builder()
+            .uri("http://upstream/")
+            .body(body_from_bytes(Bytes::new()))
+            .unwrap();
+
+        let start = std::time::Instant::now();
+        let result = forward_http(&test_client(), &node, req, Duration::from_millis(300)).await;
+        assert!(matches!(result, Err(ConrogateError::UpstreamTimeout)));
+        assert!(start.elapsed() < std::time::Duration::from_secs(2), "应在超时内返回");
     }
 }

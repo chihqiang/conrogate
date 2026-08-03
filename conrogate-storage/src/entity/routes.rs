@@ -19,6 +19,8 @@ pub struct Model {
     pub host_header: Option<String>,
     #[sea_orm(column_name = "allow_retry_non_idempotent")]
     pub allow_retry_non_idempotent: bool,
+    #[sea_orm(column_name = "ws_strip_sensitive_headers")]
+    pub ws_strip_sensitive_headers: bool,
     pub enabled: bool,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,

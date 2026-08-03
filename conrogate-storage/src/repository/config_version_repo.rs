@@ -331,6 +331,7 @@ impl ConfigVersionRepo for ConfigVersionRepoImpl {
                     active.upstream_id = Set(upstream_id);
                     active.host_header = Set(r.host_header.clone());
                     active.allow_retry_non_idempotent = Set(r.allow_retry_non_idempotent);
+                    active.ws_strip_sensitive_headers = Set(r.ws_strip_sensitive_headers);
                     active.enabled = Set(r.enabled);
                     active.updated_at = Set(chrono::Utc::now());
                     active
@@ -348,6 +349,7 @@ impl ConfigVersionRepo for ConfigVersionRepoImpl {
                         upstream_id: upstream_id.map(|v| v as u64),
                         host_header: r.host_header.clone(),
                         allow_retry_non_idempotent: Some(r.allow_retry_non_idempotent),
+                        ws_strip_sensitive_headers: Some(r.ws_strip_sensitive_headers),
                         enabled: Some(r.enabled),
                     });
                     let model = active
