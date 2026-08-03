@@ -1,13 +1,14 @@
 //! HTTP 协议处理器：完整转发链路（缓冲 / 流式两种模式）。
 
-use crate::handler::{NoopLogger, NoopMetrics, ProtocolHandler};
+use crate::handler::{plugin_services, ProtocolHandler};
 use crate::proxy::{body_from_bytes, body_from_incoming, HttpClient, ReqBody};
 use bytes::Bytes;
+use conrogate_contract::dto::{RouteSnapshot, UpstreamNodeDto};
 use conrogate_contract::gateway::ServiceContext;
-use conrogate_contract::plugin::{HttpContext, PluginContext, PluginOutcome, PluginResponse};
+use conrogate_contract::plugin::{HttpContext, Plugin, PluginContext, PluginOutcome, PluginResponse};
 use conrogate_contract::protocol::{ProtocolId, RouteMatchInfo};
 use conrogate_contract::ConrogateError;
-use http::{Request, Response, StatusCode};
+use http::{HeaderMap, Method, Request, Response, StatusCode, Uri, Version};
 use hyper_util::client::legacy::Client;
 use std::sync::Arc;
 use std::time::Duration;
@@ -206,52 +207,295 @@ impl HttpProtocolHandler {
         req: Request<Bytes>,
         client_ip: String,
     ) -> Result<Response<Bytes>, ConrogateError> {
-        // 1. 构造路由匹配信息
         let (parts, body) = req.into_parts();
         let method = parts.method;
         let uri = parts.uri;
         let headers = parts.headers;
-        let match_info = RouteMatchInfo::from_http_request(&method, &uri, &headers);
+        let meta = self.build_request_meta(&method, &uri, &headers, client_ip);
+
+        let route = self
+            .svc
+            .routes
+            .lookup_route(ProtocolId::Http, &meta.match_info)
+            .await?
+            .ok_or_else(|| ConrogateError::RouteNotFound(meta.match_info.path.clone()))?;
+
+        match self
+            .preflight(&meta, &method, &uri, parts.version, &headers, Some(&body), route)
+            .await?
+        {
+            PreFlight::Terminate { code, body } => Ok(Response::builder()
+                .status(code)
+                .body(Bytes::from(body.to_string().into_bytes()))
+                .unwrap_or_else(|_| {
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(Bytes::new())
+                        .unwrap()
+                })),
+            PreFlight::WebSocketUpgrade {
+                parts: resp_parts,
+                upstream_addr,
+            } => {
+                tracing::info!(
+                    trace_id = %meta.trace_id,
+                    upstream = %upstream_addr,
+                    "websocket upgrade request, returning 101 with upstream addr"
+                );
+                Ok(Response::from_parts(resp_parts, Bytes::new()))
+            }
+            PreFlight::Continue {
+                mut plugin_ctx,
+                plugins,
+                route,
+                node,
+            } => {
+                // 9. 构造上游请求（处理 Header）
+                let upstream_uri = Self::build_upstream_uri(&node, &uri)?;
+                let upstream_uri_clone = upstream_uri.clone();
+                let method_clone = method.clone();
+                let is_idempotent = matches!(method.as_str(), "GET" | "HEAD" | "OPTIONS");
+                let can_retry = is_idempotent || route.allow_retry_non_idempotent;
+
+                let mut upstream_req = Request::builder()
+                    .method(method)
+                    .uri(upstream_uri)
+                    .body(body_from_bytes(body))
+                    .map_err(|e| {
+                        ConrogateError::UpstreamConnectFailed(format!("request build: {e}"))
+                    })?;
+                *upstream_req.headers_mut() = Self::build_out_headers(
+                    &route,
+                    &node,
+                    &headers,
+                    &meta.trace_id,
+                    &meta.request_id,
+                    &meta.real_ip,
+                );
+
+                // 10. 调用 proxy 实际转发到上游（含重试）
+                let mut proxy_result =
+                    Err(ConrogateError::UpstreamConnectFailed("no attempt".into()));
+                let saved_headers = upstream_req.headers().clone();
+                let full_body = upstream_req.into_body();
+                let body_bytes: Bytes = http_body_util::BodyExt::collect(full_body)
+                    .await
+                    .map_err(|e| {
+                        ConrogateError::UpstreamConnectFailed(format!("body collect: {e}"))
+                    })?
+                    .to_bytes();
+
+                for attempt in 0..=self.max_retries {
+                    if attempt > 0 {
+                        if !can_retry {
+                            break;
+                        }
+                        // 指数退避 + 抖动
+                        let backoff = std::time::Duration::from_millis(
+                            (1u64 << attempt) * 10 + (uuid::Uuid::new_v4().as_u128() % 50) as u64,
+                        );
+                        tokio::time::sleep(backoff).await;
+                        tracing::warn!(attempt, route_id = route.id, "retrying request");
+                    }
+
+                    // 每次重试重建请求（body 已 clone）
+                    let mut retry_req = Request::builder()
+                        .method(method_clone.clone())
+                        .uri(upstream_uri_clone.clone())
+                        .body(body_from_bytes(body_bytes.clone()))
+                        .map_err(|e| {
+                            ConrogateError::UpstreamConnectFailed(format!("request build: {e}"))
+                        })?;
+                    *retry_req.headers_mut() = saved_headers.clone();
+
+                    proxy_result =
+                        crate::proxy::forward_http(&self.client, &node, retry_req, self.timeout)
+                            .await;
+
+                    match &proxy_result {
+                        Ok(r) => {
+                            // 5xx 可重试
+                            if r.status.as_u16() >= 500 && can_retry && attempt < self.max_retries {
+                                continue;
+                            }
+                            break;
+                        }
+                        Err(e) => {
+                            // 连接失败/超时可重试
+                            let retryable = matches!(
+                                e,
+                                ConrogateError::UpstreamTimeout
+                                    | ConrogateError::UpstreamConnectFailed(_)
+                            );
+                            if retryable && can_retry && attempt < self.max_retries {
+                                continue;
+                            }
+                            break;
+                        }
+                    }
+                }
+
+                // 11. 记录结果（成功/失败反馈给熔断器）
+                self.record_outcome(&route, &node, proxy_result.is_ok()).await;
+                let proxy_result = proxy_result?;
+
+                let resp_body = proxy_result.body;
+                let after_body = resp_body.clone();
+                self.finalize_response(
+                    &mut plugin_ctx,
+                    &plugins,
+                    &route,
+                    proxy_result.status,
+                    proxy_result.headers,
+                    resp_body,
+                    after_body,
+                    &meta,
+                )
+                .await
+            }
+        }
+    }
+
+    /// 流式处理 HTTP 请求 — 请求体与响应体均不缓冲，直接透传上游。
+    /// 适用于路由无 requires_body 插件的场景（大文件上传/下载、SSE 等）。
+    /// 路由已由 HyperServiceBridge 预匹配，不重试（body 不可 clone）。
+    async fn handle_stream(
+        &self,
+        parts: http::request::Parts,
+        body: hyper::body::Incoming,
+        route: RouteSnapshot,
+        client_ip: String,
+    ) -> Result<Response<ReqBody>, ConrogateError> {
+        let method = parts.method.clone();
+        let uri = parts.uri.clone();
+        let headers = parts.headers.clone();
+        let meta = self.build_request_meta(&method, &uri, &headers, client_ip);
+
+        match self
+            .preflight(&meta, &method, &uri, parts.version, &headers, None, route)
+            .await?
+        {
+            PreFlight::Terminate { code, body } => Ok(Response::builder()
+                .status(code)
+                .body(body_from_bytes(Bytes::from(body.to_string().into_bytes())))
+                .unwrap_or_else(|_| {
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(body_from_bytes(Bytes::new()))
+                        .unwrap()
+                })),
+            PreFlight::WebSocketUpgrade {
+                parts: resp_parts,
+                upstream_addr,
+            } => {
+                tracing::info!(
+                    trace_id = %meta.trace_id,
+                    upstream = %upstream_addr,
+                    "websocket upgrade request (stream), returning 101 with upstream addr"
+                );
+                Ok(Response::from_parts(resp_parts, body_from_bytes(Bytes::new())))
+            }
+            PreFlight::Continue {
+                mut plugin_ctx,
+                plugins,
+                route,
+                node,
+            } => {
+                // 构造上游请求（流式 body）
+                let upstream_uri = Self::build_upstream_uri(&node, &uri)?;
+                let mut upstream_req = Request::builder()
+                    .method(method)
+                    .uri(upstream_uri)
+                    .body(body_from_incoming(body))
+                    .map_err(|e| {
+                        ConrogateError::UpstreamConnectFailed(format!("request build: {e}"))
+                    })?;
+                *upstream_req.headers_mut() = Self::build_out_headers(
+                    &route,
+                    &node,
+                    &headers,
+                    &meta.trace_id,
+                    &meta.request_id,
+                    &meta.real_ip,
+                );
+
+                // 流式转发（不重试：body 不可 clone）
+                let proxy_result =
+                    crate::proxy::forward_http_stream(&self.client, &node, upstream_req, self.timeout)
+                        .await;
+
+                // 记录结果
+                self.record_outcome(&route, &node, proxy_result.is_ok()).await;
+                let proxy_result = proxy_result?;
+
+                self.finalize_response(
+                    &mut plugin_ctx,
+                    &plugins,
+                    &route,
+                    proxy_result.status,
+                    proxy_result.headers,
+                    body_from_incoming(proxy_result.body),
+                    Bytes::new(),
+                    &meta,
+                )
+                .await
+            }
+        }
+    }
+
+    /// 构造请求元数据：路由匹配信息、请求/追踪 ID、真实客户端 IP、开始时间
+    fn build_request_meta(
+        &self,
+        method: &Method,
+        uri: &Uri,
+        headers: &HeaderMap,
+        client_ip: String,
+    ) -> RequestMeta {
+        let match_info = RouteMatchInfo::from_http_request(method, uri, headers);
         let request_id = uuid::Uuid::new_v4().to_string();
         let trace_id = headers
             .get("x-trace-id")
             .and_then(|v| v.to_str().ok())
             .unwrap_or(&request_id)
             .to_string();
+        let real_ip = self.resolve_real_ip(&client_ip, headers);
+        RequestMeta {
+            match_info,
+            request_id,
+            trace_id,
+            real_ip,
+            start: std::time::Instant::now(),
+        }
+    }
 
-        // 1a. XFF 信任链：解析真实客户端 IP
-        let real_ip = self.resolve_real_ip(&client_ip, &headers);
-
-        // 记录请求开始时间（用于延迟统计）
-        let start = std::time::Instant::now();
-
-        // 2. 路由匹配
-        let route = self
-            .svc
-            .routes
-            .lookup_route(ProtocolId::Http, &match_info)
-            .await?
-            .ok_or_else(|| ConrogateError::RouteNotFound(match_info.path.clone()))?;
-
+    /// 前置流程（缓冲/流式共用）：插件 before_request → 限流 → 选节点 → 熔断 → WS 检测
+    #[allow(clippy::too_many_arguments)]
+    async fn preflight(
+        &self,
+        meta: &RequestMeta,
+        method: &Method,
+        uri: &Uri,
+        version: Version,
+        headers: &HeaderMap,
+        plugin_body: Option<&Bytes>,
+        route: RouteSnapshot,
+    ) -> Result<PreFlight, ConrogateError> {
         // 3. 构造插件上下文
         let mut plugin_ctx = PluginContext {
-            request_id: request_id.clone(),
-            trace_id: trace_id.clone(),
+            request_id: meta.request_id.clone(),
+            trace_id: meta.trace_id.clone(),
             route_id: route.id,
-            client_ip: real_ip.clone(),
+            client_ip: meta.real_ip.clone(),
             protocol: ProtocolId::Http,
             http: Some(HttpContext {
                 method: method.clone(),
-                path: match_info.path.clone(),
-                query: match_info.query_params.iter().cloned().collect(),
+                path: meta.match_info.path.clone(),
+                query: meta.match_info.query_params.iter().cloned().collect(),
                 headers: headers.clone(),
-                body: Some(body.clone()),
+                body: plugin_body.cloned(),
             }),
             tunnel: None,
-            services: conrogate_contract::plugin::PluginServices {
-                metrics: Arc::new(NoopMetrics),
-                logger: Arc::new(NoopLogger),
-            },
+            services: plugin_services(&self.svc),
         };
 
         // 4. 执行插件 before_request（解析路由绑定 → 插件实例）
@@ -264,19 +508,16 @@ impl HttpProtocolHandler {
 
         // 5. 插件可能终止请求
         if let PluginOutcome::Terminate(code, body) = plugin_outcome {
-            return Ok(Response::builder()
-                .status(code)
-                .body(Bytes::from(body.to_string().into_bytes()))
-                .unwrap_or_else(|_| {
-                    Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(Bytes::new())
-                        .unwrap()
-                }));
+            return Ok(PreFlight::Terminate { code, body });
         }
 
         // 6. 流量治理检查（使用配置的 QPS）
-        if let Err(e) = self.svc.traffic.check_rate_limit(route.id, &real_ip).await {
+        if let Err(e) = self
+            .svc
+            .traffic
+            .check_rate_limit(route.id, &meta.real_ip)
+            .await
+        {
             // 上报限流事件到遥测
             self.svc
                 .telemetry
@@ -285,9 +526,9 @@ impl HttpProtocolHandler {
                     event_type: "rate_limited".into(),
                     route_id: Some(route.id),
                     upstream_id: None,
-                    trace_id: Some(trace_id.clone()),
+                    trace_id: Some(meta.trace_id.clone()),
                     detail: serde_json::json!({
-                        "client_ip": real_ip,
+                        "client_ip": meta.real_ip,
                         "reason": e.to_string(),
                     }),
                 })
@@ -299,7 +540,7 @@ impl HttpProtocolHandler {
         let node = self
             .svc
             .balancer
-            .select_upstream(&route, Some(&real_ip))
+            .select_upstream(&route, Some(&meta.real_ip))
             .await?;
 
         // 8. 熔断检查
@@ -309,356 +550,58 @@ impl HttpProtocolHandler {
             .await?;
 
         // 8a. WebSocket 升级检测（路由匹配 + 上游选择完成后）
-        let upgrade_req = Request::builder()
-            .method(method.clone())
-            .uri(uri.clone())
-            .version(parts.version)
-            .body(body.clone())
-            .unwrap();
-        if crate::upgrade::is_upgrade_request(&upgrade_req) {
-            let mut resp = crate::upgrade::build_upgrade_response(&upgrade_req);
-            // 设置上游地址头，供 HyperServiceBridge 提取并执行 WS 转发
-            if let Ok(v) = node.address.parse() {
-                resp.headers_mut().insert("X-WS-Upstream-Addr", v);
-            }
-            if let Ok(v) = trace_id.parse() {
-                resp.headers_mut().insert("X-WS-Trace-Id", v);
-            }
-            tracing::info!(
-                trace_id = %trace_id,
-                upstream = %node.address,
-                "websocket upgrade request, returning 101 with upstream addr"
-            );
-            return Ok(resp);
-        }
-
-        // 9. 构造上游请求（处理 Header）
-        let path_and_query = uri
-            .path_and_query()
-            .map(|p| p.as_str().to_string())
-            .unwrap_or_else(|| "/".to_string());
-        let upstream_addr = format!("http://{}", node.address);
-        let upstream_uri: http::Uri = format!("{}{}", upstream_addr, path_and_query)
-            .parse()
-            .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("uri parse: {e}")))?;
-
-        let method_clone = method.clone();
-        let upstream_uri_clone = upstream_uri.clone();
-        let mut upstream_req = Request::builder()
-            .method(method)
-            .uri(upstream_uri)
-            .body(body_from_bytes(body))
-            .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("request build: {e}")))?;
-
-        // 9a. Header 处理：过滤敏感头 + 注入网关头
-        let mut out_headers = http::HeaderMap::new();
-        for (name, value) in headers.iter() {
-            let name_lower = name.as_str().to_lowercase();
-            if !SENSITIVE_HEADERS.contains(&name_lower.as_str()) {
-                out_headers.insert(name, value.clone());
-            }
-        }
-        // 注入网关头
-        if let Ok(v) = trace_id.parse() {
-            out_headers.insert("x-trace-id", v);
-        }
-        // 9c. XFF 注入：使用真实客户端 IP
-        if let Ok(v) = real_ip.parse() {
-            out_headers.insert("x-forwarded-for", v);
-        }
-        if let Ok(v) = "http".parse() {
-            out_headers.insert("x-forwarded-proto", v);
-        }
-        if let Ok(v) = request_id.parse() {
-            out_headers.insert("x-request-id", v);
-        }
-        // Host 头重写
-        let host_value = route.host_header.as_deref().unwrap_or(&node.address);
-        if let Ok(v) = host_value.parse() {
-            out_headers.insert(http::header::HOST, v);
-        }
-
-        *upstream_req.headers_mut() = out_headers;
-
-        // 10. 调用 proxy 实际转发到上游（含重试）
-        let method_str = method_clone.as_str();
-        let is_idempotent = matches!(method_str, "GET" | "HEAD" | "OPTIONS");
-        let can_retry = is_idempotent || route.allow_retry_non_idempotent;
-
-        let mut proxy_result = Err(ConrogateError::UpstreamConnectFailed("no attempt".into()));
-        let saved_headers = upstream_req.headers().clone();
-        let full_body = upstream_req.into_body();
-        let body_bytes: Bytes = http_body_util::BodyExt::collect(full_body)
-            .await
-            .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("body collect: {e}")))?
-            .to_bytes();
-
-        for attempt in 0..=self.max_retries {
-            if attempt > 0 {
-                if !can_retry {
-                    break;
-                }
-                // 指数退避 + 抖动
-                let backoff = std::time::Duration::from_millis(
-                    (1u64 << attempt) * 10 + (uuid::Uuid::new_v4().as_u128() % 50) as u64,
-                );
-                tokio::time::sleep(backoff).await;
-                tracing::warn!(attempt, route_id = route.id, "retrying request");
-            }
-
-            // 每次重试重建请求（body 已 clone）
-            let mut retry_req = Request::builder()
-                .method(method_clone.clone())
-                .uri(upstream_uri_clone.clone())
-                .body(body_from_bytes(body_bytes.clone()))
-                .map_err(|e| {
-                    ConrogateError::UpstreamConnectFailed(format!("request build: {e}"))
-                })?;
-            *retry_req.headers_mut() = saved_headers.clone();
-
-            proxy_result =
-                crate::proxy::forward_http(&self.client, &node, retry_req, self.timeout).await;
-
-            match &proxy_result {
-                Ok(r) => {
-                    // 5xx 可重试
-                    if r.status.as_u16() >= 500 && can_retry && attempt < self.max_retries {
-                        continue;
-                    }
-                    break;
-                }
-                Err(e) => {
-                    // 连接失败/超时可重试
-                    let retryable = matches!(
-                        e,
-                        ConrogateError::UpstreamTimeout | ConrogateError::UpstreamConnectFailed(_)
-                    );
-                    if retryable && can_retry && attempt < self.max_retries {
-                        continue;
-                    }
-                    break;
-                }
-            }
-        }
-
-        // 11. 记录结果（成功/失败反馈给熔断器）
-        let success = proxy_result.is_ok();
-        self.svc
-            .traffic
-            .record_result(route.id, node.id, success)
-            .await;
-        // 请求完成，释放节点（LeastConnections 递减计数）
-        self.svc.balancer.release_node(&route, &node).await;
-
-        let proxy_result = proxy_result?;
-
-        // 12. 构造响应
-        let mut resp_builder = Response::builder().status(proxy_result.status);
-        if let Some(h) = resp_builder.headers_mut() {
-            *h = proxy_result.headers.clone();
-        }
-
-        // 12a. 响应方向注入头
-        let out_headers = resp_builder.headers_mut().unwrap();
-        if let Ok(v) = trace_id.parse() {
-            out_headers.insert("x-trace-id", v);
-        }
-        if let Ok(v) = request_id.parse() {
-            out_headers.insert("x-request-id", v);
-        }
-
-        let resp = resp_builder.body(proxy_result.body).unwrap_or_else(|_| {
-            Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .body(Bytes::new())
-                .unwrap()
-        });
-
-        // 13. 插件 after_response
-        let mut plugin_resp = PluginResponse {
-            status: proxy_result.status.as_u16(),
-            headers: proxy_result.headers,
-            body: resp.body().clone(),
-        };
-
-        self.svc
-            .plugins
-            .execute_after_response(&mut plugin_ctx, &mut plugin_resp, &plugins)
-            .await?;
-
-        // 14. 遥测：记录指标（含实际延迟）
-        let is_2xx = proxy_result.status.as_u16() >= 200 && proxy_result.status.as_u16() < 300;
-        let is_4xx = proxy_result.status.as_u16() >= 400 && proxy_result.status.as_u16() < 500;
-        let is_5xx = proxy_result.status.as_u16() >= 500;
-        let latency_ms = start.elapsed().as_millis() as f64;
-
-        self.svc
-            .telemetry
-            .record_metric(conrogate_contract::dto::MetricRow {
-                ts: chrono::Utc::now(),
-                bucket_sec: 10,
-                route_id: Some(route.id),
-                gate_id: String::new(),
-                qps: 1,
-                total_requests: 1,
-                avg_latency_ms: latency_ms,
-                p50_ms: latency_ms as u32,
-                p90_ms: latency_ms as u32,
-                p99_ms: latency_ms as u32,
-                status_2xx: if is_2xx { 1 } else { 0 },
-                status_3xx: 0,
-                status_4xx: if is_4xx { 1 } else { 0 },
-                status_5xx: if is_5xx { 1 } else { 0 },
-                sessions: 0,
-                bytes_in: 0,
-                bytes_out: 0,
-            })
-            .await;
-
-        Ok(resp)
-    }
-
-    /// 流式处理 HTTP 请求 — 请求体与响应体均不缓冲，直接透传上游。
-    /// 适用于路由无 requires_body 插件的场景（大文件上传/下载、SSE 等）。
-    /// 路由已由 HyperServiceBridge 预匹配，不重试（body 不可 clone）。
-    async fn handle_stream(
-        &self,
-        parts: http::request::Parts,
-        body: hyper::body::Incoming,
-        route: conrogate_contract::dto::RouteSnapshot,
-        client_ip: String,
-    ) -> Result<Response<ReqBody>, ConrogateError> {
-        let method = parts.method.clone();
-        let uri = parts.uri.clone();
-        let headers = parts.headers.clone();
-        let match_info = RouteMatchInfo::from_http_request(&method, &uri, &headers);
-        let request_id = uuid::Uuid::new_v4().to_string();
-        let trace_id = headers
-            .get("x-trace-id")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or(&request_id)
-            .to_string();
-
-        // XFF 信任链
-        let real_ip = self.resolve_real_ip(&client_ip, &headers);
-
-        // 记录请求开始时间（用于延迟统计）
-        let start = std::time::Instant::now();
-
-        // 构造插件上下文（body = None：流式模式不将 body 载入内存）
-        let mut plugin_ctx = PluginContext {
-            request_id: request_id.clone(),
-            trace_id: trace_id.clone(),
-            route_id: route.id,
-            client_ip: real_ip.clone(),
-            protocol: ProtocolId::Http,
-            http: Some(HttpContext {
-                method: method.clone(),
-                path: match_info.path.clone(),
-                query: match_info.query_params.iter().cloned().collect(),
-                headers: headers.clone(),
-                body: None,
-            }),
-            tunnel: None,
-            services: conrogate_contract::plugin::PluginServices {
-                metrics: Arc::new(NoopMetrics),
-                logger: Arc::new(NoopLogger),
-            },
-        };
-
-        // 执行插件 before_request
-        let plugins = self.resolve_plugins(&route.plugin_chain);
-        let plugin_outcome = self
-            .svc
-            .plugins
-            .execute_before_request(&mut plugin_ctx, &plugins)
-            .await?;
-
-        if let PluginOutcome::Terminate(code, body) = plugin_outcome {
-            return Ok(Response::builder()
-                .status(code)
-                .body(body_from_bytes(Bytes::from(body.to_string().into_bytes())))
-                .unwrap_or_else(|_| {
-                    Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(body_from_bytes(Bytes::new()))
-                        .unwrap()
-                }));
-        }
-
-        // 流量治理检查
-        if let Err(e) = self.svc.traffic.check_rate_limit(route.id, &real_ip).await {
-            // 上报限流事件到遥测
-            self.svc
-                .telemetry
-                .record_event(conrogate_contract::dto::EventRow {
-                    ts: chrono::Utc::now(),
-                    event_type: "rate_limited".into(),
-                    route_id: Some(route.id),
-                    upstream_id: None,
-                    trace_id: Some(trace_id.clone()),
-                    detail: serde_json::json!({
-                        "client_ip": real_ip,
-                        "reason": e.to_string(),
-                    }),
-                })
-                .await;
-            return Err(e);
-        }
-
-        // 选择上游节点
-        let node = self
-            .svc
-            .balancer
-            .select_upstream(&route, Some(&real_ip))
-            .await?;
-
-        // 熔断检查
-        self.svc
-            .traffic
-            .check_circuit_breaker(route.id, node.id)
-            .await?;
-
-        // WebSocket 升级检测（路由匹配 + 上游选择完成后）
         let upgrade_check_req = Request::builder()
             .method(method.clone())
             .uri(uri.clone())
+            .version(version)
             .body(Bytes::new())
             .unwrap();
         if crate::upgrade::is_upgrade_request(&upgrade_check_req) {
             let mut resp = crate::upgrade::build_upgrade_response(&upgrade_check_req);
-            if let Ok(v) = node.address.parse() {
+            let upstream_addr = node.address.clone();
+            // 设置上游地址头，供 HyperServiceBridge 提取并执行 WS 转发
+            if let Ok(v) = upstream_addr.parse() {
                 resp.headers_mut().insert("X-WS-Upstream-Addr", v);
             }
-            if let Ok(v) = trace_id.parse() {
+            if let Ok(v) = meta.trace_id.parse() {
                 resp.headers_mut().insert("X-WS-Trace-Id", v);
             }
-            tracing::info!(
-                trace_id = %trace_id,
-                upstream = %node.address,
-                "websocket upgrade request (stream), returning 101 with upstream addr"
-            );
-            return Ok(resp.map(|_| body_from_bytes(Bytes::new())));
+            let (parts, _) = resp.into_parts();
+            return Ok(PreFlight::WebSocketUpgrade {
+                parts,
+                upstream_addr,
+            });
         }
 
-        // 构造上游请求（流式 body）
+        Ok(PreFlight::Continue {
+            plugin_ctx,
+            plugins,
+            route,
+            node,
+        })
+    }
+
+    /// 构造上游 URI（scheme + host + path_and_query）
+    fn build_upstream_uri(node: &UpstreamNodeDto, uri: &Uri) -> Result<Uri, ConrogateError> {
         let path_and_query = uri
             .path_and_query()
             .map(|p| p.as_str().to_string())
             .unwrap_or_else(|| "/".to_string());
-        let upstream_addr = format!("http://{}", node.address);
-        let upstream_uri: http::Uri = format!("{}{}", upstream_addr, path_and_query)
+        format!("{}{}", crate::proxy::upstream_addr(node), path_and_query)
             .parse()
-            .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("uri parse: {e}")))?;
+            .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("uri parse: {e}")))
+    }
 
-        let mut upstream_req = Request::builder()
-            .method(method)
-            .uri(upstream_uri)
-            .body(body_from_incoming(body))
-            .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("request build: {e}")))?;
-
-        // Header 处理
-        let mut out_headers = http::HeaderMap::new();
+    /// 过滤敏感头 + 注入网关头（trace/request id、真实 IP、proto、Host）
+    fn build_out_headers(
+        route: &RouteSnapshot,
+        node: &UpstreamNodeDto,
+        headers: &HeaderMap,
+        trace_id: &str,
+        request_id: &str,
+        real_ip: &str,
+    ) -> HeaderMap {
+        let mut out_headers = HeaderMap::new();
         for (name, value) in headers.iter() {
             let name_lower = name.as_str().to_lowercase();
             if !SENSITIVE_HEADERS.contains(&name_lower.as_str()) {
@@ -671,7 +614,7 @@ impl HttpProtocolHandler {
         if let Ok(v) = real_ip.parse() {
             out_headers.insert("x-forwarded-for", v);
         }
-        if let Ok(v) = "http".parse() {
+        if let Ok(v) = crate::proxy::upstream_scheme(node).parse() {
             out_headers.insert("x-forwarded-proto", v);
         }
         if let Ok(v) = request_id.parse() {
@@ -681,64 +624,67 @@ impl HttpProtocolHandler {
         if let Ok(v) = host_value.parse() {
             out_headers.insert(http::header::HOST, v);
         }
-        *upstream_req.headers_mut() = out_headers;
+        out_headers
+    }
 
-        // 流式转发（不重试：body 不可 clone）
-        let proxy_result =
-            crate::proxy::forward_http_stream(&self.client, &node, upstream_req, self.timeout)
-                .await;
-
-        // 记录结果
-        let success = proxy_result.is_ok();
-        self.svc
-            .traffic
-            .record_result(route.id, node.id, success)
-            .await;
+    /// 请求完成：反馈结果给熔断器 + 释放节点
+    async fn record_outcome(&self, route: &RouteSnapshot, node: &UpstreamNodeDto, success: bool) {
+        self.svc.traffic.record_result(route.id, node.id, success).await;
         // 请求完成，释放节点（LeastConnections 递减计数）
-        self.svc.balancer.release_node(&route, &node).await;
+        self.svc.balancer.release_node(route, node).await;
+    }
 
-        let proxy_result = proxy_result?;
-
-        // 构造响应（响应体保持流式：Incoming 包装为 ReqBody，不 collect）
-        let mut resp_builder = Response::builder().status(proxy_result.status);
+    /// 构造响应 + 注入响应头 + 插件 after_response + 遥测（缓冲/流式共用）
+    #[allow(clippy::too_many_arguments)]
+    async fn finalize_response<B>(
+        &self,
+        plugin_ctx: &mut PluginContext,
+        plugins: &[Arc<dyn Plugin>],
+        route: &RouteSnapshot,
+        status: StatusCode,
+        headers: HeaderMap,
+        resp_body: B,
+        after_body: Bytes,
+        meta: &RequestMeta,
+    ) -> Result<Response<B>, ConrogateError> {
+        // 12. 构造响应
+        let mut resp_builder = Response::builder().status(status);
         if let Some(h) = resp_builder.headers_mut() {
-            *h = proxy_result.headers.clone();
+            *h = headers.clone();
         }
+        // 12a. 响应方向注入头
         let out_headers = resp_builder.headers_mut().unwrap();
-        if let Ok(v) = trace_id.parse() {
+        if let Ok(v) = meta.trace_id.parse() {
             out_headers.insert("x-trace-id", v);
         }
-        if let Ok(v) = request_id.parse() {
+        if let Ok(v) = meta.request_id.parse() {
             out_headers.insert("x-request-id", v);
         }
 
-        let resp = resp_builder
-            .body(body_from_incoming(proxy_result.body))
-            .unwrap_or_else(|_| {
-                Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(body_from_bytes(Bytes::new()))
-                    .unwrap()
-            });
-
-        // 插件 after_response：流式模式下响应体不载入内存，
-        // body 字段为空（需要读响应体的插件必须走缓冲模式，即路由声明 requires_body）
-        let mut plugin_resp = PluginResponse {
-            status: proxy_result.status.as_u16(),
-            headers: proxy_result.headers,
-            body: Bytes::new(),
+        let resp = match resp_builder.body(resp_body) {
+            Ok(resp) => resp,
+            Err(e) => {
+                tracing::error!(error = %e, "response build failed");
+                return Err(ConrogateError::UpstreamBadResponse(e.to_string()));
+            }
         };
 
+        // 13. 插件 after_response
+        let mut plugin_resp = PluginResponse {
+            status: status.as_u16(),
+            headers,
+            body: after_body,
+        };
         self.svc
             .plugins
-            .execute_after_response(&mut plugin_ctx, &mut plugin_resp, &plugins)
+            .execute_after_response(plugin_ctx, &mut plugin_resp, plugins)
             .await?;
 
-        // 遥测（含实际延迟）
-        let is_2xx = proxy_result.status.as_u16() >= 200 && proxy_result.status.as_u16() < 300;
-        let is_4xx = proxy_result.status.as_u16() >= 400 && proxy_result.status.as_u16() < 500;
-        let is_5xx = proxy_result.status.as_u16() >= 500;
-        let latency_ms = start.elapsed().as_millis() as f64;
+        // 14. 遥测：记录指标（含实际延迟）
+        let is_2xx = status.as_u16() >= 200 && status.as_u16() < 300;
+        let is_4xx = status.as_u16() >= 400 && status.as_u16() < 500;
+        let is_5xx = status.as_u16() >= 500;
+        let latency_ms = meta.start.elapsed().as_millis() as f64;
 
         self.svc
             .telemetry
@@ -767,6 +713,34 @@ impl HttpProtocolHandler {
     }
 }
 
+/// 请求元数据（前置流程的公共输入）
+struct RequestMeta {
+    match_info: RouteMatchInfo,
+    request_id: String,
+    trace_id: String,
+    real_ip: String,
+    start: std::time::Instant,
+}
+
+/// 前置流程结果
+#[allow(clippy::large_enum_variant)]
+enum PreFlight {
+    /// 正常继续转发
+    Continue {
+        plugin_ctx: PluginContext,
+        plugins: Vec<Arc<dyn Plugin>>,
+        route: RouteSnapshot,
+        node: UpstreamNodeDto,
+    },
+    /// 插件终止请求
+    Terminate { code: StatusCode, body: serde_json::Value },
+    /// WebSocket 升级：返回 101 + 上游地址
+    WebSocketUpgrade {
+        parts: http::response::Parts,
+        upstream_addr: String,
+    },
+}
+
 #[async_trait::async_trait]
 impl ProtocolHandler for HttpProtocolHandler {
     fn protocol(&self) -> ProtocolId {
@@ -789,5 +763,261 @@ impl ProtocolHandler for HttpProtocolHandler {
         client_ip: String,
     ) -> Result<Response<ReqBody>, ConrogateError> {
         self.handle_stream(parts, body, route, client_ip).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use conrogate_contract::dto::{EventRow, MetricRow};
+    use conrogate_contract::gateway::{
+        PluginExecutor, RouteLookup, TelemetryReport, TrafficControl, UpstreamSelector,
+    };
+    use conrogate_contract::plugin::{PluginOutcome, PluginResponse};
+    use http_body_util::{BodyExt, Full};
+    use hyper::body::Incoming;
+    use hyper_util::rt::TokioIo;
+    use std::net::SocketAddr;
+
+    // ── 测试桩 ──
+
+    struct StubRoutes;
+    #[async_trait::async_trait]
+    impl RouteLookup for StubRoutes {
+        async fn lookup_route(
+            &self,
+            _protocol: ProtocolId,
+            _info: &RouteMatchInfo,
+        ) -> Result<Option<RouteSnapshot>, ConrogateError> {
+            Ok(Some(route_snapshot()))
+        }
+    }
+
+    #[derive(Clone)]
+    struct StubSelector {
+        addr: String,
+    }
+    #[async_trait::async_trait]
+    impl UpstreamSelector for StubSelector {
+        async fn select_upstream(
+            &self,
+            _route: &RouteSnapshot,
+            _key: Option<&str>,
+        ) -> Result<UpstreamNodeDto, ConrogateError> {
+            Ok(UpstreamNodeDto {
+                id: 1,
+                upstream_id: 1,
+                address: self.addr.clone(),
+                weight: 1,
+                enabled: true,
+            })
+        }
+    }
+
+    struct StubTraffic;
+    #[async_trait::async_trait]
+    impl TrafficControl for StubTraffic {
+        async fn check_rate_limit(&self, _route_id: u64, _client_ip: &str) -> Result<(), ConrogateError> {
+            Ok(())
+        }
+        async fn check_circuit_breaker(&self, _route_id: u64, _node_id: u64) -> Result<(), ConrogateError> {
+            Ok(())
+        }
+        async fn record_result(&self, _route_id: u64, _node_id: u64, _success: bool) {}
+    }
+
+    struct StubTelemetry;
+    #[async_trait::async_trait]
+    impl TelemetryReport for StubTelemetry {
+        async fn record_metric(&self, _metric: MetricRow) {}
+        async fn record_event(&self, _event: EventRow) {}
+    }
+
+    struct StubPlugins;
+    #[async_trait::async_trait]
+    impl PluginExecutor for StubPlugins {
+        async fn execute_before_request(
+            &self,
+            _ctx: &mut PluginContext,
+            _plugins: &[Arc<dyn Plugin>],
+        ) -> Result<PluginOutcome, ConrogateError> {
+            Ok(PluginOutcome::Continue)
+        }
+        async fn execute_after_response(
+            &self,
+            _ctx: &mut PluginContext,
+            _resp: &mut PluginResponse,
+            _plugins: &[Arc<dyn Plugin>],
+        ) -> Result<(), ConrogateError> {
+            Ok(())
+        }
+        async fn execute_on_connect(
+            &self,
+            _ctx: &mut PluginContext,
+            _plugins: &[Arc<dyn Plugin>],
+        ) -> Result<PluginOutcome, ConrogateError> {
+            Ok(PluginOutcome::Continue)
+        }
+        async fn execute_on_disconnect(
+            &self,
+            _ctx: &mut PluginContext,
+            _plugins: &[Arc<dyn Plugin>],
+        ) -> Result<(), ConrogateError> {
+            Ok(())
+        }
+    }
+
+    fn route_snapshot() -> RouteSnapshot {
+        RouteSnapshot {
+            id: 1,
+            protocol: ProtocolId::Http,
+            upstream_id: Some(1),
+            host_header: None,
+            allow_retry_non_idempotent: false,
+            plugin_chain: vec![],
+            requires_body: true,
+        }
+    }
+
+    fn make_handler(upstream_addr: SocketAddr) -> HttpProtocolHandler {
+        let svc = Arc::new(ServiceContext {
+            routes: Arc::new(StubRoutes),
+            balancer: Arc::new(StubSelector {
+                addr: upstream_addr.to_string(),
+            }),
+            traffic: Arc::new(StubTraffic),
+            telemetry: Arc::new(StubTelemetry),
+            plugins: Arc::new(StubPlugins),
+        });
+        HttpProtocolHandler::with_timeout(svc, Duration::from_secs(5))
+    }
+
+    /// 上游回显服务器：请求体原样回显（响应带 x-upstream 头）
+    async fn spawn_echo_upstream() -> SocketAddr {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let (stream, _) = match listener.accept().await {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+                let io = TokioIo::new(stream);
+                tokio::spawn(async move {
+                    let svc = hyper::service::service_fn(
+                        |req: Request<Incoming>| async move {
+                            let body = req.into_body().collect().await.unwrap().to_bytes();
+                            let echo = format!("echo:{}", String::from_utf8_lossy(&body));
+                            Ok::<_, std::convert::Infallible>(
+                                Response::builder()
+                                    .status(StatusCode::OK)
+                                    .header("x-upstream", "echo")
+                                    .body(Full::new(Bytes::from(echo)))
+                                    .unwrap(),
+                            )
+                        },
+                    );
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, svc)
+                        .await;
+                });
+            }
+        });
+        addr
+    }
+
+    /// 缓冲模式 handle：路由匹配 + 插件 + 限流 + 选节点 + 转发 + 遥测全链路
+    #[tokio::test]
+    async fn buffered_handle_forwards_to_upstream() {
+        let upstream = spawn_echo_upstream().await;
+        let handler = make_handler(upstream);
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("http://gateway.local/echo")
+            .body(Bytes::from_static(b"ping"))
+            .unwrap();
+        let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body();
+        assert_eq!(&body[..], b"echo:ping");
+    }
+
+    /// 缓冲模式响应注入 x-trace-id / x-request-id
+    #[tokio::test]
+    async fn buffered_handle_injects_response_headers() {
+        let upstream = spawn_echo_upstream().await;
+        let handler = make_handler(upstream);
+
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("http://gateway.local/echo")
+            .header("x-trace-id", "trace-123")
+            .body(Bytes::new())
+            .unwrap();
+        let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
+
+        assert!(resp.headers().contains_key("x-upstream"));
+        assert_eq!(
+            resp.headers().get("x-trace-id").unwrap().to_str().unwrap(),
+            "trace-123"
+        );
+        assert!(resp.headers().contains_key("x-request-id"));
+    }
+
+    /// 流式模式：通过真实 hyper 服务器（Incoming body）端到端转发
+    #[tokio::test]
+    async fn stream_handle_forwards_to_upstream() {
+        let upstream = spawn_echo_upstream().await;
+        let handler = Arc::new(make_handler(upstream));
+
+        // 迷你网关服务器：将 Incoming 请求交给 handle_stream
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let gw_addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let (stream, _) = match listener.accept().await {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+                let handler = handler.clone();
+                let io = TokioIo::new(stream);
+                tokio::spawn(async move {
+                    let svc = hyper::service::service_fn(move |req: Request<Incoming>| {
+                        let handler = handler.clone();
+                        async move {
+                            let (parts, body) = req.into_parts();
+                            let resp = handler
+                                .handle_stream(parts, body, route_snapshot(), "192.168.1.10".into())
+                                .await?;
+                            Ok::<_, ConrogateError>(resp)
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, svc)
+                        .await;
+                });
+            }
+        });
+
+        // hyper http1 客户端发送请求
+        let stream = tokio::net::TcpStream::connect(gw_addr).await.unwrap();
+        let io = TokioIo::new(stream);
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await.unwrap();
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("http://gateway.local/echo")
+            .header("content-length", "4")
+            .body(Full::new(Bytes::from_static(b"ping")))
+            .unwrap();
+        let resp = sender.send_request(req).await.expect("send request");
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&body[..], b"echo:ping");
     }
 }

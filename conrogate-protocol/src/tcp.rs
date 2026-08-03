@@ -1,6 +1,6 @@
 //! TCP 隧道协议处理器：原始字节流路由 + 转发。
 
-use crate::handler::{NoopLogger, NoopMetrics, ProtocolHandler};
+use crate::handler::{plugin_services, ProtocolHandler};
 use conrogate_contract::gateway::ServiceContext;
 use conrogate_contract::plugin::{PluginContext, PluginOutcome};
 use conrogate_contract::protocol::{ProtocolId, RouteMatchInfo};
@@ -77,10 +77,7 @@ impl TcpTunnelProtocolHandler {
                 alpn: None,
                 listen_port: 0,
             }),
-            services: conrogate_contract::plugin::PluginServices {
-                metrics: Arc::new(NoopMetrics),
-                logger: Arc::new(NoopLogger),
-            },
+            services: plugin_services(&self.svc),
         };
 
         let plugin_outcome = self

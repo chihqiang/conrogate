@@ -88,19 +88,80 @@ impl ProtocolHandlerRegistry {
     }
 }
 
-// ── 空实现辅助类型（插件服务注入占位）──
+// ── 插件服务适配器：把插件可访问的指标/日志转发到真实遥测管线 ──
 
-pub(crate) struct NoopMetrics;
-
-#[async_trait::async_trait]
-impl conrogate_contract::plugin::PluginMetrics for NoopMetrics {
-    async fn increment(&self, _name: &str) {}
-    async fn gauge(&self, _name: &str, _value: f64) {}
+/// 插件指标 → 遥测事件（走聚合落库链路）
+pub(crate) struct TelemetryPluginMetrics {
+    telemetry: Arc<dyn conrogate_contract::gateway::TelemetryReport>,
 }
 
-pub(crate) struct NoopLogger;
+#[async_trait::async_trait]
+impl conrogate_contract::plugin::PluginMetrics for TelemetryPluginMetrics {
+    async fn increment(&self, name: &str) {
+        self.telemetry
+            .record_event(conrogate_contract::dto::EventRow {
+                ts: chrono::Utc::now(),
+                event_type: "plugin.metric.increment".into(),
+                route_id: None,
+                upstream_id: None,
+                trace_id: None,
+                detail: serde_json::json!({ "name": name, "value": 1 }),
+            })
+            .await;
+    }
+
+    async fn gauge(&self, name: &str, value: f64) {
+        self.telemetry
+            .record_event(conrogate_contract::dto::EventRow {
+                ts: chrono::Utc::now(),
+                event_type: "plugin.metric.gauge".into(),
+                route_id: None,
+                upstream_id: None,
+                trace_id: None,
+                detail: serde_json::json!({ "name": name, "value": value }),
+            })
+            .await;
+    }
+}
+
+/// 插件日志 → 遥测事件 + tracing（结构化日志，挂载当前 span）
+pub(crate) struct TelemetryPluginLogger {
+    telemetry: Arc<dyn conrogate_contract::gateway::TelemetryReport>,
+}
 
 #[async_trait::async_trait]
-impl conrogate_contract::plugin::PluginLogger for NoopLogger {
-    async fn log(&self, _level: &str, _message: &str) {}
+impl conrogate_contract::plugin::PluginLogger for TelemetryPluginLogger {
+    async fn log(&self, level: &str, message: &str) {
+        match level.to_ascii_lowercase().as_str() {
+            "error" => tracing::error!(message),
+            "warn" | "warning" => tracing::warn!(message),
+            "debug" => tracing::debug!(message),
+            "trace" => tracing::trace!(message),
+            _ => tracing::info!(message),
+        }
+        self.telemetry
+            .record_event(conrogate_contract::dto::EventRow {
+                ts: chrono::Utc::now(),
+                event_type: "plugin.log".into(),
+                route_id: None,
+                upstream_id: None,
+                trace_id: None,
+                detail: serde_json::json!({ "level": level, "message": message }),
+            })
+            .await;
+    }
+}
+
+/// 从 ServiceContext 构造插件服务（注入真实遥测，替换 Noop 占位）
+pub(crate) fn plugin_services(
+    svc: &conrogate_contract::gateway::ServiceContext,
+) -> conrogate_contract::plugin::PluginServices {
+    conrogate_contract::plugin::PluginServices {
+        metrics: Arc::new(TelemetryPluginMetrics {
+            telemetry: svc.telemetry.clone(),
+        }),
+        logger: Arc::new(TelemetryPluginLogger {
+            telemetry: svc.telemetry.clone(),
+        }),
+    }
 }

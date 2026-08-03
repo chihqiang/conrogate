@@ -472,10 +472,13 @@ fn env_list(key: &str) -> Vec<String> {
 
 impl Config {
     pub fn from_env() -> Result<Self, ConrogateError> {
-        let db_password = env_str("CONROGATE_DB_PASSWORD", "");
-        let config_cache_redis_url = env_str("CONROGATE_GATE_CONFIG_CACHE_REDIS_URL", "");
+        // 默认值以 Config::default() 为唯一来源，环境变量仅做覆盖；
+        // 避免 from_env 与 Default 两处硬编码默认值漂移。
+        let def = Config::default();
 
-        let rate_limit_mode = env_str("CONROGATE_GATE_RATE_LIMIT_MODE", "local");
+        // 集群共享状态：mode=cluster 时必须提供 Redis URL
+        let rate_limit_mode =
+            env_str("CONROGATE_GATE_RATE_LIMIT_MODE", &def.gate.rate_limit.mode);
         let cluster_store = if rate_limit_mode == "cluster" {
             let redis_url = env_str("CONROGATE_GATE_RATE_LIMIT_REDIS_URL", "");
             if redis_url.is_empty() {
@@ -491,7 +494,7 @@ impl Config {
                 ),
             })
         } else {
-            None
+            def.gate.rate_limit.cluster_store.clone()
         };
 
         let breaker_mode = env_str("CONROGATE_GATE_BREAKER_MODE", "local");
@@ -510,172 +513,235 @@ impl Config {
                 ),
             })
         } else {
-            None
+            def.gate.breaker.cluster_store.clone()
         };
 
         let config = Config {
             common: CommonConfig {
-                instance_id: env_str("CONROGATE_INSTANCE_ID", ""),
+                instance_id: env_str("CONROGATE_INSTANCE_ID", &def.common.instance_id),
             },
             gate: GateConfig {
                 listen: GateListenConfig {
-                    host: env_str("CONROGATE_GATE_HOST", "0.0.0.0"),
-                    port: env_u16("CONROGATE_GATE_PORT", 8080),
+                    host: env_str("CONROGATE_GATE_HOST", &def.gate.listen.host),
+                    port: env_u16("CONROGATE_GATE_PORT", def.gate.listen.port),
                     protocol: std::env::var("CONROGATE_GATE_PROTOCOL")
                         .ok()
                         .and_then(|s| s.parse().ok())
-                        .unwrap_or(ProtocolId::Http),
+                        .unwrap_or(def.gate.listen.protocol),
                     tls: TlsConfig {
-                        enabled: env_bool("CONROGATE_GATE_TLS_ENABLED", false),
-                        mode: env_str("CONROGATE_GATE_TLS_MODE", "terminate"),
-                        cert_file: env_str("CONROGATE_GATE_TLS_CERT_FILE", ""),
-                        key: env_str("CONROGATE_GATE_TLS_KEY", ""),
+                        enabled: env_bool("CONROGATE_GATE_TLS_ENABLED", def.gate.listen.tls.enabled),
+                        mode: env_str("CONROGATE_GATE_TLS_MODE", &def.gate.listen.tls.mode),
+                        cert_file: env_str(
+                            "CONROGATE_GATE_TLS_CERT_FILE",
+                            &def.gate.listen.tls.cert_file,
+                        ),
+                        key: env_str("CONROGATE_GATE_TLS_KEY", &def.gate.listen.tls.key),
                     },
                     trusted_proxies: env_list("CONROGATE_GATE_TRUSTED_PROXIES"),
                 },
-                worker_threads: env_usize("CONROGATE_GATE_WORKER_THREADS", 0),
+                worker_threads: env_usize("CONROGATE_GATE_WORKER_THREADS", def.gate.worker_threads),
                 connection: ConnectionConfig {
-                    max_connections: env_usize("CONROGATE_GATE_MAX_CONNECTIONS", 10_000),
-                    max_body_bytes: env_usize("CONROGATE_GATE_MAX_BODY_BYTES", 10_485_760),
-                    max_header_bytes: env_usize("CONROGATE_GATE_MAX_HEADER_BYTES", 65_536),
-                    idle_timeout: env_duration_ms("CONROGATE_GATE_IDLE_TIMEOUT_MS", 30_000),
+                    max_connections: env_usize(
+                        "CONROGATE_GATE_MAX_CONNECTIONS",
+                        def.gate.connection.max_connections,
+                    ),
+                    max_body_bytes: env_usize(
+                        "CONROGATE_GATE_MAX_BODY_BYTES",
+                        def.gate.connection.max_body_bytes,
+                    ),
+                    max_header_bytes: env_usize(
+                        "CONROGATE_GATE_MAX_HEADER_BYTES",
+                        def.gate.connection.max_header_bytes,
+                    ),
+                    idle_timeout: env_duration_ms(
+                        "CONROGATE_GATE_IDLE_TIMEOUT_MS",
+                        def.gate.connection.idle_timeout.as_millis() as u64,
+                    ),
                 },
                 upstream_pool: UpstreamPoolConfig {
-                    max_idle_conns: env_usize("CONROGATE_GATE_UPSTREAM_MAX_IDLE_CONNS", 128),
+                    max_idle_conns: env_usize(
+                        "CONROGATE_GATE_UPSTREAM_MAX_IDLE_CONNS",
+                        def.gate.upstream_pool.max_idle_conns,
+                    ),
                     idle_timeout: env_duration_ms(
                         "CONROGATE_GATE_UPSTREAM_IDLE_TIMEOUT_MS",
-                        60_000,
+                        def.gate.upstream_pool.idle_timeout.as_millis() as u64,
                     ),
                 },
                 timeouts: TimeoutConfig {
-                    connect: env_duration_ms("CONROGATE_GATE_TIMEOUT_CONNECT_MS", 3000),
-                    total: env_duration_ms("CONROGATE_GATE_TIMEOUT_TOTAL_MS", 30_000),
-                    read: env_duration_ms("CONROGATE_GATE_TIMEOUT_READ_MS", 15_000),
+                    connect: env_duration_ms(
+                        "CONROGATE_GATE_TIMEOUT_CONNECT_MS",
+                        def.gate.timeouts.connect.as_millis() as u64,
+                    ),
+                    total: env_duration_ms(
+                        "CONROGATE_GATE_TIMEOUT_TOTAL_MS",
+                        def.gate.timeouts.total.as_millis() as u64,
+                    ),
+                    read: env_duration_ms(
+                        "CONROGATE_GATE_TIMEOUT_READ_MS",
+                        def.gate.timeouts.read.as_millis() as u64,
+                    ),
                 },
                 retry: RetryConfig {
-                    max_attempts: env_u32("CONROGATE_GATE_RETRY_MAX_ATTEMPTS", 2),
-                    base_jitter: env_duration_ms("CONROGATE_GATE_RETRY_BASE_JITTER_MS", 50),
+                    max_attempts: env_u32("CONROGATE_GATE_RETRY_MAX_ATTEMPTS", def.gate.retry.max_attempts),
+                    base_jitter: env_duration_ms(
+                        "CONROGATE_GATE_RETRY_BASE_JITTER_MS",
+                        def.gate.retry.base_jitter.as_millis() as u64,
+                    ),
                 },
                 rate_limit: RateLimitConfig {
-                    enabled: env_bool("CONROGATE_GATE_RATE_LIMIT_ENABLED", false),
+                    enabled: env_bool("CONROGATE_GATE_RATE_LIMIT_ENABLED", def.gate.rate_limit.enabled),
                     mode: rate_limit_mode,
-                    global_qps: env_u32("CONROGATE_GATE_RATE_LIMIT_GLOBAL_QPS", 1000),
-                    route_qps: env_u32("CONROGATE_GATE_RATE_LIMIT_ROUTE_QPS", 200),
-                    ip_qps: env_u32("CONROGATE_GATE_RATE_LIMIT_IP_QPS", 100),
-                    conn_qps: env_u32("CONROGATE_GATE_RATE_LIMIT_CONN_QPS", 0),
-                    bandwidth_kbps: env_u32("CONROGATE_GATE_RATE_LIMIT_BANDWIDTH_KBPS", 0),
+                    global_qps: env_u32("CONROGATE_GATE_RATE_LIMIT_GLOBAL_QPS", def.gate.rate_limit.global_qps),
+                    route_qps: env_u32("CONROGATE_GATE_RATE_LIMIT_ROUTE_QPS", def.gate.rate_limit.route_qps),
+                    ip_qps: env_u32("CONROGATE_GATE_RATE_LIMIT_IP_QPS", def.gate.rate_limit.ip_qps),
+                    conn_qps: env_u32("CONROGATE_GATE_RATE_LIMIT_CONN_QPS", def.gate.rate_limit.conn_qps),
+                    bandwidth_kbps: env_u32(
+                        "CONROGATE_GATE_RATE_LIMIT_BANDWIDTH_KBPS",
+                        def.gate.rate_limit.bandwidth_kbps,
+                    ),
                     cluster_store,
                 },
                 breaker: BreakerConfig {
-                    enabled: env_bool("CONROGATE_GATE_BREAKER_ENABLED", false),
-                    window: env_duration_ms("CONROGATE_GATE_BREAKER_WINDOW_MS", 10_000),
+                    enabled: env_bool("CONROGATE_GATE_BREAKER_ENABLED", def.gate.breaker.enabled),
+                    window: env_duration_ms(
+                        "CONROGATE_GATE_BREAKER_WINDOW_MS",
+                        def.gate.breaker.window.as_millis() as u64,
+                    ),
                     failure_rate_threshold: env_f64(
                         "CONROGATE_GATE_BREAKER_FAILURE_RATE_THRESHOLD",
-                        0.5,
+                        def.gate.breaker.failure_rate_threshold,
                     ),
-                    min_requests: env_u32("CONROGATE_GATE_BREAKER_MIN_REQUESTS", 10),
-                    wait: env_duration_ms("CONROGATE_GATE_BREAKER_WAIT_MS", 30_000),
-                    half_open_max: env_u32("CONROGATE_GATE_BREAKER_HALF_OPEN_MAX", 5),
+                    min_requests: env_u32("CONROGATE_GATE_BREAKER_MIN_REQUESTS", def.gate.breaker.min_requests),
+                    wait: env_duration_ms(
+                        "CONROGATE_GATE_BREAKER_WAIT_MS",
+                        def.gate.breaker.wait.as_millis() as u64,
+                    ),
+                    half_open_max: env_u32("CONROGATE_GATE_BREAKER_HALF_OPEN_MAX", def.gate.breaker.half_open_max),
                     cluster_store: breaker_cluster_store,
                 },
                 shutdown: ShutdownConfig {
                     long_conn_drain: env_duration_ms(
                         "CONROGATE_GATE_SHUTDOWN_LONG_CONN_DRAIN_MS",
-                        30_000,
+                        def.gate.shutdown.long_conn_drain.as_millis() as u64,
                     ),
                 },
                 refresh: RefreshConfig {
                     config_poll_interval: env_duration_ms(
                         "CONROGATE_GATE_REFRESH_CONFIG_POLL_INTERVAL_MS",
-                        5000,
+                        def.gate.refresh.config_poll_interval.as_millis() as u64,
                     ),
-                    config_source: env_str("CONROGATE_GATE_REFRESH_CONFIG_SOURCE", "db"),
-                    control_api_url: env_str("CONROGATE_GATE_REFRESH_CONTROL_API_URL", ""),
-                    control_api_token: env_str("CONROGATE_GATE_REFRESH_CONTROL_API_TOKEN", ""),
-                    config_cache_redis_url,
+                    config_source: env_str("CONROGATE_GATE_REFRESH_CONFIG_SOURCE", &def.gate.refresh.config_source),
+                    control_api_url: env_str(
+                        "CONROGATE_GATE_REFRESH_CONTROL_API_URL",
+                        &def.gate.refresh.control_api_url,
+                    ),
+                    control_api_token: env_str(
+                        "CONROGATE_GATE_REFRESH_CONTROL_API_TOKEN",
+                        &def.gate.refresh.control_api_token,
+                    ),
+                    config_cache_redis_url: env_str(
+                        "CONROGATE_GATE_CONFIG_CACHE_REDIS_URL",
+                        &def.gate.refresh.config_cache_redis_url,
+                    ),
                     config_cache_connect_timeout: env_duration_ms(
                         "CONROGATE_GATE_CONFIG_CACHE_REDIS_CONNECT_TIMEOUT_MS",
-                        2000,
+                        def.gate.refresh.config_cache_connect_timeout.as_millis() as u64,
                     ),
                     config_cache_snapshot_retention: env_u32(
                         "CONROGATE_GATE_CONFIG_CACHE_SNAPSHOT_RETENTION",
-                        10,
+                        def.gate.refresh.config_cache_snapshot_retention,
                     ),
                 },
                 upgrade: UpgradeConfig {
-                    buffer_size: env_usize("CONROGATE_GATE_UPGRADE_BUFFER_SIZE_BYTES", 65_536),
+                    buffer_size: env_usize(
+                        "CONROGATE_GATE_UPGRADE_BUFFER_SIZE_BYTES",
+                        def.gate.upgrade.buffer_size,
+                    ),
                     idle_timeout: env_duration_ms(
                         "CONROGATE_GATE_UPGRADE_IDLE_TIMEOUT_MS",
-                        300_000,
+                        def.gate.upgrade.idle_timeout.as_millis() as u64,
                     ),
                 },
                 telemetry: TelemetryConfig {
-                    batch_size: env_usize("CONROGATE_GATE_TELEMETRY_BATCH_SIZE", 1000),
+                    batch_size: env_usize("CONROGATE_GATE_TELEMETRY_BATCH_SIZE", def.gate.telemetry.batch_size),
                     batch_interval: env_duration_ms(
                         "CONROGATE_GATE_TELEMETRY_BATCH_INTERVAL_MS",
-                        1000,
+                        def.gate.telemetry.batch_interval.as_millis() as u64,
                     ),
                     buffer_max_messages: env_usize(
                         "CONROGATE_GATE_TELEMETRY_BUFFER_MAX_MESSAGES",
-                        100_000,
+                        def.gate.telemetry.buffer_max_messages,
                     ),
                     db_retry_backoff: env_duration_ms(
                         "CONROGATE_GATE_TELEMETRY_DB_RETRY_BACKOFF_MS",
-                        500,
+                        def.gate.telemetry.db_retry_backoff.as_millis() as u64,
                     ),
                     db_retry_max_backoff: env_duration_ms(
                         "CONROGATE_GATE_TELEMETRY_DB_RETRY_MAX_BACKOFF_MS",
-                        30_000,
+                        def.gate.telemetry.db_retry_max_backoff.as_millis() as u64,
                     ),
-                    bucket_sec: env_u32("CONROGATE_GATE_TELEMETRY_BUCKET_SEC", 10),
+                    bucket_sec: env_u32("CONROGATE_GATE_TELEMETRY_BUCKET_SEC", def.gate.telemetry.bucket_sec),
                 },
                 outbound_tls: OutboundTlsConfig {
-                    skip_verify: env_bool("CONROGATE_GATE_OUTBOUND_TLS_SKIP_VERIFY", false),
+                    skip_verify: env_bool("CONROGATE_GATE_OUTBOUND_TLS_SKIP_VERIFY", def.gate.outbound_tls.skip_verify),
                 },
             },
             node: NodeConfig {
-                auto_migrate: env_bool("CONROGATE_NODE_AUTO_MIGRATE", false),
-                seed_demo: env_bool("CONROGATE_NODE_SEED_DEMO", false),
+                auto_migrate: env_bool("CONROGATE_NODE_AUTO_MIGRATE", def.node.auto_migrate),
+                seed_demo: env_bool("CONROGATE_NODE_SEED_DEMO", def.node.seed_demo),
             },
             control: ControlConfig {
                 listen: ControlListenConfig {
-                    enabled: env_bool("CONROGATE_CONTROL_LISTEN_ENABLED", true),
-                    host: env_str("CONROGATE_CONTROL_LISTEN_HOST", "0.0.0.0"),
-                    port: env_u16("CONROGATE_CONTROL_LISTEN_PORT", 9000),
-                    api_prefix: env_str("CONROGATE_CONTROL_LISTEN_API_PREFIX", "/api/v1"),
+                    enabled: env_bool("CONROGATE_CONTROL_LISTEN_ENABLED", def.control.listen.enabled),
+                    host: env_str("CONROGATE_CONTROL_LISTEN_HOST", &def.control.listen.host),
+                    port: env_u16("CONROGATE_CONTROL_LISTEN_PORT", def.control.listen.port),
+                    api_prefix: env_str(
+                        "CONROGATE_CONTROL_LISTEN_API_PREFIX",
+                        &def.control.listen.api_prefix,
+                    ),
                     tls: TlsConfig {
-                        enabled: env_bool("CONROGATE_CONTROL_LISTEN_TLS_ENABLED", false),
-                        mode: "terminate".into(),
-                        cert_file: env_str("CONROGATE_CONTROL_LISTEN_TLS_CERT_FILE", ""),
-                        key: env_str("CONROGATE_CONTROL_LISTEN_TLS_KEY", ""),
+                        enabled: env_bool(
+                            "CONROGATE_CONTROL_LISTEN_TLS_ENABLED",
+                            def.control.listen.tls.enabled,
+                        ),
+                        mode: env_str("CONROGATE_CONTROL_LISTEN_TLS_MODE", &def.control.listen.tls.mode),
+                        cert_file: env_str(
+                            "CONROGATE_CONTROL_LISTEN_TLS_CERT_FILE",
+                            &def.control.listen.tls.cert_file,
+                        ),
+                        key: env_str("CONROGATE_CONTROL_LISTEN_TLS_KEY", &def.control.listen.tls.key),
                     },
                 },
                 auth: AuthConfig {
-                    token: env_str("CONROGATE_CONTROL_AUTH_TOKEN", ""),
+                    token: env_str("CONROGATE_CONTROL_AUTH_TOKEN", &def.control.auth.token),
                 },
             },
             db: DbConfig {
-                host: env_str("CONROGATE_DB_HOST", "127.0.0.1"),
-                port: env_u16("CONROGATE_DB_PORT", 5432),
-                name: env_str("CONROGATE_DB_NAME", "conrogate"),
-                username: env_str("CONROGATE_DB_USER", "conrogate"),
-                password: db_password,
-                ssl_mode: env_str("CONROGATE_DB_SSL_MODE", "prefer"),
-                read_host: env_str("CONROGATE_DB_READ_HOST", ""),
-                max_connections: env_u32("CONROGATE_DB_MAX_CONNECTIONS", 10),
-                connect_timeout: env_duration_ms("CONROGATE_DB_CONNECT_TIMEOUT_MS", 5000),
+                host: env_str("CONROGATE_DB_HOST", &def.db.host),
+                port: env_u16("CONROGATE_DB_PORT", def.db.port),
+                name: env_str("CONROGATE_DB_NAME", &def.db.name),
+                username: env_str("CONROGATE_DB_USER", &def.db.username),
+                password: env_str("CONROGATE_DB_PASSWORD", &def.db.password),
+                ssl_mode: env_str("CONROGATE_DB_SSL_MODE", &def.db.ssl_mode),
+                read_host: env_str("CONROGATE_DB_READ_HOST", &def.db.read_host),
+                max_connections: env_u32("CONROGATE_DB_MAX_CONNECTIONS", def.db.max_connections),
+                connect_timeout: env_duration_ms(
+                    "CONROGATE_DB_CONNECT_TIMEOUT_MS",
+                    def.db.connect_timeout.as_millis() as u64,
+                ),
             },
             log: LogConfig {
-                level: env_str("CONROGATE_LOG_LEVEL", "info"),
-                format: env_str("CONROGATE_LOG_FORMAT", "json"),
-                console: env_bool("CONROGATE_LOG_OUTPUT_CONSOLE", true),
-                file_enabled: env_bool("CONROGATE_LOG_OUTPUT_FILE_ENABLED", true),
-                file_path: env_str(
-                    "CONROGATE_LOG_OUTPUT_FILE_PATH",
-                    "/var/log/conrogate/conrogate.log",
-                ),
-                rotation_size_mb: env_u32("CONROGATE_LOG_OUTPUT_FILE_ROTATION_SIZE_MB", 100) as u64,
-                retention_days: env_u32("CONROGATE_LOG_OUTPUT_FILE_RETENTION_DAYS", 7),
+                level: env_str("CONROGATE_LOG_LEVEL", &def.log.level),
+                format: env_str("CONROGATE_LOG_FORMAT", &def.log.format),
+                console: env_bool("CONROGATE_LOG_OUTPUT_CONSOLE", def.log.console),
+                file_enabled: env_bool("CONROGATE_LOG_OUTPUT_FILE_ENABLED", def.log.file_enabled),
+                file_path: env_str("CONROGATE_LOG_OUTPUT_FILE_PATH", &def.log.file_path),
+                rotation_size_mb: env_u32(
+                    "CONROGATE_LOG_OUTPUT_FILE_ROTATION_SIZE_MB",
+                    def.log.rotation_size_mb as u32,
+                ) as u64,
+                retention_days: env_u32("CONROGATE_LOG_OUTPUT_FILE_RETENTION_DAYS", def.log.retention_days),
             },
         };
 
@@ -757,6 +823,36 @@ impl Default for Config {
 mod tests {
     use super::*;
 
+    // 环境变量测试会并行执行，必须串行化避免互相干扰
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// 保存当前 CONROGATE_* 环境变量，测试结束后恢复
+    struct EnvGuard(Vec<(String, Option<String>)>);
+
+    impl EnvGuard {
+        fn clear() -> EnvGuard {
+            let saved: Vec<(String, Option<String>)> = std::env::vars()
+                .map(|(k, v)| (k, Some(v)))
+                .filter(|(k, _)| k.starts_with("CONROGATE_"))
+                .collect();
+            for (k, _) in &saved {
+                std::env::remove_var(k);
+            }
+            EnvGuard(saved)
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (k, v) in &self.0 {
+                match v {
+                    Some(v) => std::env::set_var(k, v),
+                    None => std::env::remove_var(k),
+                }
+            }
+        }
+    }
+
     #[test]
     fn test_default_config() {
         let config = Config::default();
@@ -768,5 +864,68 @@ mod tests {
         let mut config = Config::default();
         config.db.password = "test".into();
         assert!(config.validate().is_ok());
+    }
+
+    /// 无环境变量时 from_env 应与 Default 完全一致（单一默认值来源）
+    #[test]
+    fn test_from_env_matches_default() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _env = EnvGuard::clear();
+
+        let parsed = Config::from_env().expect("from_env should succeed");
+        let default = Config::default();
+
+        assert_eq!(parsed.common.instance_id, default.common.instance_id);
+        assert_eq!(parsed.gate.listen.host, default.gate.listen.host);
+        assert_eq!(parsed.gate.listen.port, default.gate.listen.port);
+        assert_eq!(parsed.gate.listen.tls.mode, default.gate.listen.tls.mode);
+        assert_eq!(
+            parsed.gate.connection.max_connections,
+            default.gate.connection.max_connections
+        );
+        assert_eq!(
+            parsed.gate.connection.idle_timeout,
+            default.gate.connection.idle_timeout
+        );
+        assert_eq!(parsed.gate.timeouts.connect, default.gate.timeouts.connect);
+        assert_eq!(parsed.gate.timeouts.total, default.gate.timeouts.total);
+        assert_eq!(parsed.gate.timeouts.read, default.gate.timeouts.read);
+        assert_eq!(parsed.gate.retry.max_attempts, default.gate.retry.max_attempts);
+        assert_eq!(parsed.gate.rate_limit.enabled, default.gate.rate_limit.enabled);
+        assert_eq!(parsed.gate.rate_limit.mode, default.gate.rate_limit.mode);
+        assert_eq!(parsed.gate.rate_limit.global_qps, default.gate.rate_limit.global_qps);
+        assert_eq!(parsed.gate.breaker.enabled, default.gate.breaker.enabled);
+        assert_eq!(parsed.gate.breaker.window, default.gate.breaker.window);
+        assert_eq!(parsed.gate.breaker.failure_rate_threshold, default.gate.breaker.failure_rate_threshold);
+        assert_eq!(parsed.gate.shutdown.long_conn_drain, default.gate.shutdown.long_conn_drain);
+        assert_eq!(parsed.gate.refresh.config_source, default.gate.refresh.config_source);
+        assert_eq!(parsed.gate.refresh.config_poll_interval, default.gate.refresh.config_poll_interval);
+        assert_eq!(parsed.gate.upgrade.buffer_size, default.gate.upgrade.buffer_size);
+        assert_eq!(parsed.gate.upgrade.idle_timeout, default.gate.upgrade.idle_timeout);
+        assert_eq!(parsed.gate.telemetry.batch_size, default.gate.telemetry.batch_size);
+        assert_eq!(parsed.gate.telemetry.bucket_sec, default.gate.telemetry.bucket_sec);
+        assert_eq!(parsed.gate.outbound_tls.skip_verify, default.gate.outbound_tls.skip_verify);
+        assert_eq!(parsed.control.listen.enabled, default.control.listen.enabled);
+        assert_eq!(parsed.control.listen.port, default.control.listen.port);
+        assert_eq!(parsed.control.auth.token, default.control.auth.token);
+        assert_eq!(parsed.db.host, default.db.host);
+        assert_eq!(parsed.db.port, default.db.port);
+        assert_eq!(parsed.db.name, default.db.name);
+        assert_eq!(parsed.db.max_connections, default.db.max_connections);
+        assert_eq!(parsed.db.connect_timeout, default.db.connect_timeout);
+        assert_eq!(parsed.log.level, default.log.level);
+        assert_eq!(parsed.log.rotation_size_mb, default.log.rotation_size_mb);
+    }
+
+    /// 环境变量覆盖生效（默认值来源仍是 Default）
+    #[test]
+    fn test_from_env_override() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _env = EnvGuard::clear();
+        std::env::set_var("CONROGATE_GATE_PORT", "9999");
+        std::env::set_var("CONROGATE_GATE_TIMEOUT_TOTAL_MS", "7000");
+        let parsed = Config::from_env().expect("from_env should succeed");
+        assert_eq!(parsed.gate.listen.port, 9999);
+        assert_eq!(parsed.gate.timeouts.total.as_millis() as u64, 7000);
     }
 }

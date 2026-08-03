@@ -56,12 +56,14 @@ pub fn build_upgrade_response(req: &Request<Bytes>) -> Response<Bytes> {
 /// WebSocket 双向转发：连接上游 + 透传字节流
 ///
 /// 流程：connect upstream → send upgrade request → validate 101 → bidirectional copy
-/// `buffer_size` 为双向透传缓冲上限（0 时使用默认 8192）。
+/// `connect_timeout` 仅约束上游建连；`idle_timeout` 约束双向数据流的空闲超时
+/// （任一方向长时间无数据则关闭隧道）。`buffer_size` 为双向透传缓冲上限（0 时使用默认 8192）。
 pub async fn forward_websocket<C>(
     upstream_addr: &str,
     client: C,
     upgrade_req: Request<Bytes>,
-    timeout: Duration,
+    connect_timeout: Duration,
+    idle_timeout: Duration,
     buffer_size: usize,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
@@ -69,7 +71,7 @@ where
 {
     // 1. 连接上游（带超时 + DNS 缓存）
     let addrs = crate::dns::global_resolver().resolve(upstream_addr).await?;
-    let upstream = tokio::time::timeout(timeout, TcpStream::connect(&addrs[..]))
+    let upstream = tokio::time::timeout(connect_timeout, TcpStream::connect(&addrs[..]))
         .await
         .map_err(|_| "upstream connect timeout")??;
 
@@ -121,12 +123,14 @@ where
         .unwrap_or(response_buf.len());
     let early_frames = response_buf[header_end..].to_vec();
 
-    // 4. 双向字节流透传（带背压处理）
+    // 4. 双向字节流透传（带背压处理 + 空闲超时）
     let buf_size = buffer_size.max(1);
     let c2s = async {
         let mut buf = vec![0u8; buf_size];
         loop {
-            let n = client_r.read(&mut buf).await?;
+            let n = tokio::time::timeout(idle_timeout, client_r.read(&mut buf))
+                .await
+                .map_err(|_| "client idle timeout")??;
             if n == 0 {
                 break;
             }
@@ -145,7 +149,9 @@ where
         }
         let mut buf = vec![0u8; buf_size];
         loop {
-            let n = upstream_r.read(&mut buf).await?;
+            let n = tokio::time::timeout(idle_timeout, upstream_r.read(&mut buf))
+                .await
+                .map_err(|_| "upstream idle timeout")??;
             if n == 0 {
                 break;
             }

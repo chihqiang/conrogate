@@ -22,7 +22,7 @@ use conrogate_traffic::limiter::TokenBucketLimiter;
 use http::{Request, Response};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -529,8 +529,15 @@ impl GatewayServer {
         let max_body_bytes = self.max_body_bytes;
         let max_header_bytes = self.max_header_bytes;
         let idle_timeout = self.idle_timeout;
+        let read_timeout = config.gate.timeouts.read;
         let upgrade_buffer_size = config.gate.upgrade.buffer_size;
+        let ws_connect_timeout = config.gate.timeouts.connect;
+        let ws_idle_timeout = config.gate.upgrade.idle_timeout;
         let long_conn_drain = config.gate.shutdown.long_conn_drain;
+        // 跟踪所有连接任务：宽限期结束后可强制 abort
+        let mut connections = tokio::task::JoinSet::new();
+        // WS 隧道停机广播
+        let ws_shutdown = Arc::new(tokio::sync::Notify::new());
 
         // TLS 入站终止
         let tls_enabled = config.gate.listen.tls.enabled;
@@ -573,8 +580,9 @@ impl GatewayServer {
                     let tls_acc = tls_acceptor.clone();
                     let listen_addr = addr.to_string();
                     let tls_passthrough = tls_enabled && tls_mode == "passthrough";
+                    let ws_shutdown = ws_shutdown.clone();
 
-                    tokio::spawn(async move {
+                    connections.spawn(async move {
                         // 获取并发许可
                         let _permit = match semaphore.acquire().await {
                             Ok(p) => p,
@@ -625,8 +633,11 @@ impl GatewayServer {
                             route_matcher,
                             client_ip,
                             max_body_bytes,
-                            idle_timeout,
+                            read_timeout,
                             upgrade_buffer_size,
+                            ws_connect_timeout,
+                            ws_idle_timeout,
+                            ws_shutdown,
                         };
                         let result = if let Some(acc) = tls_acc {
                             match acc.accept(stream).await {
@@ -640,7 +651,7 @@ impl GatewayServer {
                                     let io = TokioIo::new(tls_stream);
                                     tokio::time::timeout(
                                         idle_timeout,
-                                        serve_tls_connection(io, svc, max_header_bytes, alpn),
+                                        serve_tls_connection(io, svc, max_header_bytes, read_timeout, alpn),
                                     ).await
                                 }
                                 Err(e) => {
@@ -653,7 +664,7 @@ impl GatewayServer {
                             let io = TokioIo::new(stream);
                             tokio::time::timeout(
                                 idle_timeout,
-                                serve_cleartext_connection(io, svc, max_header_bytes),
+                                serve_cleartext_connection(io, svc, max_header_bytes, read_timeout),
                             ).await
                         };
 
@@ -685,10 +696,11 @@ impl GatewayServer {
         );
         tokio::time::sleep(long_conn_drain).await;
 
-        // 宽限期结束，强制释放所有并发许可（触发连接清理）
-        tracing::info!("graceful drain period expired, connections will be force-closed");
-        // 语义上的信号：permit drop 后 Semaphore 容量恢复，
-        // 但已在执行中的连接会在 idle_timeout 后自然超时
+        // 宽限期结束：通知 WS 隧道关闭，并强制终止仍在执行的连接任务
+        tracing::info!("graceful drain period expired, force-closing remaining connections");
+        ws_shutdown.notify_waiters();
+        connections.shutdown().await;
+        tracing::info!("all connections closed");
 
         Ok(())
     }
@@ -750,8 +762,13 @@ struct HyperServiceBridge {
     route_matcher: Arc<RouteMatcher>,
     client_ip: String,
     max_body_bytes: usize,
-    idle_timeout: std::time::Duration,
+    /// 客户端读取超时（慢读保护）：请求体收集阶段
+    read_timeout: std::time::Duration,
     upgrade_buffer_size: usize,
+    ws_connect_timeout: std::time::Duration,
+    ws_idle_timeout: std::time::Duration,
+    /// 停机通知：宽限期结束后广播，WS 转发任务据此关闭隧道
+    ws_shutdown: Arc<tokio::sync::Notify>,
 }
 
 /// WebSocket 升级信息（存入响应扩展）
@@ -766,6 +783,7 @@ async fn serve_cleartext_connection<I, S>(
     io: I,
     svc: S,
     max_header_bytes: usize,
+    read_timeout: std::time::Duration,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
     I: hyper::rt::Read + hyper::rt::Write + Unpin + Send + 'static,
@@ -780,6 +798,11 @@ where
 {
     let mut builder = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new());
     builder.http1().max_buf_size(max_header_bytes);
+    // 慢读保护：客户端超时未发完整请求头则断开（HTTP/1.1）
+    builder
+        .http1()
+        .timer(TokioTimer::new())
+        .header_read_timeout(Some(read_timeout));
     builder
         .http2()
         .max_header_list_size(max_header_bytes as u32);
@@ -791,6 +814,7 @@ async fn serve_tls_connection<I, S>(
     io: I,
     svc: S,
     max_header_bytes: usize,
+    read_timeout: std::time::Duration,
     alpn: Option<Vec<u8>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
@@ -813,6 +837,9 @@ where
     } else {
         let mut h1 = hyper::server::conn::http1::Builder::new();
         h1.max_buf_size(max_header_bytes);
+        // 慢读保护：客户端超时未发完整请求头则断开
+        h1.timer(TokioTimer::new())
+            .header_read_timeout(Some(read_timeout));
         h1.serve_connection(io, svc)
             .await
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
@@ -865,8 +892,11 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
         let route_matcher = self.route_matcher.clone();
         let client_ip = self.client_ip.clone();
         let max_body_bytes = self.max_body_bytes;
-        let idle_timeout = self.idle_timeout;
+        let read_timeout = self.read_timeout;
         let upgrade_buffer_size = self.upgrade_buffer_size;
+        let ws_connect_timeout = self.ws_connect_timeout;
+        let ws_idle_timeout = self.ws_idle_timeout;
+        let ws_shutdown = self.ws_shutdown.clone();
 
         Box::pin(async move {
             // 健康探针：GET /healthz → 200
@@ -982,7 +1012,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                             if let (Some(on_upgrade), Some((method, uri, headers))) =
                                 (on_upgrade, ws_req_info)
                             {
-                                let ws_timeout = idle_timeout;
+                                let ws_shutdown = ws_shutdown.clone();
                                 tokio::spawn(async move {
                                     match on_upgrade.await {
                                         Ok(upgraded) => {
@@ -993,17 +1023,23 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                                 .body(Bytes::new())
                                                 .unwrap();
                                             *upgrade_req.headers_mut() = headers;
-                                            if let Err(e) =
-                                                conrogate_protocol::upgrade::forward_websocket(
-                                                    &upstream_addr,
-                                                    io,
-                                                    upgrade_req,
-                                                    ws_timeout,
-                                                    upgrade_buffer_size,
-                                                )
-                                                .await
-                                            {
-                                                tracing::warn!(error = %e, "websocket forwarding error");
+                                            let forward = conrogate_protocol::upgrade::forward_websocket(
+                                                &upstream_addr,
+                                                io,
+                                                upgrade_req,
+                                                ws_connect_timeout,
+                                                ws_idle_timeout,
+                                                upgrade_buffer_size,
+                                            );
+                                            tokio::select! {
+                                                result = forward => {
+                                                    if let Err(e) = result {
+                                                        tracing::warn!(error = %e, "websocket forwarding error");
+                                                    }
+                                                }
+                                                _ = ws_shutdown.notified() => {
+                                                    tracing::debug!("websocket tunnel closed by shutdown");
+                                                }
                                             }
                                         }
                                         Err(e) => {
@@ -1026,11 +1062,24 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
             }
 
             // 缓冲模式：路由未命中或需 requires_body 插件 → collect body
-            let body_bytes = body
-                .collect()
-                .await
-                .map_err(|e| ConrogateError::UpstreamBadResponse(e.to_string()))?
-                .to_bytes();
+            // 慢读保护：客户端读取请求体超时则返回 408
+            let body_bytes = match tokio::time::timeout(read_timeout, body.collect()).await {
+                Ok(Ok(collected)) => collected.to_bytes(),
+                Ok(Err(e)) => {
+                    return Ok(error_response(
+                        http::StatusCode::BAD_REQUEST,
+                        10008,
+                        &format!("request body read error: {e}"),
+                    ));
+                }
+                Err(_) => {
+                    return Ok(error_response(
+                        http::StatusCode::REQUEST_TIMEOUT,
+                        10009,
+                        "request body read timeout",
+                    ));
+                }
+            };
 
             // 请求体大小限制
             if body_bytes.len() > max_body_bytes {
@@ -1080,7 +1129,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                     if let (Some(on_upgrade), Some((method, uri, headers))) =
                         (on_upgrade, ws_req_info)
                     {
-                        let ws_timeout = idle_timeout;
+                        let ws_shutdown = ws_shutdown.clone();
                         tokio::spawn(async move {
                             match on_upgrade.await {
                                 Ok(upgraded) => {
@@ -1091,16 +1140,23 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                         .body(Bytes::new())
                                         .unwrap();
                                     *upgrade_req.headers_mut() = headers;
-                                    if let Err(e) = conrogate_protocol::upgrade::forward_websocket(
+                                    let forward = conrogate_protocol::upgrade::forward_websocket(
                                         &upstream_addr,
                                         io,
                                         upgrade_req,
-                                        ws_timeout,
+                                        ws_connect_timeout,
+                                        ws_idle_timeout,
                                         upgrade_buffer_size,
-                                    )
-                                    .await
-                                    {
-                                        tracing::warn!(error = %e, "websocket forwarding error");
+                                    );
+                                    tokio::select! {
+                                        result = forward => {
+                                            if let Err(e) = result {
+                                                tracing::warn!(error = %e, "websocket forwarding error");
+                                            }
+                                        }
+                                        _ = ws_shutdown.notified() => {
+                                            tracing::debug!("websocket tunnel closed by shutdown");
+                                        }
                                     }
                                 }
                                 Err(e) => {
@@ -1156,12 +1212,17 @@ mod tests {
 
     /// 启动一个使用生产 `serve_cleartext_connection`（auto builder）的测试监听
     async fn spawn_auto_server() -> SocketAddr {
+        spawn_auto_server_with_read_timeout(std::time::Duration::from_secs(15)).await
+    }
+
+    /// 同 spawn_auto_server，但可指定客户端读取超时
+    async fn spawn_auto_server_with_read_timeout(read_timeout: std::time::Duration) -> SocketAddr {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
             let (stream, _) = listener.accept().await.unwrap();
             let io = TokioIo::new(stream);
-            let _ = serve_cleartext_connection(io, H2ProbeService, 65536).await;
+            let _ = serve_cleartext_connection(io, H2ProbeService, 65536, read_timeout).await;
         });
         addr
     }
@@ -1214,5 +1275,27 @@ mod tests {
             .expect("http1 request");
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(&body[..], b"probe-ok");
+    }
+
+    /// 慢读保护：客户端只发部分请求头后停顿，超过 read_timeout 连接应被服务端关闭
+    #[tokio::test]
+    async fn http1_slow_header_read_timeout_closes_connection() {
+        let addr = spawn_auto_server_with_read_timeout(std::time::Duration::from_millis(200)).await;
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        // 只发送部分请求头（未以空行结束），然后保持静默
+        use tokio::io::AsyncWriteExt;
+        stream
+            .write_all(b"GET / HTTP/1.1\r\nHost: test\r\n")
+            .await
+            .unwrap();
+
+        // 等待超过 read_timeout
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+
+        // 服务端应已关闭连接：读取返回 0 字节（EOF）
+        use tokio::io::AsyncReadExt;
+        let mut buf = [0u8; 16];
+        let n = stream.read(&mut buf).await.expect("read should succeed");
+        assert_eq!(n, 0, "connection should be closed by header read timeout");
     }
 }

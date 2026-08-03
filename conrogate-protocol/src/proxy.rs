@@ -19,6 +19,25 @@ pub type ReqBody =
 /// 出站 HTTP 客户端：支持 http:// 与 https://（TLS）上游
 pub type HttpClient = Client<HttpsConnector<HttpConnector>, ReqBody>;
 
+/// 规范化上游地址：支持显式 scheme（`https://host:port`）；缺省按 http。
+/// 全项目统一使用该函数，避免硬编码 `http://` 导致 https 上游拼出非法 URI。
+pub fn upstream_addr(node: &UpstreamNodeDto) -> String {
+    if node.address.contains("://") {
+        node.address.clone()
+    } else {
+        format!("http://{}", node.address)
+    }
+}
+
+/// 上游 scheme（http/https），用于 x-forwarded-proto 注入
+pub fn upstream_scheme(node: &UpstreamNodeDto) -> &'static str {
+    if node.address.starts_with("https://") {
+        "https"
+    } else {
+        "http"
+    }
+}
+
 /// 代理转发结果（缓冲模式：响应体已 collect 进内存）
 pub struct ProxyResult {
     pub status: http::StatusCode,
@@ -76,11 +95,7 @@ async fn forward_common(
     timeout: Duration,
 ) -> Result<(http::StatusCode, http::HeaderMap, Incoming), ConrogateError> {
     // 地址支持显式 scheme（https://host:port）；缺省按 http
-    let addr = if node.address.contains("://") {
-        node.address.clone()
-    } else {
-        format!("http://{}", node.address)
-    };
+    let addr = upstream_addr(node);
 
     let (method, uri, headers, body) = (
         req.method().clone(),

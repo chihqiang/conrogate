@@ -1,14 +1,20 @@
 //! 熔断器实现：Closed → Open → HalfOpen 状态机 + 滑动窗口计数。
 //!
 //! 维度：route + 上游节点（docs/10 §9.2）。计数在 `window` 窗口内有效，
-//! 窗口过期自动清零（docs/10 §9.1 计数窗口）。`mode=cluster` 时计数
-//! 同步镜像到 Redis（docs/10 §9.3），判定仍为进程内状态机。
+//! 窗口过期自动清零（docs/10 §9.1 计数窗口）。`mode=cluster` 时成功/失败计数
+//! 镜像到 Redis，且 `allow()` 基于 Redis 聚合计数判定（跨实例共享失败率，
+//! 避免单实例熔断时其他实例继续把流量打到故障上游）；聚合计数带 TTL 缓存，
+//! 避免每个请求都访问 Redis。判定仍为失败率门槛制，Redis 不可用时 fail-open。
 
 use conrogate_contract::traffic::{Breaker, BreakerFactory, BreakerState};
 use conrogate_contract::ConrogateError;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tokio::sync::OnceCell;
+
+/// 集群聚合计数的本地缓存刷新间隔
+const CLUSTER_REFRESH_INTERVAL: Duration = Duration::from_millis(500);
 
 struct BreakerInner {
     state: BreakerState,
@@ -18,10 +24,21 @@ struct BreakerInner {
     last_failure_time: Option<Instant>,
 }
 
+/// 从 Redis 读到的集群窗口内聚合计数快照
+struct ClusterSnapshot {
+    success: u64,
+    failure: u64,
+    fetched_at: Instant,
+}
+
 pub struct BreakerImpl {
     inner: Mutex<BreakerInner>,
     config: BreakerConfig,
     key: String,
+    /// 复用的 Redis 连接管理器（集群模式懒加载）
+    cluster_conn: OnceCell<redis::aio::ConnectionManager>,
+    /// 集群聚合计数 TTL 缓存
+    cluster_cache: Mutex<Option<ClusterSnapshot>>,
 }
 
 #[derive(Clone)]
@@ -60,6 +77,8 @@ impl BreakerImpl {
             }),
             config,
             key,
+            cluster_conn: OnceCell::new(),
+            cluster_cache: Mutex::new(None),
         }
     }
 
@@ -72,18 +91,75 @@ impl BreakerImpl {
         }
     }
 
+    /// 获取复用的 Redis 连接管理器（懒加载；失败返回 None → fail-open）
+    async fn cluster_conn(&self) -> Option<redis::aio::ConnectionManager> {
+        let url = self.config.redis_url.as_ref()?;
+        let m = match self.cluster_conn.get_or_try_init(|| async {
+            let client = redis::Client::open(url.as_str()).map_err(|_| ())?;
+            redis::aio::ConnectionManager::new(client).await.map_err(|_| ())
+        }).await {
+            Ok(m) => m.clone(),
+            Err(_) => {
+                tracing::warn!("circuit breaker redis connect failed, failing open");
+                return None;
+            }
+        };
+        Some(m)
+    }
+
+    /// 集群模式：读取窗口内聚合成功/失败计数（TTL 缓存，避免每请求读 Redis）。
+    /// Redis 不可用时返回 (0, 0) → 判定为放行（fail-open）。
+    async fn cluster_counts(&self) -> (u64, u64) {
+        // 缓存有效期内直接返回
+        {
+            let cache = self.cluster_cache.lock().unwrap();
+            if let Some(snap) = cache.as_ref() {
+                if snap.fetched_at.elapsed() < CLUSTER_REFRESH_INTERVAL {
+                    return (snap.success, snap.failure);
+                }
+            }
+        }
+
+        let Some(mut conn) = self.cluster_conn().await else {
+            return (0, 0);
+        };
+        let succ_key = format!("cb:{}:succ", self.key);
+        let fail_key = format!("cb:{}:fail", self.key);
+        let result: Result<Vec<i64>, _> = redis::cmd("MGET")
+            .arg(&succ_key)
+            .arg(&fail_key)
+            .query_async(&mut conn)
+            .await;
+        let (success, failure) = match result {
+            Ok(v) => (
+                v.first().copied().unwrap_or(0).max(0) as u64,
+                v.get(1).copied().unwrap_or(0).max(0) as u64,
+            ),
+            Err(e) => {
+                tracing::warn!(error = %e, "circuit breaker redis read failed, failing open");
+                return (0, 0);
+            }
+        };
+        let mut cache = self.cluster_cache.lock().unwrap();
+        *cache = Some(ClusterSnapshot {
+            success,
+            failure,
+            fetched_at: Instant::now(),
+        });
+        (success, failure)
+    }
+
+    /// 集群模式判定：窗口内失败率是否达到阈值（需满足最小请求数）
+    fn cluster_rate_exceeded(success: u64, failure: u64, config: &BreakerConfig) -> bool {
+        let total = success + failure;
+        total >= config.min_requests as u64
+            && failure as f64 / total as f64 >= config.failure_rate_threshold
+    }
+
     /// 集群模式：把计数镜像到 Redis（best-effort，不影响本地判定）
     async fn mirror_to_redis(&self, succ: bool) {
-        let Some(ref url) = self.config.redis_url else {
+        let Some(mut conn) = self.cluster_conn().await else {
             return;
-        };
-        let client = match redis::Client::open(url.as_str()) {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-        let mut conn = match client.get_multiplexed_async_connection().await {
-            Ok(c) => c,
-            Err(_) => return,
         };
         let (key, dir) = if succ {
             (format!("cb:{}:succ", self.key), 1)
@@ -117,6 +193,16 @@ impl Breaker for BreakerImpl {
     }
 
     async fn allow(&self) -> Result<(), ConrogateError> {
+        // 集群模式：基于 Redis 聚合计数判定（跨实例共享失败率，
+        // 任一实例记录的高失败率都会让其他实例拒绝请求）
+        if self.config.redis_url.is_some() {
+            let (success, failure) = self.cluster_counts().await;
+            if Self::cluster_rate_exceeded(success, failure, &self.config) {
+                return Err(ConrogateError::CircuitBreakerOpen);
+            }
+            return Ok(());
+        }
+
         let mut inner = self.inner.lock().unwrap();
         Self::refresh_window(&mut inner, self.config.window);
 
@@ -285,5 +371,25 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(80)).await;
         // 窗口过期 → 计数清零，不再触发 Open
         assert_eq!(breaker.state(), BreakerState::Closed);
+    }
+
+    #[test]
+    fn test_cluster_rate_exceeded() {
+        let config = BreakerConfig {
+            window: Duration::from_secs(10),
+            failure_rate_threshold: 0.5,
+            min_requests: 4,
+            wait: Duration::from_secs(1),
+            half_open_max: 2,
+            redis_url: None,
+        };
+        // 未达到最小请求数 → 不触发
+        assert!(!BreakerImpl::cluster_rate_exceeded(3, 2, &config));
+        // 失败率未达阈值 → 不触发
+        assert!(!BreakerImpl::cluster_rate_exceeded(10, 4, &config));
+        // 失败率达到阈值 → 触发
+        assert!(BreakerImpl::cluster_rate_exceeded(4, 4, &config));
+        // 全部失败 → 触发
+        assert!(BreakerImpl::cluster_rate_exceeded(0, 4, &config));
     }
 }
