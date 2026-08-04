@@ -15,14 +15,20 @@ Conrogate 轻量级微服务网关，内置配置中心，支持动态路由、�
 ## 快速开始
 
 ```bash
-# 1. 启动 PostgreSQL + Redis（基础依赖）
-docker compose -f docker-compose.deps.yml up -d
+# 1. 启动 MySQL（基础依赖）
+docker run -d --name conrogate-mysql \
+  -e MYSQL_ROOT_PASSWORD=rootpass \
+  -e MYSQL_DATABASE=conrogate \
+  -e MYSQL_USER=conrogate \
+  -e MYSQL_PASSWORD=conrogatepass \
+  -p 3306:3306 \
+  mysql:8.0
 
 # 2. 迁移 + seed 演示数据
-CONROGATE_DB_URL='postgres://conrogate:conrogate_dev@127.0.0.1:5432/conrogate' cargo run -p conrogate-migrate
+CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' cargo run -p conrogate-migrate
 
 # 3. 合并模式启动（8080 数据面 + 9000 控制面）
-CONROGATE_DB_URL='postgres://conrogate:conrogate_dev@127.0.0.1:5432/conrogate' \
+CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' \
 CONROGATE_NODE_AUTO_MIGRATE=false \
 CONROGATE_NODE_SEED_DEMO=true \
 CONROGATE_CONTROL_AUTH_TOKEN=admin:dev-token:admin \
@@ -43,7 +49,7 @@ curl http://localhost:8080/demo/hello      # 数据面转发
 
 ## 工作空间结构
 
-```
+```bash
 conrogate-code/
 ├── conrogate-contract/        # 契约层：Trait + DTO + 枚举 + Config
 ├── conrogate-storage/         # 持久化层：SeaORM Entity + 迁移 + 仓储
@@ -68,7 +74,7 @@ conrogate-code/
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
-| `CONROGATE_DB_URL` | 必填 | 数据库完整连接 URL，前缀决定方言：`postgres://user:pw@host:5432/db`、`mysql://user:pw@host:3306/db`、`sqlite:///path/db.sqlite`（或 `sqlite::memory:`） |
+| `CONROGATE_DB_URL` | 必填 | 数据库完整连接 URL，前缀决定方言：`mysql://user:pw@host:3306/db`（默认）、`postgres://user:pw@host:5432/db`、`sqlite:///path/db.sqlite`（或 `sqlite::memory:`） |
 | `CONROGATE_DB_READ_URL` | 主库 URL | 只读库完整 URL（可选）；不设置时复用 `CONROGATE_DB_URL` |
 | `CONROGATE_GATE_PORT` | 8080 | 数据面端口 |
 | `CONROGATE_CONTROL_LISTEN_PORT` | 9000 | 控制面端口 |
