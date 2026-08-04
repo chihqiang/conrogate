@@ -147,6 +147,7 @@ enum NodeApplications {
     GateId,
     Version,
     AppliedAt,
+    LastSeen,
     UpdatedAt,
 }
 
@@ -998,6 +999,13 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(Expr::current_timestamp())
                             .comment("配置应用时间"),
+                    )
+                    .col(
+                        ColumnDef::new(NodeApplications::LastSeen)
+                            .timestamp_with_time_zone()
+                            .not_null()
+                            .default(Expr::current_timestamp())
+                            .comment("最近心跳时间"),
                     )
                     .col(
                         ColumnDef::new(NodeApplications::UpdatedAt)

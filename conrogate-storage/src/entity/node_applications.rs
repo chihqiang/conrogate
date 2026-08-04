@@ -12,6 +12,8 @@ pub struct Model {
     pub version: i64,
     #[sea_orm(column_name = "applied_at")]
     pub applied_at: DateTimeUtc,
+    #[sea_orm(column_name = "last_seen")]
+    pub last_seen: DateTimeUtc,
     #[sea_orm(column_name = "updated_at")]
     pub updated_at: DateTimeUtc,
 }

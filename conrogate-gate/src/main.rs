@@ -79,9 +79,11 @@ async fn run(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
     // ── 4a. 节点心跳上报后台任务（分离模式）──
     let control_url = &config.gate.refresh.control_api_url;
     let control_token = config.gate.refresh.control_api_token.clone();
+    let control_api_prefix = config.gate.refresh.control_api_prefix.clone();
     let gate_id = config.common.instance_id.clone();
     if !control_url.is_empty() {
         let url = control_url.clone();
+        let api_prefix = control_api_prefix.clone();
         tokio::spawn(async move {
             let client =
                 hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
@@ -97,7 +99,7 @@ async fn run(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
                 let body = serde_json::to_vec(&hb).unwrap_or_default();
                 let req = http::Request::builder()
                     .method("POST")
-                    .uri(format!("{}/api/v1/reports/heartbeat", url))
+                    .uri(format!("{}{}/reports/heartbeat", url, api_prefix))
                     .header("Content-Type", "application/json")
                     .header("Authorization", format!("Bearer {}", control_token))
                     .body(http_body_util::Full::new(bytes::Bytes::from(body)))
@@ -123,6 +125,7 @@ async fn run_without_db(config: conrogate_contract::config::Config) -> anyhow::R
 
     let control_url = config.gate.refresh.control_api_url.clone();
     let control_token = config.gate.refresh.control_api_token.clone();
+    let control_api_prefix = config.gate.refresh.control_api_prefix.clone();
     let poll_interval = config.gate.refresh.config_poll_interval;
     let server = Arc::new(conrogate_gateway::server::GatewayServer::from_config(config).await);
 
@@ -153,13 +156,16 @@ async fn run_without_db(config: conrogate_contract::config::Config) -> anyhow::R
     }
 
     if !control_url.is_empty() {
-        let loader = http_config_loader::HttpConfigLoader::new(&control_url, &control_token);
+        let loader =
+            http_config_loader::HttpConfigLoader::new(&control_url, &control_api_prefix, &control_token);
         reload_from_http(&server, &loader).await;
 
         let poll_server = server.clone();
+        let poll_prefix = control_api_prefix.clone();
+        let poll_token = control_token.clone();
         tokio::spawn(async move {
             let poll_loader =
-                http_config_loader::HttpConfigLoader::new(&control_url, &control_token);
+                http_config_loader::HttpConfigLoader::new(&control_url, &poll_prefix, &poll_token);
             loop {
                 tokio::time::sleep(poll_interval).await;
                 reload_from_http(&poll_server, &poll_loader).await;

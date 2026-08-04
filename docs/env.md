@@ -139,6 +139,7 @@ sqlite::memory:
 | `CONROGATE_GATE_REFRESH_CONFIG_SOURCE` | `String` | `db` | 配置来源：`db` / `redis` / `http` |
 | `CONROGATE_GATE_REFRESH_CONTROL_API_URL` | `String` | `""` | 控制面 API URL（`http` 来源时使用） |
 | `CONROGATE_GATE_REFRESH_CONTROL_API_TOKEN` | `String` | `""` | 控制面 API Token |
+| `CONROGATE_GATE_REFRESH_CONTROL_API_PREFIX` | `String` | `/api/v1` | 控制面 API 路由前缀，需与控制面 `CONROGATE_CONTROL_LISTEN_API_PREFIX` 一致 |
 | `CONROGATE_GATE_CONFIG_CACHE_REDIS_URL` | `String` | `""` | 配置缓存 Redis URL |
 | `CONROGATE_GATE_CONFIG_CACHE_REDIS_CONNECT_TIMEOUT_MS` | `Duration` | `2000` | Redis 连接超时（毫秒） |
 | `CONROGATE_GATE_CONFIG_CACHE_SNAPSHOT_RETENTION` | `u32` | `10` | 快照保留份数 |
@@ -183,7 +184,7 @@ sqlite::memory:
 | `CONROGATE_CONTROL_ENABLED` | `bool` | `true` | 是否启用控制面 |
 | `CONROGATE_CONTROL_LISTEN_HOST` | `String` | `0.0.0.0` | 监听地址 |
 | `CONROGATE_CONTROL_LISTEN_PORT` | `u16` | `9000` | 监听端口 |
-| `CONROGATE_CONTROL_API_PREFIX` | `String` | `/api/v1` | API 路由前缀 |
+| `CONROGATE_CONTROL_LISTEN_API_PREFIX` | `String` | `/api/v1` | API 路由前缀 |
 | `CONROGATE_CONTROL_AUTH_TOKEN` | `String` | `""` | 鉴权 Token（空字符串时无鉴权） |
 
 ### 控制面 TLS

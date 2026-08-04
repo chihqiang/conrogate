@@ -112,7 +112,8 @@ gate 请求处理
 
 gate 每 30s 上报心跳 `POST /api/v1/reports/heartbeat`（gate_id + version + timestamp），control 端 upsert `node_applications`。
 
-> 注意：当前 `build_router` 中控制面路由实际注册在**根路径**（`/routes`、`/reports/heartbeat` 等），`API_PREFIX = "/api/v1"` 常量已定义但未应用；而 `conrogate-gate` 的 HTTP 加载器与心跳上报使用的是 `/api/v1/...` 前缀，二者存在前缀不一致（详见 §7 待办）。
+> 控制面受保护路由（管理 + 上报端点）统一挂载在 `api_prefix`（默认 `/api/v1`）之下，公开路由（`/health`、`/healthz`、`/readyz`、`/openapi.json`）保留根路径；gate 侧通过 `CONROGATE_GATE_REFRESH_CONTROL_API_PREFIX` 对齐同一前缀。
+> 心跳上报携带的 `timestamp` 持久化为 `node_applications.last_seen`，`list_stale` 基于 `last_seen` 判定过期节点。
 
 ## 5. 进程内协调（合并模式 Bootstrap）
 
@@ -144,14 +145,6 @@ gate 每 30s 上报心跳 `POST /api/v1/reports/heartbeat`（gate_id + version +
 - 受保护路由：所有管理 + 上报端点，通过 `Authorization: Bearer <token>` 校验。
 - `CONROGATE_CONTROL_AUTH_TOKEN` 为空字符串时鉴权中间件放行（无鉴权模式）。
 - gate 上报 / 拉取配置时携带同一 token（`CONROGATE_GATE_REFRESH_CONTROL_API_TOKEN`）。
-
-## 7. 已知协调待办
-
-| 事项 | 说明 |
-|------|------|
-| `API_PREFIX` 未生效 | 控制面路由注册在根路径，`api_prefix` 配置项（默认 `/api/v1`）未被 router 使用；HTTP 模式下 gate 请求 `/api/v1/*` 会 404，需要将控制面路由挂载到前缀下或让 gate 使用根路径 |
-| 心跳未持久化时间 | `receive_heartbeat` 仅 upsert gate_id/version，`last_seen` 未由上报驱动更新 |
-| Redis 发布失败静默 | `put_snapshot` 失败仅告警，数据面仍会以 DB 轮询兜底，存在短暂不一致窗口 |
 
 ## 8. 关键文件索引
 

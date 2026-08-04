@@ -22,7 +22,12 @@ impl NodeApplicationRepoImpl {
 
 #[async_trait::async_trait]
 impl NodeApplicationRepo for NodeApplicationRepoImpl {
-    async fn upsert(&self, gate_id: &str, version: u64) -> Result<(), ConrogateError> {
+    async fn upsert(
+        &self,
+        gate_id: &str,
+        version: u64,
+        last_seen: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), ConrogateError> {
         let existing = NodeAppEntity::find()
             .filter(node_applications::Column::GateId.eq(gate_id))
             .one(&self.db)
@@ -34,6 +39,7 @@ impl NodeApplicationRepo for NodeApplicationRepoImpl {
             Some(model) => {
                 let mut active: node_applications::ActiveModel = model.into();
                 active.version = Set(version as i64);
+                active.last_seen = Set(last_seen);
                 active.updated_at = Set(now);
                 active
                     .update(&self.db)
@@ -45,6 +51,7 @@ impl NodeApplicationRepo for NodeApplicationRepoImpl {
                     gate_id: Set(gate_id.to_string()),
                     version: Set(version as i64),
                     applied_at: Set(now),
+                    last_seen: Set(last_seen),
                     updated_at: Set(now),
                     ..Default::default()
                 };
@@ -83,7 +90,7 @@ impl NodeApplicationRepo for NodeApplicationRepoImpl {
         before: chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<NodeApplicationRow>, ConrogateError> {
         let models = NodeAppEntity::find()
-            .filter(node_applications::Column::UpdatedAt.lt(before))
+            .filter(node_applications::Column::LastSeen.lt(before))
             .all(&self.db)
             .await
             .map_err(|_| ConrogateError::DatabaseInternal)?;

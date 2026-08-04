@@ -1,13 +1,17 @@
 //! axum 路由注册。
 
 use crate::handler::{self, AppState};
+use axum::extract::State;
 use axum::middleware;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use tower_http::trace::TraceLayer;
 
 /// 构建控制面 API 路由
-pub fn build_router(state: AppState, auth_token: &str) -> Router {
+///
+/// 公开路由（health/healthz/readyz/openapi.json）挂在根路径；
+/// 受保护路由挂载在 `api_prefix` 下（默认 `/api/v1`）。
+pub fn build_router(state: AppState, auth_token: &str, api_prefix: &str) -> Router {
     let auth_state = crate::auth::AuthState {
         token: auth_token.to_string(),
     };
@@ -97,6 +101,13 @@ pub fn build_router(state: AppState, auth_token: &str) -> Router {
             crate::auth::auth_middleware,
         ));
 
+    // 将受保护路由挂载到 api_prefix 下（空前缀则保留根路径）
+    let protected_routes = if api_prefix.trim().is_empty() {
+        protected_routes
+    } else {
+        Router::new().nest(api_prefix, protected_routes)
+    };
+
     Router::new()
         .merge(public_routes)
         .merge(protected_routes)
@@ -104,11 +115,8 @@ pub fn build_router(state: AppState, auth_token: &str) -> Router {
         .with_state(state)
 }
 
-/// API 前缀
-pub const API_PREFIX: &str = "/api/v1";
-
 /// 返回 OpenAPI JSON 文档
-async fn serve_openapi() -> Json<serde_json::Value> {
-    let openapi = crate::openapi::build_openapi();
+async fn serve_openapi(State(state): State<AppState>) -> Json<serde_json::Value> {
+    let openapi = crate::openapi::build_openapi(&state.api_prefix);
     Json(serde_json::to_value(&openapi).unwrap_or_default())
 }

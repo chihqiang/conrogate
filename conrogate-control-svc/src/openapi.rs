@@ -180,7 +180,9 @@ fn op(
 }
 
 /// 收集路径表（与 `api.rs::build_router` 的路由注册保持一致）
-fn build_paths() -> Paths {
+///
+/// 公开路由挂在根路径，受保护路由统一加 `api_prefix` 前缀（与 build_router 一致）。
+fn build_paths(api_prefix: &str) -> Paths {
     let mut b = PathsBuilder::new();
 
     // ── 健康检查（公开）──
@@ -695,8 +697,24 @@ fn build_paths() -> Paths {
                 .build(),
         );
 
-    b.build()
+    let api = api_prefix.trim();
+
+    // 重新挂载路径：公开路径保持根路径，受保护路径统一加 api_prefix
+    // （与 api.rs::build_router 的 nest 行为保持一致）
+    let mut result = PathsBuilder::new();
+    for (path, item) in b.build().paths {
+        let key = if PUBLIC_PATHS.contains(&path.as_str()) {
+            path
+        } else {
+            format!("{}{}", api, path)
+        };
+        result = result.path(key, item);
+    }
+    result.build()
 }
+
+/// 公开路径（挂载在根路径，不受 api_prefix 影响）
+const PUBLIC_PATHS: [&str; 3] = ["/health", "/healthz", "/readyz"];
 
 /// 注册 DTO schema 到 components
 fn build_components() -> Components {
@@ -779,7 +797,7 @@ fn build_tags() -> Vec<Tag> {
 }
 
 /// 构建 OpenAPI 文档
-pub fn build_openapi() -> utoipa::openapi::OpenApi {
+pub fn build_openapi(api_prefix: &str) -> utoipa::openapi::OpenApi {
     let info = InfoBuilder::new()
         .title("Conrogate Control Plane API")
         .version("0.1.0")
@@ -791,7 +809,7 @@ pub fn build_openapi() -> utoipa::openapi::OpenApi {
 
     OpenApiBuilder::new()
         .info(info)
-        .paths(build_paths())
+        .paths(build_paths(api_prefix))
         .components(Some(build_components()))
         .tags(Some(build_tags()))
         .build()
@@ -803,7 +821,7 @@ mod tests {
 
     #[test]
     fn openapi_has_paths_and_schemas() {
-        let doc = build_openapi();
+        let doc = build_openapi("/api/v1");
         assert!(!doc.paths.paths.is_empty(), "openapi must contain paths");
         let components = doc
             .components
@@ -812,12 +830,14 @@ mod tests {
         assert!(components.schemas.contains_key("RouteDto"));
         assert!(components.schemas.contains_key("MetricsBatch"));
         assert!(components.schemas.contains_key("Heartbeat"));
-        // 关键端点必须存在
+        // 公开路径保持在根路径
+        assert!(doc.paths.paths.contains_key("/health"));
+        // 受保护端点必须带前缀
         for p in [
-            "/routes",
-            "/routes/{id}",
-            "/reports/metrics",
-            "/insights/events",
+            "/api/v1/routes",
+            "/api/v1/routes/{id}",
+            "/api/v1/reports/metrics",
+            "/api/v1/insights/events",
         ] {
             assert!(doc.paths.paths.contains_key(p), "missing path {p}");
         }

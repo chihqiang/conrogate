@@ -281,6 +281,8 @@ pub struct NodeApplicationRow {
     pub gate_id: String,
     pub version: u64,
     pub applied_at: DateTime<Utc>,
+    /// 最近心跳时间
+    pub last_seen: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
 

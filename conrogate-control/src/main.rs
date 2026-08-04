@@ -122,8 +122,15 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // ── 5. 组装 axum 路由 + 中间件 ──
-    let app_state = conrogate_control_svc::AppState { svc };
-    let router = conrogate_control_svc::build_router(app_state, &config.control.auth.token);
+    let app_state = conrogate_control_svc::AppState {
+        svc,
+        api_prefix: config.control.listen.api_prefix.clone(),
+    };
+    let router = conrogate_control_svc::build_router(
+        app_state,
+        &config.control.auth.token,
+        &config.control.listen.api_prefix,
+    );
 
     // ── 6. 启动控制面监听 ──
     let addr = format!(

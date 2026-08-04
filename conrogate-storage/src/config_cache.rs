@@ -77,6 +77,11 @@ impl ConfigCache for DbConfigCache {
         Ok(())
     }
 
+    async fn invalidate(&self) -> Result<(), ConrogateError> {
+        // DB 模式无缓存可失效
+        Ok(())
+    }
+
     async fn subscribe_changes(
         &self,
     ) -> Result<Option<tokio::sync::watch::Receiver<u64>>, ConrogateError> {
@@ -106,9 +111,38 @@ impl RedisConfigCache {
     const VERSION_KEY: &'static str = "conrogate:config:version";
     const SNAPSHOT_PREFIX: &'static str = "conrogate:config:snapshot:";
     const NOTIFY_CHANNEL: &'static str = "conrogate:config:notify";
+    /// 快照写入失败最大重试次数
+    const RETRY_MAX: u32 = 3;
+    /// 重试退避间隔（毫秒）
+    const RETRY_BACKOFF_MS: std::time::Duration = std::time::Duration::from_millis(200);
 
     fn snapshot_key(version: u64) -> String {
         format!("{}{}", Self::SNAPSHOT_PREFIX, version)
+    }
+
+    /// 单次原子写入版本号 + 快照 + 发布通知
+    async fn write_snapshot(&self, version: u64, json: &str) -> Result<(), ConrogateError> {
+        let mut conn = self
+            .redis
+            .get_multiplexed_async_connection()
+            .await
+            .map_err(|e| ConrogateError::Internal(format!("redis get_connection: {e}")))?;
+
+        let _: () = redis::pipe()
+            .atomic()
+            .cmd("SET")
+            .arg(Self::VERSION_KEY)
+            .arg(version)
+            .cmd("SET")
+            .arg(Self::snapshot_key(version))
+            .arg(json)
+            .cmd("PUBLISH")
+            .arg(Self::NOTIFY_CHANNEL)
+            .arg(version)
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| ConrogateError::Internal(format!("redis pipe: {e}")))?;
+        Ok(())
     }
 }
 
@@ -168,33 +202,48 @@ impl ConfigCache for RedisConfigCache {
         version: u64,
         snapshot: &ConfigSnapshot,
     ) -> Result<(), ConrogateError> {
+        let json = serde_json::to_string(snapshot)
+            .map_err(|e| ConrogateError::Internal(format!("snapshot serialize: {e}")))?;
+
+        // 写入失败重试（最多 RETRY_MAX 次），降低瞬时抖动导致的发布失败
+        let mut last_err: Option<ConrogateError> = None;
+        for attempt in 1..=Self::RETRY_MAX {
+            match self.write_snapshot(version, &json).await {
+                Ok(()) => {
+                    if attempt > 1 {
+                        tracing::warn!(version, attempt, "redis config cache write retried");
+                    }
+                    // 通知本地订阅者
+                    let _ = self.notify_tx.send(version);
+                    return Ok(());
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                    if attempt < Self::RETRY_MAX {
+                        tokio::time::sleep(Self::RETRY_BACKOFF_MS).await;
+                    }
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| {
+            ConrogateError::Internal("redis config cache write failed".into())
+        }))
+    }
+
+    async fn invalidate(&self) -> Result<(), ConrogateError> {
         let mut conn = self
             .redis
             .get_multiplexed_async_connection()
             .await
             .map_err(|e| ConrogateError::Internal(format!("redis get_connection: {e}")))?;
 
-        let json = serde_json::to_string(snapshot)
-            .map_err(|e| ConrogateError::Internal(format!("snapshot serialize: {e}")))?;
-
-        // 写入版本号 + 快照 + 发布通知
-        let _: () = redis::pipe()
-            .atomic()
-            .cmd("SET")
+        // 删除版本号，使数据面 get_snapshot 返回 None → 降级直连 DB 轮询
+        let _: () = redis::cmd("DEL")
             .arg(Self::VERSION_KEY)
-            .arg(version)
-            .cmd("SET")
-            .arg(Self::snapshot_key(version))
-            .arg(&json)
-            .cmd("PUBLISH")
-            .arg(Self::NOTIFY_CHANNEL)
-            .arg(version)
             .query_async(&mut conn)
             .await
-            .map_err(|e| ConrogateError::Internal(format!("redis pipe: {e}")))?;
-
-        // 通知本地订阅者
-        let _ = self.notify_tx.send(version);
+            .map_err(|e| ConrogateError::Internal(format!("redis DEL version: {e}")))?;
         Ok(())
     }
 

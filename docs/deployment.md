@@ -253,9 +253,9 @@ CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='' \
 
 ### 心跳上报（分离模式）
 
-`conrogate-gate` 启动后每 30s 向控制面上报心跳 `POST /reports/heartbeat`（gate_id + version + timestamp），控制面 upsert `node_applications` 表。
+`conrogate-gate` 启动后每 30s 向控制面上报心跳 `POST /api/v1/reports/heartbeat`（gate_id + version + timestamp），控制面 upsert `node_applications` 表并将上报 `timestamp` 持久化到 `last_seen`，作为节点活跃判定依据。
 
-上报前提：`CONROGATE_GATE_REFRESH_CONTROL_API_URL` 非空。
+上报前提：`CONROGATE_GATE_REFRESH_CONTROL_API_URL` 非空；前缀需与控制面 `CONROGATE_CONTROL_LISTEN_API_PREFIX` 保持一致（`CONROGATE_GATE_REFRESH_CONTROL_API_PREFIX`，默认 `/api/v1`）。
 
 ## 7. 容器化部署
 
@@ -353,10 +353,9 @@ docker run --rm \
 | Rust 版本 | 必须 ≥ 1.85（workspace 使用 `edition 2024`，`rust:1.88-bookworm` 已验证通过） |
 | SQLite 文件创建 | `pool.rs` 已配置 `create_if_missing(true)`，但路径目录必须存在且可写 |
 | SQLite `/tmp` 路径 | 容器内 `/tmp` 可写，推荐用于 SQLite 单机部署 |
-| `API_PREFIX` 未生效 | 控制面路由注册在根路径，`/api/v1` 前缀配置未应用；HTTP 模式下 gate 拉取 `/api/v1/*` 会 404（待修复，见 `docs/architecture.md §7`） |
+| 配置热加载一致性 | Redis 写入失败自动重试（3 次 × 200ms），仍失败则 `invalidate()` 删除版本键，数据面降级为 DB 轮询（秒级恢复） |
 | 日志目录 | 默认 `/var/log/conrogate/conrogate.log`，容器内无写权限需关闭文件日志或挂载 volume |
 | WebSocket 空闲 | 默认 5 分钟超时（`CONROGATE_GATE_UPGRADE_IDLE_TIMEOUT_MS=300000`），生产环境按需调整 |
-| 配置热加载一致性 | Redis 发布失败仅告警，数据面降级为 DB 轮询，存在短暂不一致窗口（秒级） |
 
 ## 10. 一键部署命令速查
 

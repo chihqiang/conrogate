@@ -347,6 +347,7 @@ pub fn node_app_model_to_row(m: node_applications::Model) -> Option<NodeApplicat
         gate_id: m.gate_id,
         version: m.version as u64,
         applied_at: m.applied_at,
+        last_seen: m.last_seen,
         updated_at: m.updated_at,
     })
 }

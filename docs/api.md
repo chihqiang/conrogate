@@ -2,6 +2,8 @@
 
 基础地址：`http://<host>:<port>`（默认端口 `9000`）
 
+> **路由前缀**：管理路由与数据上报路由默认挂载在 `/api/v1` 前缀下（可由 `CONROGATE_CONTROL_LISTEN_API_PREFIX` 调整）。公开路由（`/health`、`/healthz`、`/readyz`、`/openapi.json`）位于根路径。本文档正文以去掉前缀的形式书写，实际调用时请拼接 `/api/v1`，例如 `GET /api/v1/routes`。
+
 ---
 
 ## 1. 统一响应结构

@@ -112,7 +112,7 @@ CONROGATE_LOG_OUTPUT_FILE_ENABLED=false
 
 控制面 REST API 文档：`GET /openapi.json`
 
-> 路由注册在根路径（`/routes`，非 `/api/v1/routes`），`API_PREFIX` 配置尚未生效，详见 [`docs/architecture.md §7`](docs/architecture.md#7-已知协调待办)。
+> 管理路由与数据上报路由统一挂载在 `api_prefix` 前缀（默认 `/api/v1`，可用 `CONROGATE_CONTROL_LISTEN_API_PREFIX` 调整），gate 侧通过 `CONROGATE_GATE_REFRESH_CONTROL_API_PREFIX` 对齐。
 
 **公开路由（无需鉴权）：**
 
@@ -123,41 +123,41 @@ CONROGATE_LOG_OUTPUT_FILE_ENABLED=false
 | `/readyz` | GET | 就绪探针 |
 | `/openapi.json` | GET | OpenAPI 文档 |
 
-**管理路由（需 `Authorization: Bearer <token>`）：**
+**管理路由（需 `Authorization: Bearer <token>`，前缀 `/api/v1`）：**
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/routes` | GET/POST | 路由列表 / 创建 |
-| `/routes/:id` | GET/PUT/PATCH/DELETE | 路由详情 / 更新 / 删除 |
-| `/upstreams` | GET/POST | 上游列表 / 创建 |
-| `/upstreams/:id` | GET/PUT/PATCH/DELETE | 上游详情 / 更新 / 删除 |
-| `/routes/:id/plugins` | GET/POST | 插件绑定列表 / 绑定插件 |
-| `/routes/:id/plugins/:plugin_name` | PUT/DELETE | 更新绑定 / 解绑插件 |
-| `/configs/publish` | POST | 发布配置版本 |
-| `/configs/versions` | GET | 版本历史列表 |
-| `/configs/versions/:v/rollback` | POST | 回滚到指定版本 |
-| `/configs/diff?from=&to=` | GET | 两个版本 Diff |
-| `/metrics` | GET | 指标查询 |
-| `/metrics/overview` | GET | 指标概览 |
-| `/insights/qps` | GET | QPS 时序 |
-| `/insights/latency` | GET | 延迟分布（p50/p90/p99） |
-| `/insights/status-codes` | GET | 状态码分布 |
-| `/insights/top-routes` | GET | 热门路由 TOP 10 |
-| `/insights/events` | GET | 事件查询 |
-| `/audit-logs` | GET | 操作审计日志 |
-| `/nodes` | GET | 网关节点列表 |
-| `/plugins` | GET | 已安装插件列表 |
-| `/plugins/:name/activate` | POST | 启用插件 |
-| `/plugins/:name/disable` | POST | 禁用插件 |
-| `/plugins/:name` | DELETE | 卸载插件 |
+| `/api/v1/routes` | GET/POST | 路由列表 / 创建 |
+| `/api/v1/routes/:id` | GET/PUT/PATCH/DELETE | 路由详情 / 更新 / 删除 |
+| `/api/v1/upstreams` | GET/POST | 上游列表 / 创建 |
+| `/api/v1/upstreams/:id` | GET/PUT/PATCH/DELETE | 上游详情 / 更新 / 删除 |
+| `/api/v1/routes/:id/plugins` | GET/POST | 插件绑定列表 / 绑定插件 |
+| `/api/v1/routes/:id/plugins/:plugin_name` | PUT/DELETE | 更新绑定 / 解绑插件 |
+| `/api/v1/configs/publish` | POST | 发布配置版本 |
+| `/api/v1/configs/versions` | GET | 版本历史列表 |
+| `/api/v1/configs/versions/:v/rollback` | POST | 回滚到指定版本 |
+| `/api/v1/configs/diff?from=&to=` | GET | 两个版本 Diff |
+| `/api/v1/metrics` | GET | 指标查询 |
+| `/api/v1/metrics/overview` | GET | 指标概览 |
+| `/api/v1/insights/qps` | GET | QPS 时序 |
+| `/api/v1/insights/latency` | GET | 延迟分布（p50/p90/p99） |
+| `/api/v1/insights/status-codes` | GET | 状态码分布 |
+| `/api/v1/insights/top-routes` | GET | 热门路由 TOP 10 |
+| `/api/v1/insights/events` | GET | 事件查询 |
+| `/api/v1/audit-logs` | GET | 操作审计日志 |
+| `/api/v1/nodes` | GET | 网关节点列表 |
+| `/api/v1/plugins` | GET | 已安装插件列表 |
+| `/api/v1/plugins/:name/activate` | POST | 启用插件 |
+| `/api/v1/plugins/:name/disable` | POST | 禁用插件 |
+| `/api/v1/plugins/:name` | DELETE | 卸载插件 |
 
-**数据上报路由（gate → control）：**
+**数据上报路由（gate → control，前缀 `/api/v1`）：**
 
 | 端点 | 方法 | 说明 |
 |------|------|------|
-| `/reports/heartbeat` | POST | 节点心跳上报（30s） |
-| `/reports/metrics` | POST | 指标批量上报 |
-| `/reports/events` | POST | 事件批量上报 |
+| `/api/v1/reports/heartbeat` | POST | 节点心跳上报（30s） |
+| `/api/v1/reports/metrics` | POST | 指标批量上报 |
+| `/api/v1/reports/events` | POST | 事件批量上报 |
 
 完整 API 文档 → [`docs/api.md`](docs/api.md)
 

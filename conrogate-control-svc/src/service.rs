@@ -301,14 +301,18 @@ impl ControlService {
             .publish(base_version, &snapshot, operator, remark)
             .await?;
 
-        // 写 Redis 配置缓存（失败不阻断发布，仅告警）
+        // 写 Redis 配置缓存（失败不阻断发布：使缓存失效并告警，
+        // 数据面降级直连 DB 轮询，避免读到过期快照造成长时间不一致）
         if let Some(ref cache) = self.config_cache {
             if let Err(e) = cache.put_snapshot(version.version, &snapshot).await {
-                tracing::warn!(
+                tracing::error!(
                     version = version.version,
                     error = %e,
-                    "failed to write config snapshot to Redis cache"
+                    "config snapshot Redis cache write failed after retries, invalidating cache"
                 );
+                if let Err(ie) = cache.invalidate().await {
+                    tracing::error!(error = %ie, "config cache invalidate failed");
+                }
             }
         }
 
@@ -344,7 +348,8 @@ impl ControlService {
         // 3. 写版本行
         let version = self.config_repo.rollback(target_version, operator).await?;
 
-        // 写 Redis 配置缓存（失败不阻断回滚，仅告警）
+        // 写 Redis 配置缓存（失败不阻断回滚：使缓存失效并告警，
+        // 数据面降级直连 DB 轮询）
         if let Some(ref cache) = self.config_cache {
             match self
                 .config_repo
@@ -353,11 +358,14 @@ impl ControlService {
             {
                 Some(snapshot) => {
                     if let Err(e) = cache.put_snapshot(version.version, &snapshot).await {
-                        tracing::warn!(
+                        tracing::error!(
                             version = version.version,
                             error = %e,
-                            "failed to write rollback snapshot to Redis cache"
+                            "rollback snapshot Redis cache write failed after retries, invalidating cache"
                         );
+                        if let Err(ie) = cache.invalidate().await {
+                            tracing::error!(error = %ie, "config cache invalidate failed");
+                        }
                     }
                 }
                 None => {
@@ -597,7 +605,7 @@ impl ControlService {
 
     pub async fn receive_heartbeat(&self, heartbeat: Heartbeat) -> Result<(), ConrogateError> {
         self.node_app_repo
-            .upsert(&heartbeat.gate_id, heartbeat.version)
+            .upsert(&heartbeat.gate_id, heartbeat.version, heartbeat.timestamp)
             .await
     }
 

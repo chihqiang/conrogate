@@ -153,7 +153,13 @@ pub trait AuditLogRepo: Send + Sync {
 
 #[async_trait]
 pub trait NodeApplicationRepo: Send + Sync {
-    async fn upsert(&self, gate_id: &str, version: u64) -> Result<(), ConrogateError>;
+    /// upsert 节点心跳：更新版本号与 last_seen（最近心跳时间）
+    async fn upsert(
+        &self,
+        gate_id: &str,
+        version: u64,
+        last_seen: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), ConrogateError>;
     async fn count_by_version(&self, version: u64) -> Result<u32, ConrogateError>;
     async fn list_all(&self) -> Result<Vec<NodeApplicationRow>, ConrogateError>;
     async fn list_stale(
@@ -191,6 +197,9 @@ pub trait ConfigCache: Send + Sync {
         version: u64,
         snapshot: &ConfigSnapshot,
     ) -> Result<(), ConrogateError>;
+    /// 使缓存的配置快照失效（发布失败时调用，数据面降级直连 DB 轮询，
+    /// 避免读到过期版本造成长时间不一致）
+    async fn invalidate(&self) -> Result<(), ConrogateError>;
     async fn subscribe_changes(
         &self,
     ) -> Result<Option<tokio::sync::watch::Receiver<u64>>, ConrogateError>;

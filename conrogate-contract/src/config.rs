@@ -219,6 +219,8 @@ pub struct RefreshConfig {
     pub config_source: String,
     pub control_api_url: String,
     pub control_api_token: String,
+    /// 控制面 API 路由前缀（与 CONROGATE_CONTROL_LISTEN_API_PREFIX 保持一致）
+    pub control_api_prefix: String,
     pub config_cache_redis_url: String,
     pub config_cache_connect_timeout: Duration,
     pub config_cache_snapshot_retention: u32,
@@ -231,6 +233,7 @@ impl Default for RefreshConfig {
             config_source: "db".into(),
             control_api_url: String::new(),
             control_api_token: String::new(),
+            control_api_prefix: "/api/v1".into(),
             config_cache_redis_url: String::new(),
             config_cache_connect_timeout: Duration::from_secs(2),
             config_cache_snapshot_retention: 10,
@@ -675,6 +678,10 @@ impl Config {
                     control_api_token: env_str(
                         "CONROGATE_GATE_REFRESH_CONTROL_API_TOKEN",
                         &def.gate.refresh.control_api_token,
+                    ),
+                    control_api_prefix: env_str(
+                        "CONROGATE_GATE_REFRESH_CONTROL_API_PREFIX",
+                        &def.gate.refresh.control_api_prefix,
                     ),
                     config_cache_redis_url: env_str(
                         "CONROGATE_GATE_CONFIG_CACHE_REDIS_URL",

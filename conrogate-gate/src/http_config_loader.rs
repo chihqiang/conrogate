@@ -7,6 +7,7 @@ use http_body_util::BodyExt;
 /// HTTP 配置加载器：从 control API 拉取配置
 pub struct HttpConfigLoader {
     base_url: String,
+    api_prefix: String,
     token: String,
     client: hyper_util::client::legacy::Client<
         hyper_util::client::legacy::connect::HttpConnector,
@@ -15,12 +16,13 @@ pub struct HttpConfigLoader {
 }
 
 impl HttpConfigLoader {
-    pub fn new(base_url: &str, token: &str) -> Self {
+    pub fn new(base_url: &str, api_prefix: &str, token: &str) -> Self {
         let client =
             hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
                 .build(hyper_util::client::legacy::connect::HttpConnector::new());
         Self {
             base_url: base_url.to_string(),
+            api_prefix: api_prefix.trim().to_string(),
             token: token.to_string(),
             client,
         }
@@ -33,7 +35,7 @@ impl HttpConfigLoader {
     ) -> http::Request<http_body_util::Full<bytes::Bytes>> {
         http::Request::builder()
             .method(method)
-            .uri(format!("{}{}", self.base_url, path))
+            .uri(format!("{}{}{}", self.base_url, self.api_prefix, path))
             .header("Authorization", format!("Bearer {}", self.token))
             .header("Content-Type", "application/json")
             .body(http_body_util::Full::new(bytes::Bytes::new()))
@@ -80,7 +82,7 @@ impl HttpConfigLoader {
         loop {
             let json = self
                 .get_json(&format!(
-                    "/api/v1/routes?page={}&page_size={}",
+                    "/routes?page={}&page_size={}",
                     page, page_size
                 ))
                 .await?;
@@ -112,7 +114,7 @@ impl HttpConfigLoader {
         loop {
             let json = self
                 .get_json(&format!(
-                    "/api/v1/upstreams?page={}&page_size={}",
+                    "/upstreams?page={}&page_size={}",
                     page, page_size
                 ))
                 .await?;
@@ -142,7 +144,7 @@ impl HttpConfigLoader {
         route_id: u64,
     ) -> Result<Vec<PluginBindingDto>, ConrogateError> {
         let json = self
-            .get_json(&format!("/api/v1/routes/{}/plugins", route_id))
+            .get_json(&format!("/routes/{}/plugins", route_id))
             .await?;
         let data = json
             .get("data")

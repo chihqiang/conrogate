@@ -18,6 +18,8 @@ use crate::auth::Role;
 #[derive(Clone)]
 pub struct AppState {
     pub svc: Arc<ControlService>,
+    /// API 路由前缀（受保护路由挂载点，用于 OpenAPI 文档生成）
+    pub api_prefix: String,
 }
 
 /// RBAC 权限校验：不满足返回 Forbidden
