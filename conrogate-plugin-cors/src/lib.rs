@@ -108,10 +108,7 @@ impl Plugin for CorsPlugin {
             // OPTIONS 预检请求直接返回
             if http.method == "OPTIONS" {
                 let mut headers = http::HeaderMap::new();
-                let request_origin = http
-                    .headers
-                    .get("origin")
-                    .and_then(|v| v.to_str().ok());
+                let request_origin = http.headers.get("origin").and_then(|v| v.to_str().ok());
                 if let Some(origin) = self.resolve_origin(request_origin) {
                     if let Ok(v) = origin.parse() {
                         headers.insert("Access-Control-Allow-Origin", v);
@@ -179,9 +176,7 @@ impl Plugin for CorsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use conrogate_contract::plugin::{
-        HttpContext, PluginLogger, PluginMetrics, PluginServices,
-    };
+    use conrogate_contract::plugin::{HttpContext, PluginLogger, PluginMetrics, PluginServices};
     use http::Method;
     use std::sync::Arc;
 

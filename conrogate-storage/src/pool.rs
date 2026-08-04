@@ -10,7 +10,10 @@ pub type DbConn = DatabaseConnection;
 /// 主库连接池（读写）
 pub async fn create_main_pool(db_config: &DbConfig) -> Result<DatabaseConnection, ConrogateError> {
     let url = db_config.database_url();
-    let mut opt = ConnectOptions::new(url);
+    let mut opt = ConnectOptions::new(url.clone());
+    if url.starts_with("sqlite:") {
+        opt.map_sqlx_sqlite_opts(|o| o.create_if_missing(true));
+    }
     opt.connect_timeout(db_config.connect_timeout)
         .max_connections(db_config.max_connections)
         .min_connections(1)
@@ -26,7 +29,10 @@ pub async fn create_main_pool(db_config: &DbConfig) -> Result<DatabaseConnection
 pub async fn create_read_pool(db_config: &DbConfig) -> Result<DatabaseConnection, ConrogateError> {
     let url = db_config.read_database_url();
 
-    let mut opt = ConnectOptions::new(url);
+    let mut opt = ConnectOptions::new(url.clone());
+    if url.starts_with("sqlite:") {
+        opt.map_sqlx_sqlite_opts(|o| o.create_if_missing(true));
+    }
     opt.connect_timeout(db_config.connect_timeout)
         .max_connections(db_config.max_connections)
         .min_connections(1)

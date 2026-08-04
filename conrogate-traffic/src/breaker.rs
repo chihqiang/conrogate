@@ -94,10 +94,16 @@ impl BreakerImpl {
     /// 获取复用的 Redis 连接管理器（懒加载；失败返回 None → fail-open）
     async fn cluster_conn(&self) -> Option<redis::aio::ConnectionManager> {
         let url = self.config.redis_url.as_ref()?;
-        let m = match self.cluster_conn.get_or_try_init(|| async {
-            let client = redis::Client::open(url.as_str()).map_err(|_| ())?;
-            redis::aio::ConnectionManager::new(client).await.map_err(|_| ())
-        }).await {
+        let m = match self
+            .cluster_conn
+            .get_or_try_init(|| async {
+                let client = redis::Client::open(url.as_str()).map_err(|_| ())?;
+                redis::aio::ConnectionManager::new(client)
+                    .await
+                    .map_err(|_| ())
+            })
+            .await
+        {
             Ok(m) => m.clone(),
             Err(_) => {
                 tracing::warn!("circuit breaker redis connect failed, failing open");

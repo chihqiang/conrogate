@@ -413,9 +413,8 @@ impl std::str::FromStr for ConfigSource {
 
 /// 默认网关标识：优先取 CONROGATE_GATE_ID，否则用主机名兜底
 fn default_gate_id() -> String {
-    std::env::var("CONROGATE_GATE_ID").unwrap_or_else(|_| {
-        std::env::var("HOSTNAME").unwrap_or_else(|_| "conrogate".into())
-    })
+    std::env::var("CONROGATE_GATE_ID")
+        .unwrap_or_else(|_| std::env::var("HOSTNAME").unwrap_or_else(|_| "conrogate".into()))
 }
 
 fn env_str(key: &str, default: &str) -> String {
@@ -485,8 +484,7 @@ impl Config {
         let def = Config::default();
 
         // 集群共享状态：mode=cluster 时必须提供 Redis URL
-        let rate_limit_mode =
-            env_str("CONROGATE_GATE_RATE_LIMIT_MODE", &def.gate.rate_limit.mode);
+        let rate_limit_mode = env_str("CONROGATE_GATE_RATE_LIMIT_MODE", &def.gate.rate_limit.mode);
         let cluster_store = if rate_limit_mode == "cluster" {
             let redis_url = env_str("CONROGATE_GATE_RATE_LIMIT_REDIS_URL", "");
             if redis_url.is_empty() {
@@ -537,7 +535,10 @@ impl Config {
                         .and_then(|s| s.parse().ok())
                         .unwrap_or(def.gate.listen.protocol),
                     tls: TlsConfig {
-                        enabled: env_bool("CONROGATE_GATE_TLS_ENABLED", def.gate.listen.tls.enabled),
+                        enabled: env_bool(
+                            "CONROGATE_GATE_TLS_ENABLED",
+                            def.gate.listen.tls.enabled,
+                        ),
                         mode: env_str("CONROGATE_GATE_TLS_MODE", &def.gate.listen.tls.mode),
                         cert_file: env_str(
                             "CONROGATE_GATE_TLS_CERT_FILE",
@@ -591,19 +592,37 @@ impl Config {
                     ),
                 },
                 retry: RetryConfig {
-                    max_attempts: env_u32("CONROGATE_GATE_RETRY_MAX_ATTEMPTS", def.gate.retry.max_attempts),
+                    max_attempts: env_u32(
+                        "CONROGATE_GATE_RETRY_MAX_ATTEMPTS",
+                        def.gate.retry.max_attempts,
+                    ),
                     base_jitter: env_duration_ms(
                         "CONROGATE_GATE_RETRY_BASE_JITTER_MS",
                         def.gate.retry.base_jitter.as_millis() as u64,
                     ),
                 },
                 rate_limit: RateLimitConfig {
-                    enabled: env_bool("CONROGATE_GATE_RATE_LIMIT_ENABLED", def.gate.rate_limit.enabled),
+                    enabled: env_bool(
+                        "CONROGATE_GATE_RATE_LIMIT_ENABLED",
+                        def.gate.rate_limit.enabled,
+                    ),
                     mode: rate_limit_mode,
-                    global_qps: env_u32("CONROGATE_GATE_RATE_LIMIT_GLOBAL_QPS", def.gate.rate_limit.global_qps),
-                    route_qps: env_u32("CONROGATE_GATE_RATE_LIMIT_ROUTE_QPS", def.gate.rate_limit.route_qps),
-                    ip_qps: env_u32("CONROGATE_GATE_RATE_LIMIT_IP_QPS", def.gate.rate_limit.ip_qps),
-                    conn_qps: env_u32("CONROGATE_GATE_RATE_LIMIT_CONN_QPS", def.gate.rate_limit.conn_qps),
+                    global_qps: env_u32(
+                        "CONROGATE_GATE_RATE_LIMIT_GLOBAL_QPS",
+                        def.gate.rate_limit.global_qps,
+                    ),
+                    route_qps: env_u32(
+                        "CONROGATE_GATE_RATE_LIMIT_ROUTE_QPS",
+                        def.gate.rate_limit.route_qps,
+                    ),
+                    ip_qps: env_u32(
+                        "CONROGATE_GATE_RATE_LIMIT_IP_QPS",
+                        def.gate.rate_limit.ip_qps,
+                    ),
+                    conn_qps: env_u32(
+                        "CONROGATE_GATE_RATE_LIMIT_CONN_QPS",
+                        def.gate.rate_limit.conn_qps,
+                    ),
                     bandwidth_kbps: env_u32(
                         "CONROGATE_GATE_RATE_LIMIT_BANDWIDTH_KBPS",
                         def.gate.rate_limit.bandwidth_kbps,
@@ -620,12 +639,18 @@ impl Config {
                         "CONROGATE_GATE_BREAKER_FAILURE_RATE_THRESHOLD",
                         def.gate.breaker.failure_rate_threshold,
                     ),
-                    min_requests: env_u32("CONROGATE_GATE_BREAKER_MIN_REQUESTS", def.gate.breaker.min_requests),
+                    min_requests: env_u32(
+                        "CONROGATE_GATE_BREAKER_MIN_REQUESTS",
+                        def.gate.breaker.min_requests,
+                    ),
                     wait: env_duration_ms(
                         "CONROGATE_GATE_BREAKER_WAIT_MS",
                         def.gate.breaker.wait.as_millis() as u64,
                     ),
-                    half_open_max: env_u32("CONROGATE_GATE_BREAKER_HALF_OPEN_MAX", def.gate.breaker.half_open_max),
+                    half_open_max: env_u32(
+                        "CONROGATE_GATE_BREAKER_HALF_OPEN_MAX",
+                        def.gate.breaker.half_open_max,
+                    ),
                     cluster_store: breaker_cluster_store,
                 },
                 shutdown: ShutdownConfig {
@@ -639,7 +664,10 @@ impl Config {
                         "CONROGATE_GATE_REFRESH_CONFIG_POLL_INTERVAL_MS",
                         def.gate.refresh.config_poll_interval.as_millis() as u64,
                     ),
-                    config_source: env_str("CONROGATE_GATE_REFRESH_CONFIG_SOURCE", &def.gate.refresh.config_source),
+                    config_source: env_str(
+                        "CONROGATE_GATE_REFRESH_CONFIG_SOURCE",
+                        &def.gate.refresh.config_source,
+                    ),
                     control_api_url: env_str(
                         "CONROGATE_GATE_REFRESH_CONTROL_API_URL",
                         &def.gate.refresh.control_api_url,
@@ -672,7 +700,10 @@ impl Config {
                     ),
                 },
                 telemetry: TelemetryConfig {
-                    batch_size: env_usize("CONROGATE_GATE_TELEMETRY_BATCH_SIZE", def.gate.telemetry.batch_size),
+                    batch_size: env_usize(
+                        "CONROGATE_GATE_TELEMETRY_BATCH_SIZE",
+                        def.gate.telemetry.batch_size,
+                    ),
                     batch_interval: env_duration_ms(
                         "CONROGATE_GATE_TELEMETRY_BATCH_INTERVAL_MS",
                         def.gate.telemetry.batch_interval.as_millis() as u64,
@@ -689,10 +720,16 @@ impl Config {
                         "CONROGATE_GATE_TELEMETRY_DB_RETRY_MAX_BACKOFF_MS",
                         def.gate.telemetry.db_retry_max_backoff.as_millis() as u64,
                     ),
-                    bucket_sec: env_u32("CONROGATE_GATE_TELEMETRY_BUCKET_SEC", def.gate.telemetry.bucket_sec),
+                    bucket_sec: env_u32(
+                        "CONROGATE_GATE_TELEMETRY_BUCKET_SEC",
+                        def.gate.telemetry.bucket_sec,
+                    ),
                 },
                 outbound_tls: OutboundTlsConfig {
-                    skip_verify: env_bool("CONROGATE_GATE_OUTBOUND_TLS_SKIP_VERIFY", def.gate.outbound_tls.skip_verify),
+                    skip_verify: env_bool(
+                        "CONROGATE_GATE_OUTBOUND_TLS_SKIP_VERIFY",
+                        def.gate.outbound_tls.skip_verify,
+                    ),
                 },
                 gate_id: env_str("CONROGATE_GATE_ID", &def.gate.gate_id),
             },
@@ -702,7 +739,10 @@ impl Config {
             },
             control: ControlConfig {
                 listen: ControlListenConfig {
-                    enabled: env_bool("CONROGATE_CONTROL_LISTEN_ENABLED", def.control.listen.enabled),
+                    enabled: env_bool(
+                        "CONROGATE_CONTROL_LISTEN_ENABLED",
+                        def.control.listen.enabled,
+                    ),
                     host: env_str("CONROGATE_CONTROL_LISTEN_HOST", &def.control.listen.host),
                     port: env_u16("CONROGATE_CONTROL_LISTEN_PORT", def.control.listen.port),
                     api_prefix: env_str(
@@ -714,12 +754,18 @@ impl Config {
                             "CONROGATE_CONTROL_LISTEN_TLS_ENABLED",
                             def.control.listen.tls.enabled,
                         ),
-                        mode: env_str("CONROGATE_CONTROL_LISTEN_TLS_MODE", &def.control.listen.tls.mode),
+                        mode: env_str(
+                            "CONROGATE_CONTROL_LISTEN_TLS_MODE",
+                            &def.control.listen.tls.mode,
+                        ),
                         cert_file: env_str(
                             "CONROGATE_CONTROL_LISTEN_TLS_CERT_FILE",
                             &def.control.listen.tls.cert_file,
                         ),
-                        key: env_str("CONROGATE_CONTROL_LISTEN_TLS_KEY", &def.control.listen.tls.key),
+                        key: env_str(
+                            "CONROGATE_CONTROL_LISTEN_TLS_KEY",
+                            &def.control.listen.tls.key,
+                        ),
                     },
                 },
                 auth: AuthConfig {
@@ -745,7 +791,10 @@ impl Config {
                     "CONROGATE_LOG_OUTPUT_FILE_ROTATION_SIZE_MB",
                     def.log.rotation_size_mb as u32,
                 ) as u64,
-                retention_days: env_u32("CONROGATE_LOG_OUTPUT_FILE_RETENTION_DAYS", def.log.retention_days),
+                retention_days: env_u32(
+                    "CONROGATE_LOG_OUTPUT_FILE_RETENTION_DAYS",
+                    def.log.retention_days,
+                ),
             },
         };
 
@@ -896,23 +945,62 @@ mod tests {
         assert_eq!(parsed.gate.timeouts.connect, default.gate.timeouts.connect);
         assert_eq!(parsed.gate.timeouts.total, default.gate.timeouts.total);
         assert_eq!(parsed.gate.timeouts.read, default.gate.timeouts.read);
-        assert_eq!(parsed.gate.retry.max_attempts, default.gate.retry.max_attempts);
-        assert_eq!(parsed.gate.rate_limit.enabled, default.gate.rate_limit.enabled);
+        assert_eq!(
+            parsed.gate.retry.max_attempts,
+            default.gate.retry.max_attempts
+        );
+        assert_eq!(
+            parsed.gate.rate_limit.enabled,
+            default.gate.rate_limit.enabled
+        );
         assert_eq!(parsed.gate.rate_limit.mode, default.gate.rate_limit.mode);
-        assert_eq!(parsed.gate.rate_limit.global_qps, default.gate.rate_limit.global_qps);
+        assert_eq!(
+            parsed.gate.rate_limit.global_qps,
+            default.gate.rate_limit.global_qps
+        );
         assert_eq!(parsed.gate.breaker.enabled, default.gate.breaker.enabled);
         assert_eq!(parsed.gate.breaker.window, default.gate.breaker.window);
-        assert_eq!(parsed.gate.breaker.failure_rate_threshold, default.gate.breaker.failure_rate_threshold);
-        assert_eq!(parsed.gate.shutdown.long_conn_drain, default.gate.shutdown.long_conn_drain);
-        assert_eq!(parsed.gate.refresh.config_source, default.gate.refresh.config_source);
-        assert_eq!(parsed.gate.refresh.config_poll_interval, default.gate.refresh.config_poll_interval);
-        assert_eq!(parsed.gate.upgrade.buffer_size, default.gate.upgrade.buffer_size);
-        assert_eq!(parsed.gate.upgrade.idle_timeout, default.gate.upgrade.idle_timeout);
-        assert_eq!(parsed.gate.telemetry.batch_size, default.gate.telemetry.batch_size);
-        assert_eq!(parsed.gate.telemetry.bucket_sec, default.gate.telemetry.bucket_sec);
-        assert_eq!(parsed.gate.outbound_tls.skip_verify, default.gate.outbound_tls.skip_verify);
+        assert_eq!(
+            parsed.gate.breaker.failure_rate_threshold,
+            default.gate.breaker.failure_rate_threshold
+        );
+        assert_eq!(
+            parsed.gate.shutdown.long_conn_drain,
+            default.gate.shutdown.long_conn_drain
+        );
+        assert_eq!(
+            parsed.gate.refresh.config_source,
+            default.gate.refresh.config_source
+        );
+        assert_eq!(
+            parsed.gate.refresh.config_poll_interval,
+            default.gate.refresh.config_poll_interval
+        );
+        assert_eq!(
+            parsed.gate.upgrade.buffer_size,
+            default.gate.upgrade.buffer_size
+        );
+        assert_eq!(
+            parsed.gate.upgrade.idle_timeout,
+            default.gate.upgrade.idle_timeout
+        );
+        assert_eq!(
+            parsed.gate.telemetry.batch_size,
+            default.gate.telemetry.batch_size
+        );
+        assert_eq!(
+            parsed.gate.telemetry.bucket_sec,
+            default.gate.telemetry.bucket_sec
+        );
+        assert_eq!(
+            parsed.gate.outbound_tls.skip_verify,
+            default.gate.outbound_tls.skip_verify
+        );
         assert_eq!(parsed.gate.gate_id, default.gate.gate_id);
-        assert_eq!(parsed.control.listen.enabled, default.control.listen.enabled);
+        assert_eq!(
+            parsed.control.listen.enabled,
+            default.control.listen.enabled
+        );
         assert_eq!(parsed.control.listen.port, default.control.listen.port);
         assert_eq!(parsed.control.auth.token, default.control.auth.token);
         assert_eq!(parsed.db.max_connections, default.db.max_connections);

@@ -315,6 +315,9 @@ mod tests {
         let start = std::time::Instant::now();
         let result = forward_http(&test_client(), &node, req, Duration::from_millis(300)).await;
         assert!(matches!(result, Err(ConrogateError::UpstreamTimeout)));
-        assert!(start.elapsed() < std::time::Duration::from_secs(2), "应在超时内返回");
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "应在超时内返回"
+        );
     }
 }

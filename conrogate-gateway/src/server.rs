@@ -214,15 +214,13 @@ impl GatewayServer {
                 .with_trusted_proxies(config.gate.listen.trusted_proxies.clone())
                 .with_max_retries(config.gate.retry.max_attempts),
         ));
-        protocols.register(Arc::new(
-            TcpTunnelProtocolHandler::with_registry(
-                svc.clone(),
-                plugin_registry.clone(),
-                timeout,
-                conn_qps,
-                bandwidth_kbps,
-            ),
-        ));
+        protocols.register(Arc::new(TcpTunnelProtocolHandler::with_registry(
+            svc.clone(),
+            plugin_registry.clone(),
+            timeout,
+            conn_qps,
+            bandwidth_kbps,
+        )));
 
         let server = Self {
             config: config_reloader,
@@ -237,7 +235,13 @@ impl GatewayServer {
             idle_timeout: config.gate.connection.idle_timeout,
             config_cache: None,
         };
-        (server, TelemetryChannels { metric_rx, event_rx })
+        (
+            server,
+            TelemetryChannels {
+                metric_rx,
+                event_rx,
+            },
+        )
     }
 
     /// 从配置构建网关（async：需注册插件）。
@@ -302,15 +306,13 @@ impl GatewayServer {
                 .with_trusted_proxies(config.gate.listen.trusted_proxies.clone())
                 .with_max_retries(config.gate.retry.max_attempts),
         ));
-        protocols.register(Arc::new(
-            TcpTunnelProtocolHandler::with_registry(
-                svc.clone(),
-                plugin_registry.clone(),
-                timeout,
-                conn_qps,
-                bandwidth_kbps,
-            ),
-        ));
+        protocols.register(Arc::new(TcpTunnelProtocolHandler::with_registry(
+            svc.clone(),
+            plugin_registry.clone(),
+            timeout,
+            conn_qps,
+            bandwidth_kbps,
+        )));
 
         Self {
             config: config_reloader,
@@ -500,8 +502,8 @@ impl GatewayServer {
 
                 // 读取配置：优先 Redis 快照，失败降级直连 DB（fail-open，docs/09 §9）。
                 // 任一数据源读取失败则跳过本次重载，保持当前生效配置（原子替换，不半套刷入）。
-                if let Some((r, u, bindings)) = load_config_snapshot(config_cache.as_deref(), &db)
-                    .await
+                if let Some((r, u, bindings)) =
+                    load_config_snapshot(config_cache.as_deref(), &db).await
                 {
                     let body_req = registry.body_required_plugin_names();
                     // 热加载：更新路由插件链（set_route_chains）
@@ -1081,14 +1083,15 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                                     .headers_mut()
                                                     .insert(http::header::HOST, v);
                                             }
-                                            let forward = conrogate_protocol::upgrade::forward_websocket(
-                                                &upstream_addr,
-                                                io,
-                                                upgrade_req,
-                                                ws_connect_timeout,
-                                                ws_idle_timeout,
-                                                upgrade_buffer_size,
-                                            );
+                                            let forward =
+                                                conrogate_protocol::upgrade::forward_websocket(
+                                                    &upstream_addr,
+                                                    io,
+                                                    upgrade_req,
+                                                    ws_connect_timeout,
+                                                    ws_idle_timeout,
+                                                    upgrade_buffer_size,
+                                                );
                                             tokio::select! {
                                                 result = forward => {
                                                     if let Err(e) = result {
@@ -1193,8 +1196,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| upstream_addr.clone());
                     // 按路由配置剥离敏感头（authorization/cookie 等，与 HTTP 路径一致）
-                    let strip_sensitive =
-                        resp.headers().contains_key("X-WS-Strip-Sensitive");
+                    let strip_sensitive = resp.headers().contains_key("X-WS-Strip-Sensitive");
                     // 启动 WS 双向转发任务
                     if let (Some(on_upgrade), Some((method, uri, headers))) =
                         (on_upgrade, ws_req_info)
@@ -1217,9 +1219,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                     }
                                     // 重写 Host 头为上游主机（否则上游看到的是网关的 Host）
                                     if let Ok(v) = upstream_host.parse() {
-                                        upgrade_req
-                                            .headers_mut()
-                                            .insert(http::header::HOST, v);
+                                        upgrade_req.headers_mut().insert(http::header::HOST, v);
                                     }
                                     let forward = conrogate_protocol::upgrade::forward_websocket(
                                         &upstream_addr,

@@ -53,11 +53,7 @@ impl ConsistentHash {
     /// 构建哈希环（虚拟节点数按权重成比例分配）
     fn build_ring(&self, nodes: &[&UpstreamNodeDto]) -> BTreeMap<u64, usize> {
         let mut ring = BTreeMap::new();
-        let max_weight = nodes
-            .iter()
-            .map(|n| n.weight.max(1))
-            .max()
-            .unwrap_or(1);
+        let max_weight = nodes.iter().map(|n| n.weight.max(1)).max().unwrap_or(1);
         for (idx, &node) in nodes.iter().enumerate() {
             let weight = node.weight.max(1);
             let count = (self.vnodes as u64 * weight as u64 / max_weight as u64).max(1) as usize;
@@ -119,7 +115,11 @@ impl LoadBalancer for ConsistentHash {
                             ring: new_ring,
                         }));
                     }
-                    guard.as_ref().expect("ring cache just populated").ring.clone()
+                    guard
+                        .as_ref()
+                        .expect("ring cache just populated")
+                        .ring
+                        .clone()
                 }
             }
         };

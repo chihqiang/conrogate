@@ -5,7 +5,9 @@ use crate::proxy::{body_from_bytes, body_from_incoming, HttpClient, ReqBody};
 use bytes::Bytes;
 use conrogate_contract::dto::{RouteSnapshot, UpstreamNodeDto};
 use conrogate_contract::gateway::ServiceContext;
-use conrogate_contract::plugin::{HttpContext, Plugin, PluginContext, PluginOutcome, PluginResponse};
+use conrogate_contract::plugin::{
+    HttpContext, Plugin, PluginContext, PluginOutcome, PluginResponse,
+};
 use conrogate_contract::protocol::{ProtocolId, RouteMatchInfo};
 use conrogate_contract::ConrogateError;
 use http::{HeaderMap, Method, Request, Response, StatusCode, Uri};
@@ -346,12 +348,14 @@ impl HttpProtocolHandler {
                 }
 
                 // 11. 记录结果（成功/失败反馈给熔断器）
-                self.record_outcome(&route, &node, proxy_result.is_ok()).await;
+                self.record_outcome(&route, &node, proxy_result.is_ok())
+                    .await;
                 if let Err(ref e) = proxy_result {
                     // 上游传输失败（超时/连接错误）：无响应体可返回，记录 5xx 指标 + 事件
                     self.record_terminal_metric(&route, &meta, false, false, false, true, 0, 0)
                         .await;
-                    self.record_upstream_failed_event(&route, &node, &meta, e).await;
+                    self.record_upstream_failed_event(&route, &node, &meta, e)
+                        .await;
                 }
                 let proxy_result = proxy_result?;
 
@@ -413,7 +417,10 @@ impl HttpProtocolHandler {
                 );
                 // WS 升级成功建立隧道：记录会话指标（此前完全不可观测）
                 self.record_ws_metric(route_id, &meta).await;
-                Ok(Response::from_parts(resp_parts, body_from_bytes(Bytes::new())))
+                Ok(Response::from_parts(
+                    resp_parts,
+                    body_from_bytes(Bytes::new()),
+                ))
             }
             PreFlight::Continue {
                 mut plugin_ctx,
@@ -440,17 +447,23 @@ impl HttpProtocolHandler {
                 );
 
                 // 流式转发（不重试：body 不可 clone）
-                let proxy_result =
-                    crate::proxy::forward_http_stream(&self.client, &node, upstream_req, self.timeout)
-                        .await;
+                let proxy_result = crate::proxy::forward_http_stream(
+                    &self.client,
+                    &node,
+                    upstream_req,
+                    self.timeout,
+                )
+                .await;
 
                 // 记录结果
-                self.record_outcome(&route, &node, proxy_result.is_ok()).await;
+                self.record_outcome(&route, &node, proxy_result.is_ok())
+                    .await;
                 if let Err(ref e) = proxy_result {
                     // 上游传输失败：无响应体可返回，记录 5xx 指标 + 事件
                     self.record_terminal_metric(&route, &meta, false, false, false, true, 0, 0)
                         .await;
-                    self.record_upstream_failed_event(&route, &node, &meta, e).await;
+                    self.record_upstream_failed_event(&route, &node, &meta, e)
+                        .await;
                 }
                 let proxy_result = proxy_result?;
 
@@ -615,7 +628,8 @@ impl HttpProtocolHandler {
             }
             // 通知桥接器：WS 隧道转发前剥离敏感头（按路由配置，默认透传）
             if route.ws_strip_sensitive_headers {
-                resp.headers_mut().insert("X-WS-Strip-Sensitive", "1".parse().unwrap());
+                resp.headers_mut()
+                    .insert("X-WS-Strip-Sensitive", "1".parse().unwrap());
             }
             if let Ok(v) = meta.trace_id.parse() {
                 resp.headers_mut().insert("X-WS-Trace-Id", v);
@@ -679,7 +693,10 @@ impl HttpProtocolHandler {
 
     /// 请求完成：反馈结果给熔断器 + 释放节点
     async fn record_outcome(&self, route: &RouteSnapshot, node: &UpstreamNodeDto, success: bool) {
-        self.svc.traffic.record_result(route.id, node.id, success).await;
+        self.svc
+            .traffic
+            .record_result(route.id, node.id, success)
+            .await;
         // 请求完成，释放节点（LeastConnections 递减计数）
         self.svc.balancer.release_node(route, node).await;
     }
@@ -739,8 +756,10 @@ impl HttpProtocolHandler {
         let is_3xx = (300..400).contains(&code);
         let is_4xx = (400..500).contains(&code);
         let is_5xx = code >= 500;
-        self.record_terminal_metric(route, meta, is_2xx, is_3xx, is_4xx, is_5xx, bytes_in, bytes_out)
-            .await;
+        self.record_terminal_metric(
+            route, meta, is_2xx, is_3xx, is_4xx, is_5xx, bytes_in, bytes_out,
+        )
+        .await;
 
         Ok(resp)
     }
@@ -855,7 +874,10 @@ enum PreFlight {
         node: UpstreamNodeDto,
     },
     /// 插件终止请求
-    Terminate { code: StatusCode, body: serde_json::Value },
+    Terminate {
+        code: StatusCode,
+        body: serde_json::Value,
+    },
     /// WebSocket 升级：返回 101 + 上游地址
     WebSocketUpgrade {
         parts: http::response::Parts,
@@ -944,10 +966,18 @@ mod tests {
     struct StubTraffic;
     #[async_trait::async_trait]
     impl TrafficControl for StubTraffic {
-        async fn check_rate_limit(&self, _route_id: u64, _client_ip: &str) -> Result<(), ConrogateError> {
+        async fn check_rate_limit(
+            &self,
+            _route_id: u64,
+            _client_ip: &str,
+        ) -> Result<(), ConrogateError> {
             Ok(())
         }
-        async fn check_circuit_breaker(&self, _route_id: u64, _node_id: u64) -> Result<(), ConrogateError> {
+        async fn check_circuit_breaker(
+            &self,
+            _route_id: u64,
+            _node_id: u64,
+        ) -> Result<(), ConrogateError> {
             Ok(())
         }
         async fn record_result(&self, _route_id: u64, _node_id: u64, _success: bool) {}
@@ -957,10 +987,18 @@ mod tests {
     struct FailingRateLimitTraffic;
     #[async_trait::async_trait]
     impl TrafficControl for FailingRateLimitTraffic {
-        async fn check_rate_limit(&self, _route_id: u64, _client_ip: &str) -> Result<(), ConrogateError> {
+        async fn check_rate_limit(
+            &self,
+            _route_id: u64,
+            _client_ip: &str,
+        ) -> Result<(), ConrogateError> {
             Err(ConrogateError::RateLimited)
         }
-        async fn check_circuit_breaker(&self, _route_id: u64, _node_id: u64) -> Result<(), ConrogateError> {
+        async fn check_circuit_breaker(
+            &self,
+            _route_id: u64,
+            _node_id: u64,
+        ) -> Result<(), ConrogateError> {
             Ok(())
         }
         async fn record_result(&self, _route_id: u64, _node_id: u64, _success: bool) {}
@@ -970,10 +1008,18 @@ mod tests {
     struct FailingBreakerTraffic;
     #[async_trait::async_trait]
     impl TrafficControl for FailingBreakerTraffic {
-        async fn check_rate_limit(&self, _route_id: u64, _client_ip: &str) -> Result<(), ConrogateError> {
+        async fn check_rate_limit(
+            &self,
+            _route_id: u64,
+            _client_ip: &str,
+        ) -> Result<(), ConrogateError> {
             Ok(())
         }
-        async fn check_circuit_breaker(&self, _route_id: u64, _node_id: u64) -> Result<(), ConrogateError> {
+        async fn check_circuit_breaker(
+            &self,
+            _route_id: u64,
+            _node_id: u64,
+        ) -> Result<(), ConrogateError> {
             Err(ConrogateError::CircuitBreakerOpen)
         }
         async fn record_result(&self, _route_id: u64, _node_id: u64, _success: bool) {}
@@ -1099,7 +1145,11 @@ mod tests {
             plugins: Arc::new(StubPlugins),
             gate_id: "test-gate".into(),
         });
-        (HttpProtocolHandler::with_timeout(svc, Duration::from_secs(5)), metrics, events)
+        (
+            HttpProtocolHandler::with_timeout(svc, Duration::from_secs(5)),
+            metrics,
+            events,
+        )
     }
 
     /// 上游回显服务器：请求体原样回显（响应带 x-upstream 头）
@@ -1114,19 +1164,17 @@ mod tests {
                 };
                 let io = TokioIo::new(stream);
                 tokio::spawn(async move {
-                    let svc = hyper::service::service_fn(
-                        |req: Request<Incoming>| async move {
-                            let body = req.into_body().collect().await.unwrap().to_bytes();
-                            let echo = format!("echo:{}", String::from_utf8_lossy(&body));
-                            Ok::<_, std::convert::Infallible>(
-                                Response::builder()
-                                    .status(StatusCode::OK)
-                                    .header("x-upstream", "echo")
-                                    .body(Full::new(Bytes::from(echo)))
-                                    .unwrap(),
-                            )
-                        },
-                    );
+                    let svc = hyper::service::service_fn(|req: Request<Incoming>| async move {
+                        let body = req.into_body().collect().await.unwrap().to_bytes();
+                        let echo = format!("echo:{}", String::from_utf8_lossy(&body));
+                        Ok::<_, std::convert::Infallible>(
+                            Response::builder()
+                                .status(StatusCode::OK)
+                                .header("x-upstream", "echo")
+                                .body(Full::new(Bytes::from(echo)))
+                                .unwrap(),
+                        )
+                    });
                     let _ = hyper::server::conn::http1::Builder::new()
                         .serve_connection(io, svc)
                         .await;
@@ -1148,13 +1196,14 @@ mod tests {
                 };
                 let io = TokioIo::new(stream);
                 tokio::spawn(async move {
-                    let svc = hyper::service::service_fn(
-                        |_req: Request<Incoming>| async move {
-                            Ok::<_, std::convert::Infallible>(
-                                Response::builder().status(status).body(Full::new(Bytes::new())).unwrap(),
-                            )
-                        },
-                    );
+                    let svc = hyper::service::service_fn(|_req: Request<Incoming>| async move {
+                        Ok::<_, std::convert::Infallible>(
+                            Response::builder()
+                                .status(status)
+                                .body(Full::new(Bytes::new()))
+                                .unwrap(),
+                        )
+                    });
                     let _ = hyper::server::conn::http1::Builder::new()
                         .serve_connection(io, svc)
                         .await;
@@ -1175,7 +1224,10 @@ mod tests {
             .uri("http://gateway.local/echo")
             .body(Bytes::from_static(b"ping"))
             .unwrap();
-        let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
+        let resp = handler
+            .handle(req, "192.168.1.10".into())
+            .await
+            .expect("handle ok");
 
         assert_eq!(resp.status(), StatusCode::OK);
         let body = resp.into_body();
@@ -1194,7 +1246,10 @@ mod tests {
             .header("x-trace-id", "trace-123")
             .body(Bytes::new())
             .unwrap();
-        let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
+        let resp = handler
+            .handle(req, "192.168.1.10".into())
+            .await
+            .expect("handle ok");
 
         assert!(resp.headers().contains_key("x-upstream"));
         assert_eq!(
@@ -1225,7 +1280,10 @@ mod tests {
         assert_eq!(rows[0].status_4xx, 0);
         assert_eq!(rows[0].total_requests, 1);
         assert_eq!(rows[0].gate_id, "test-gate");
-        assert_eq!(rows[0].bucket_sec, 0, "raw sample: aggregator assigns bucket");
+        assert_eq!(
+            rows[0].bucket_sec, 0,
+            "raw sample: aggregator assigns bucket"
+        );
         // 上游失败应同时上报审计事件
         let events = events.lock().unwrap();
         assert_eq!(events.len(), 1);
@@ -1266,7 +1324,10 @@ mod tests {
             .uri("http://gateway.local/echo")
             .body(Bytes::from_static(b"ping"))
             .unwrap();
-        let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
+        let resp = handler
+            .handle(req, "192.168.1.10".into())
+            .await
+            .expect("handle ok");
         assert_eq!(resp.status(), StatusCode::OK);
 
         let rows = metrics.lock().unwrap();
@@ -1290,7 +1351,10 @@ mod tests {
             .uri("http://gateway.local/echo")
             .body(Bytes::new())
             .unwrap();
-        let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
+        let resp = handler
+            .handle(req, "192.168.1.10".into())
+            .await
+            .expect("handle ok");
         assert_eq!(resp.status(), StatusCode::FOUND);
 
         let rows = metrics.lock().unwrap();
@@ -1342,15 +1406,22 @@ mod tests {
             .header("sec-websocket-key", "x3JJHMbDL1EzLkh9GBhXDw==")
             .body(Bytes::new())
             .unwrap();
-        let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
+        let resp = handler
+            .handle(req, "192.168.1.10".into())
+            .await
+            .expect("handle ok");
         assert_eq!(resp.status(), StatusCode::SWITCHING_PROTOCOLS);
         // 上游 Host 头（host_header 未配置时回落到节点地址）
         assert_eq!(
-            resp.headers().get("X-WS-Host-Header").and_then(|v| v.to_str().ok()),
+            resp.headers()
+                .get("X-WS-Host-Header")
+                .and_then(|v| v.to_str().ok()),
             Some(upstream.to_string().as_str())
         );
         assert_eq!(
-            resp.headers().get("X-WS-Upstream-Addr").and_then(|v| v.to_str().ok()),
+            resp.headers()
+                .get("X-WS-Upstream-Addr")
+                .and_then(|v| v.to_str().ok()),
             Some(upstream.to_string().as_str())
         );
 
@@ -1365,7 +1436,8 @@ mod tests {
     #[tokio::test]
     async fn ws_strip_sensitive_flag_emitted_when_enabled() {
         let upstream = spawn_echo_upstream().await;
-        let (handler, _metrics, _events) = make_handler_strip(Some(upstream), Arc::new(StubTraffic));
+        let (handler, _metrics, _events) =
+            make_handler_strip(Some(upstream), Arc::new(StubTraffic));
 
         let req = Request::builder()
             .method(Method::GET)
@@ -1376,7 +1448,10 @@ mod tests {
             .header("authorization", "Bearer top-secret")
             .body(Bytes::new())
             .unwrap();
-        let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
+        let resp = handler
+            .handle(req, "192.168.1.10".into())
+            .await
+            .expect("handle ok");
         assert_eq!(resp.status(), StatusCode::SWITCHING_PROTOCOLS);
         assert!(
             resp.headers().contains_key("X-WS-Strip-Sensitive"),
@@ -1398,7 +1473,10 @@ mod tests {
             .header("sec-websocket-key", "x3JJHMbDL1EzLkh9GBhXDw==")
             .body(Bytes::new())
             .unwrap();
-        let resp = handler.handle(req, "192.168.1.10".into()).await.expect("handle ok");
+        let resp = handler
+            .handle(req, "192.168.1.10".into())
+            .await
+            .expect("handle ok");
         assert_eq!(resp.status(), StatusCode::SWITCHING_PROTOCOLS);
         assert!(!resp.headers().contains_key("X-WS-Strip-Sensitive"));
     }

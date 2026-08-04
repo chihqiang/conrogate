@@ -91,12 +91,10 @@ impl HttpConfigLoader {
                 .get("list")
                 .or_else(|| data.as_array().map(|_| data))
                 .ok_or_else(|| ConrogateError::ConfigLoad("missing list field".into()))?;
-            let batch: Vec<RouteDto> = serde_json::from_value(list.clone())
-                .map_err(|e| ConrogateError::ConfigLoad(format!("route deserialize failed: {e}")))?;
-            let total = data
-                .get("total")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
+            let batch: Vec<RouteDto> = serde_json::from_value(list.clone()).map_err(|e| {
+                ConrogateError::ConfigLoad(format!("route deserialize failed: {e}"))
+            })?;
+            let total = data.get("total").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
             all.extend(batch);
             if all.len() >= total || all.is_empty() {
                 break;
@@ -125,12 +123,10 @@ impl HttpConfigLoader {
                 .get("list")
                 .or_else(|| data.as_array().map(|_| data))
                 .ok_or_else(|| ConrogateError::ConfigLoad("missing list field".into()))?;
-            let batch: Vec<UpstreamDto> = serde_json::from_value(list.clone())
-                .map_err(|e| ConrogateError::ConfigLoad(format!("upstream deserialize failed: {e}")))?;
-            let total = data
-                .get("total")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize;
+            let batch: Vec<UpstreamDto> = serde_json::from_value(list.clone()).map_err(|e| {
+                ConrogateError::ConfigLoad(format!("upstream deserialize failed: {e}"))
+            })?;
+            let total = data.get("total").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
             all.extend(batch);
             if all.len() >= total || all.is_empty() {
                 break;

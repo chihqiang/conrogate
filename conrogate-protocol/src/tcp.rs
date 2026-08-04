@@ -183,12 +183,7 @@ impl TcpTunnelProtocolHandler {
         if self.conn_qps > 0 {
             let conn_key = format!("conn:{listen_addr}");
             // 使用 traffic 模块的限流接口
-            if let Err(e) = self
-                .svc
-                .traffic
-                .check_rate_limit(u64::MAX, &conn_key)
-                .await
-            {
+            if let Err(e) = self.svc.traffic.check_rate_limit(u64::MAX, &conn_key).await {
                 self.record_pre_tunnel_failure(Some(route.id), true).await;
                 return Err(e);
             }
@@ -353,10 +348,18 @@ mod tests {
     struct StubTraffic;
     #[async_trait::async_trait]
     impl TrafficControl for StubTraffic {
-        async fn check_rate_limit(&self, _route_id: u64, _client_ip: &str) -> Result<(), ConrogateError> {
+        async fn check_rate_limit(
+            &self,
+            _route_id: u64,
+            _client_ip: &str,
+        ) -> Result<(), ConrogateError> {
             Ok(())
         }
-        async fn check_circuit_breaker(&self, _route_id: u64, _node_id: u64) -> Result<(), ConrogateError> {
+        async fn check_circuit_breaker(
+            &self,
+            _route_id: u64,
+            _node_id: u64,
+        ) -> Result<(), ConrogateError> {
             Ok(())
         }
         async fn record_result(&self, _route_id: u64, _node_id: u64, _success: bool) {}
@@ -445,7 +448,10 @@ mod tests {
         ) -> Result<PluginOutcome, ConrogateError> {
             Ok(PluginOutcome::Continue)
         }
-        async fn on_connect(&self, _ctx: &mut PluginContext) -> Result<PluginOutcome, ConrogateError> {
+        async fn on_connect(
+            &self,
+            _ctx: &mut PluginContext,
+        ) -> Result<PluginOutcome, ConrogateError> {
             self.connects.fetch_add(1, Ordering::SeqCst);
             Ok(PluginOutcome::Continue)
         }
@@ -480,13 +486,8 @@ mod tests {
             gate_id: "test-gate".into(),
         });
 
-        let handler = TcpTunnelProtocolHandler::with_registry(
-            svc,
-            registry,
-            Duration::from_secs(2),
-            0,
-            0,
-        );
+        let handler =
+            TcpTunnelProtocolHandler::with_registry(svc, registry, Duration::from_secs(2), 0, 0);
 
         // 入站连接（实际转发目标 127.0.0.1:1 无监听，将在转发阶段失败）
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -496,11 +497,24 @@ mod tests {
         let _server = listener.accept().await.unwrap();
 
         let result = handler
-            .handle_tcp("127.0.0.1:9000".to_string(), None, "127.0.0.1".to_string(), inbound)
+            .handle_tcp(
+                "127.0.0.1:9000".to_string(),
+                None,
+                "127.0.0.1".to_string(),
+                inbound,
+            )
             .await;
 
         assert!(result.is_err(), "无监听上游应转发失败");
-        assert_eq!(connects.load(Ordering::SeqCst), 1, "on_connect 必须执行一次");
-        assert_eq!(disconnects.load(Ordering::SeqCst), 1, "on_disconnect 必须执行一次");
+        assert_eq!(
+            connects.load(Ordering::SeqCst),
+            1,
+            "on_connect 必须执行一次"
+        );
+        assert_eq!(
+            disconnects.load(Ordering::SeqCst),
+            1,
+            "on_disconnect 必须执行一次"
+        );
     }
 }

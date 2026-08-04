@@ -185,4 +185,3 @@ fn serialize_request(req: &Request<Bytes>) -> Vec<u8> {
     buf.extend_from_slice(req.body());
     buf
 }
-

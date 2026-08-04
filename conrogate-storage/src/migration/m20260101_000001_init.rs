@@ -827,7 +827,9 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(GatewayEvents::EventType)
                             .string()
                             .not_null()
-                            .comment("事件类型（rate_limited/circuit_breaker_open/upstream_failed 等）"),
+                            .comment(
+                                "事件类型（rate_limited/circuit_breaker_open/upstream_failed 等）",
+                            ),
                     )
                     .col(
                         ColumnDef::new(GatewayEvents::RouteId)

@@ -25,10 +25,8 @@ use std::sync::Arc;
 
 /// 测试用临时库路径；结束后清理。并行测试用 pid 区分避免冲突。
 fn db_url() -> (String, std::path::PathBuf) {
-    let path = std::env::temp_dir().join(format!(
-        "conrogate_sqlite_smoke_{}.db",
-        std::process::id()
-    ));
+    let path =
+        std::env::temp_dir().join(format!("conrogate_sqlite_smoke_{}.db", std::process::id()));
     let _ = std::fs::remove_file(&path);
     (format!("sqlite://{}?mode=rwc", path.display()), path)
 }
@@ -94,11 +92,15 @@ async fn sqlite_migrate_and_repo_roundtrip() -> Result<(), Box<dyn std::error::E
     assert_eq!(upstream.nodes.len(), 1);
 
     // ── 路由 ──
-    let route = route_repo.create(create_route_dto("demo", upstream.id)).await?;
+    let route = route_repo
+        .create(create_route_dto("demo", upstream.id))
+        .await?;
     let route_id = route.id;
 
     // 重复路由名 → Conflict（应用层预检查 + partial index 兜底）
-    let dup = route_repo.create(create_route_dto("demo", upstream.id)).await;
+    let dup = route_repo
+        .create(create_route_dto("demo", upstream.id))
+        .await;
     assert!(matches!(dup, Err(ConrogateError::Conflict(_))));
 
     // ── 插件绑定 ──

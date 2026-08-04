@@ -25,12 +25,10 @@ pub async fn run(
         use sea_orm::{ConnectionTrait, DatabaseBackend};
         let backend = main_db.get_database_backend();
         let locked = match backend {
-            DatabaseBackend::Postgres => {
-                main_db
-                    .execute_unprepared("SELECT pg_advisory_lock(20260101)")
-                    .await
-                    .is_ok()
-            }
+            DatabaseBackend::Postgres => main_db
+                .execute_unprepared("SELECT pg_advisory_lock(20260101)")
+                .await
+                .is_ok(),
             DatabaseBackend::MySql => {
                 // GET_LOCK 返回 1=获取成功 0=超时 NULL=错误
                 match main_db
