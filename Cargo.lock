@@ -450,7 +450,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -475,7 +475,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate-balancer"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "conrogate-contract",
@@ -487,7 +487,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate-contract"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -504,7 +504,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate-control"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -520,7 +520,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate-control-svc"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "axum",
@@ -540,7 +540,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate-gate"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -567,7 +567,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate-gateway"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -601,7 +601,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate-migrate"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -615,7 +615,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate-plugin"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "conrogate-contract",
@@ -626,7 +626,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate-plugin-auth"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -647,7 +647,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate-plugin-cors"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -662,7 +662,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate-plugin-log"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "conrogate-contract",
@@ -674,7 +674,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate-protocol"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "base64",
@@ -699,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate-storage"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -718,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "conrogate-traffic"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "async-trait",
  "conrogate-balancer",
