@@ -7,18 +7,18 @@ use conrogate_contract::balancer::{BalancerAlgorithm, LoadBalancer};
 use conrogate_contract::dto::UpstreamNodeDto;
 use conrogate_contract::ConrogateError;
 use std::collections::BTreeMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 pub struct ConsistentHash {
     // 基础虚拟节点数（按权重成比例分配）
     vnodes: usize,
-    // 缓存的哈希环：节点集合签名 → 环（hash → 节点在 enabled 列表中的下标）
-    cache: Mutex<Option<RingCache>>,
+    // 缓存的哈希环：节点集合签名 → 环（Arc 共享，select 锁外读，避免重建时阻塞其他请求）
+    cache: Mutex<Option<Arc<RingCache>>>,
 }
 
 struct RingCache {
     signature: String,
-    ring: BTreeMap<u64, usize>,
+    ring: Arc<BTreeMap<u64, usize>>,
 }
 
 impl ConsistentHash {
@@ -98,18 +98,31 @@ impl LoadBalancer for ConsistentHash {
             _ => return Ok(enabled[0].clone()),
         };
 
-        // 节点集合未变化时复用缓存的环
+        // 节点集合未变化时复用缓存的环（Arc 共享，锁外读）
         let signature = Self::signature(&enabled);
-        let mut cache = self.cache.lock().unwrap();
-        let needs_rebuild = cache
-            .as_ref()
-            .map(|c| c.signature != signature)
-            .unwrap_or(true);
-        if needs_rebuild {
-            let ring = self.build_ring(&enabled);
-            *cache = Some(RingCache { signature, ring });
-        }
-        let ring = &cache.as_ref().expect("ring cache just populated").ring;
+        let ring = {
+            let guard = self.cache.lock().unwrap();
+            match guard.as_ref() {
+                Some(c) if c.signature == signature => c.ring.clone(),
+                _ => {
+                    // 锁外重建环，double-check 后写入（并发下以先写入者为准）
+                    drop(guard);
+                    let new_ring = Arc::new(self.build_ring(&enabled));
+                    let mut guard = self.cache.lock().unwrap();
+                    if guard
+                        .as_ref()
+                        .map(|c| c.signature != signature)
+                        .unwrap_or(true)
+                    {
+                        *guard = Some(Arc::new(RingCache {
+                            signature,
+                            ring: new_ring,
+                        }));
+                    }
+                    guard.as_ref().expect("ring cache just populated").ring.clone()
+                }
+            }
+        };
         if ring.is_empty() {
             return Ok(enabled[0].clone());
         }

@@ -4,6 +4,7 @@ use crate::balancer::BalancerAlgorithm;
 use crate::protocol::{ProtocolId, RouteMatchConditions};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 // ── 路由 ──
 
@@ -330,11 +331,13 @@ pub struct RouteSnapshot {
     pub id: u64,
     pub protocol: ProtocolId,
     pub upstream_id: Option<u64>,
-    pub host_header: Option<String>,
+    /// 上游 Host 头（Arc<str> 共享：请求热路径避免每次匹配克隆 String）
+    pub host_header: Option<Arc<str>>,
     pub allow_retry_non_idempotent: bool,
     /// WS 隧道转发上游时是否剥离敏感头（与 HTTP 路径安全模型一致）
     pub ws_strip_sensitive_headers: bool,
-    pub plugin_chain: Vec<PluginBindingDto>,
+    /// 路由绑定的插件链（Arc 共享：请求热路径避免整份 Vec 克隆，配置热加载时整体替换）
+    pub plugin_chain: Arc<Vec<PluginBindingDto>>,
     /// 该路由是否有 requires_body 插件 → true 时网关以缓冲模式处理请求体
     pub requires_body: bool,
 }

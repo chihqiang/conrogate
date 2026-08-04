@@ -89,10 +89,10 @@ impl RouteMatcher {
                     id: dto.id,
                     protocol: dto.protocol,
                     upstream_id: dto.upstream_id,
-                    host_header: dto.host_header.clone(),
+                    host_header: dto.host_header.clone().map(std::sync::Arc::from),
                     allow_retry_non_idempotent: dto.allow_retry_non_idempotent,
                     ws_strip_sensitive_headers: dto.ws_strip_sensitive_headers,
-                    plugin_chain: route_bindings,
+                    plugin_chain: std::sync::Arc::new(route_bindings),
                     requires_body,
                 },
             };
@@ -190,16 +190,22 @@ impl RouteMatcher {
     }
 
     /// Host 匹配：精确匹配优先，`*.example.com` 通配一层子域
+    /// （字节级大小写不敏感比较，零分配，避免热路径每次 format!/to_lowercase）
     fn match_host(pattern: &str, host: &str) -> bool {
         if pattern.eq_ignore_ascii_case(host) {
             return true;
         }
         if let Some(suffix) = pattern.strip_prefix("*.") {
-            let host = host.to_ascii_lowercase();
-            let suffix = suffix.to_ascii_lowercase();
-            // 仅匹配一层子域：`*.example.com` 匹配 `a.example.com`，不匹配 `a.b.example.com`
-            if let Some(rest) = host.strip_suffix(&format!(".{suffix}")) {
-                return !rest.is_empty() && !rest.contains('.');
+            let host_bytes = host.as_bytes();
+            let hlen = host_bytes.len();
+            let slen = suffix.len();
+            // 结构要求：`x.example.com`，其中 x 为单个标签（不含点）
+            if hlen > slen + 1 && host_bytes[hlen - slen - 1] == b'.' {
+                let label = &host[..hlen - slen - 1];
+                if label.is_empty() || label.contains('.') {
+                    return false;
+                }
+                return suffix.eq_ignore_ascii_case(&host[hlen - slen..]);
             }
         }
         false

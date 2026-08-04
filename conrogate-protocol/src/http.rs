@@ -8,7 +8,7 @@ use conrogate_contract::gateway::ServiceContext;
 use conrogate_contract::plugin::{HttpContext, Plugin, PluginContext, PluginOutcome, PluginResponse};
 use conrogate_contract::protocol::{ProtocolId, RouteMatchInfo};
 use conrogate_contract::ConrogateError;
-use http::{HeaderMap, Method, Request, Response, StatusCode, Uri, Version};
+use http::{HeaderMap, Method, Request, Response, StatusCode, Uri};
 use hyper_util::client::legacy::Client;
 use std::sync::Arc;
 use std::time::Duration;
@@ -228,7 +228,7 @@ impl HttpProtocolHandler {
             .ok_or_else(|| ConrogateError::RouteNotFound(meta.match_info.path.clone()))?;
 
         match self
-            .preflight(&meta, &method, &uri, parts.version, &headers, Some(&body), route)
+            .preflight(&meta, &method, &headers, Some(&body), route)
             .await?
         {
             PreFlight::Terminate { code, body } => Ok(Response::builder()
@@ -389,7 +389,7 @@ impl HttpProtocolHandler {
         let meta = self.build_request_meta(&method, &uri, &headers, client_ip);
 
         match self
-            .preflight(&meta, &method, &uri, parts.version, &headers, None, route)
+            .preflight(&meta, &method, &headers, None, route)
             .await?
         {
             PreFlight::Terminate { code, body } => Ok(Response::builder()
@@ -501,8 +501,6 @@ impl HttpProtocolHandler {
         &self,
         meta: &RequestMeta,
         method: &Method,
-        uri: &Uri,
-        version: Version,
         headers: &HeaderMap,
         plugin_body: Option<&Bytes>,
         route: RouteSnapshot,
@@ -601,16 +599,9 @@ impl HttpProtocolHandler {
         }
 
         // 8a. WebSocket 升级检测（路由匹配 + 上游选择完成后）
-        // 注意：必须带上客户端请求头，is_upgrade_request 依赖 upgrade/connection 头
-        let mut upgrade_check_req = Request::builder()
-            .method(method.clone())
-            .uri(uri.clone())
-            .version(version)
-            .body(Bytes::new())
-            .unwrap();
-        *upgrade_check_req.headers_mut() = headers.clone();
-        if crate::upgrade::is_upgrade_request(&upgrade_check_req) {
-            let mut resp = crate::upgrade::build_upgrade_response(&upgrade_check_req);
+        // 直接基于请求方法与头判定，避免重建 Request + 克隆整份 HeaderMap
+        if crate::upgrade::is_upgrade_request(method, headers) {
+            let mut resp = crate::upgrade::build_upgrade_response(headers);
             let upstream_addr = node.address.clone();
             // 设置上游地址头，供 HyperServiceBridge 提取并执行 WS 转发
             if let Ok(v) = upstream_addr.parse() {
@@ -1046,7 +1037,7 @@ mod tests {
             host_header: None,
             allow_retry_non_idempotent: false,
             ws_strip_sensitive_headers: false,
-            plugin_chain: vec![],
+            plugin_chain: std::sync::Arc::new(vec![]),
             requires_body: true,
         }
     }

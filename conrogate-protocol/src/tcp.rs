@@ -318,7 +318,7 @@ mod tests {
                 host_header: None,
                 allow_retry_non_idempotent: false,
                 ws_strip_sensitive_headers: false,
-                plugin_chain: vec![PluginBindingDto {
+                plugin_chain: std::sync::Arc::new(vec![PluginBindingDto {
                     id: 1,
                     route_id: 1,
                     plugin_name: "tunnel-guard".to_string(),
@@ -326,7 +326,7 @@ mod tests {
                     order: 0,
                     blocking: true,
                     enabled: true,
-                }],
+                }]),
                 requires_body: false,
             }))
         }

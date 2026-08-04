@@ -60,6 +60,15 @@ impl UpstreamSelectorImpl {
             .cloned()
             .ok_or_else(|| ConrogateError::UpstreamNotFound(format!("upstream {}", upstream_id)))
     }
+
+    /// 仅读取负载均衡算法（Copy，避免整份节点列表克隆）
+    fn get_algorithm(&self, upstream_id: u64) -> Result<BalancerAlgorithm, ConrogateError> {
+        let upstreams = self.upstreams.read().unwrap();
+        upstreams
+            .get(&upstream_id)
+            .map(|(algo, _)| *algo)
+            .ok_or_else(|| ConrogateError::UpstreamNotFound(format!("upstream {}", upstream_id)))
+    }
 }
 
 #[async_trait::async_trait]
@@ -102,7 +111,7 @@ impl UpstreamSelector for UpstreamSelectorImpl {
             Some(id) => id,
             None => return,
         };
-        let (algorithm, _) = match self.get_nodes(upstream_id) {
+        let algorithm = match self.get_algorithm(upstream_id) {
             Ok(v) => v,
             Err(_) => return,
         };

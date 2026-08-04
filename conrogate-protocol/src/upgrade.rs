@@ -3,19 +3,18 @@
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use base64::Engine;
 use bytes::Bytes;
-use http::{Method, Request, Response, StatusCode};
+use http::{HeaderMap, Method, Request, Response, StatusCode};
 use sha1::{Digest, Sha1};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-/// 检查是否为 WebSocket 升级请求
-pub fn is_upgrade_request(req: &Request<Bytes>) -> bool {
-    if req.method() != Method::GET {
+/// 检查是否为 WebSocket 升级请求（方法 + 头，无请求体依赖）
+pub fn is_upgrade_request(method: &Method, headers: &HeaderMap) -> bool {
+    if method != Method::GET {
         return false;
     }
 
-    let headers = req.headers();
     let upgrade = headers
         .get("upgrade")
         .and_then(|v| v.to_str().ok())
@@ -32,9 +31,8 @@ pub fn is_upgrade_request(req: &Request<Bytes>) -> bool {
 }
 
 /// 构造 WebSocket 握手响应（101 Switching Protocols）
-pub fn build_upgrade_response(req: &Request<Bytes>) -> Response<Bytes> {
-    let key = req
-        .headers()
+pub fn build_upgrade_response(headers: &HeaderMap) -> Response<Bytes> {
+    let key = headers
         .get("sec-websocket-key")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
