@@ -650,11 +650,13 @@ name = "conrogate-plugin-cors"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bytes",
  "conrogate-contract",
  "conrogate-plugin",
  "http",
  "serde",
  "serde_json",
+ "tokio",
  "tracing",
 ]
 

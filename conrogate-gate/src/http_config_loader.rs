@@ -72,34 +72,72 @@ impl HttpConfigLoader {
         Ok(json)
     }
 
-    /// 拉取全量路由
+    /// 拉取全量路由（自动翻页，避免超过单页上限时静默丢配置）
     pub async fn load_routes(&self) -> Result<Vec<RouteDto>, ConrogateError> {
-        let json = self.get_json("/api/v1/routes?page=1&page_size=200").await?;
-        let data = json
-            .get("data")
-            .ok_or_else(|| ConrogateError::ConfigLoad("missing data field".into()))?;
-        let list = data
-            .get("list")
-            .or_else(|| data.as_array().map(|_| data))
-            .ok_or_else(|| ConrogateError::ConfigLoad("missing list field".into()))?;
-        serde_json::from_value(list.clone())
-            .map_err(|e| ConrogateError::ConfigLoad(format!("route deserialize failed: {e}")))
+        let mut all = Vec::new();
+        let mut page: u32 = 1;
+        let page_size: u32 = 200;
+        loop {
+            let json = self
+                .get_json(&format!(
+                    "/api/v1/routes?page={}&page_size={}",
+                    page, page_size
+                ))
+                .await?;
+            let data = json
+                .get("data")
+                .ok_or_else(|| ConrogateError::ConfigLoad("missing data field".into()))?;
+            let list = data
+                .get("list")
+                .or_else(|| data.as_array().map(|_| data))
+                .ok_or_else(|| ConrogateError::ConfigLoad("missing list field".into()))?;
+            let batch: Vec<RouteDto> = serde_json::from_value(list.clone())
+                .map_err(|e| ConrogateError::ConfigLoad(format!("route deserialize failed: {e}")))?;
+            let total = data
+                .get("total")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            all.extend(batch);
+            if all.len() >= total || all.is_empty() {
+                break;
+            }
+            page += 1;
+        }
+        Ok(all)
     }
 
-    /// 拉取全量上游
+    /// 拉取全量上游（自动翻页，避免超过单页上限时静默丢配置）
     pub async fn load_upstreams(&self) -> Result<Vec<UpstreamDto>, ConrogateError> {
-        let json = self
-            .get_json("/api/v1/upstreams?page=1&page_size=200")
-            .await?;
-        let data = json
-            .get("data")
-            .ok_or_else(|| ConrogateError::ConfigLoad("missing data field".into()))?;
-        let list = data
-            .get("list")
-            .or_else(|| data.as_array().map(|_| data))
-            .ok_or_else(|| ConrogateError::ConfigLoad("missing list field".into()))?;
-        serde_json::from_value(list.clone())
-            .map_err(|e| ConrogateError::ConfigLoad(format!("upstream deserialize failed: {e}")))
+        let mut all = Vec::new();
+        let mut page: u32 = 1;
+        let page_size: u32 = 200;
+        loop {
+            let json = self
+                .get_json(&format!(
+                    "/api/v1/upstreams?page={}&page_size={}",
+                    page, page_size
+                ))
+                .await?;
+            let data = json
+                .get("data")
+                .ok_or_else(|| ConrogateError::ConfigLoad("missing data field".into()))?;
+            let list = data
+                .get("list")
+                .or_else(|| data.as_array().map(|_| data))
+                .ok_or_else(|| ConrogateError::ConfigLoad("missing list field".into()))?;
+            let batch: Vec<UpstreamDto> = serde_json::from_value(list.clone())
+                .map_err(|e| ConrogateError::ConfigLoad(format!("upstream deserialize failed: {e}")))?;
+            let total = data
+                .get("total")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            all.extend(batch);
+            if all.len() >= total || all.is_empty() {
+                break;
+            }
+            page += 1;
+        }
+        Ok(all)
     }
 
     /// 拉取路由的插件绑定
@@ -118,16 +156,15 @@ impl HttpConfigLoader {
         })
     }
 
-    /// 拉取全量插件绑定
+    /// 拉取全量插件绑定（任一路由失败即整体失败，交由调用方原子处理）
     pub async fn load_all_plugin_bindings(
         &self,
         routes: &[RouteDto],
     ) -> Result<Vec<PluginBindingDto>, ConrogateError> {
         let mut all = Vec::new();
         for route in routes {
-            if let Ok(bindings) = self.load_plugin_bindings(route.id).await {
-                all.extend(bindings);
-            }
+            let bindings = self.load_plugin_bindings(route.id).await?;
+            all.extend(bindings);
         }
         Ok(all)
     }

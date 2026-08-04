@@ -40,7 +40,7 @@ impl MetricRepo for MetricRepoImpl {
                 .map_err(|_| ConrogateError::DatabaseInternal)?;
 
             if let Some(_existing) = existing {
-                // 更新已存在的桶
+                // 更新已存在的桶（全列覆盖，避免部分列残留旧值）
                 MetricEntity::update_many()
                     .col_expr(metric_aggregates::Column::Qps, Expr::value(row.qps as i32))
                     .col_expr(
@@ -52,8 +52,24 @@ impl MetricRepo for MetricRepoImpl {
                         Expr::value(row.avg_latency_ms),
                     )
                     .col_expr(
+                        metric_aggregates::Column::P50Ms,
+                        Expr::value(row.p50_ms as i32),
+                    )
+                    .col_expr(
+                        metric_aggregates::Column::P90Ms,
+                        Expr::value(row.p90_ms as i32),
+                    )
+                    .col_expr(
+                        metric_aggregates::Column::P99Ms,
+                        Expr::value(row.p99_ms as i32),
+                    )
+                    .col_expr(
                         metric_aggregates::Column::Status2xx,
                         Expr::value(row.status_2xx as i64),
+                    )
+                    .col_expr(
+                        metric_aggregates::Column::Status3xx,
+                        Expr::value(row.status_3xx as i64),
                     )
                     .col_expr(
                         metric_aggregates::Column::Status4xx,
@@ -62,6 +78,18 @@ impl MetricRepo for MetricRepoImpl {
                     .col_expr(
                         metric_aggregates::Column::Status5xx,
                         Expr::value(row.status_5xx as i64),
+                    )
+                    .col_expr(
+                        metric_aggregates::Column::Sessions,
+                        Expr::value(row.sessions as i64),
+                    )
+                    .col_expr(
+                        metric_aggregates::Column::BytesIn,
+                        Expr::value(row.bytes_in as i64),
+                    )
+                    .col_expr(
+                        metric_aggregates::Column::BytesOut,
+                        Expr::value(row.bytes_out as i64),
                     )
                     .filter(metric_aggregates::Column::Ts.eq(row.ts))
                     .filter(metric_aggregates::Column::BucketSec.eq(row.bucket_sec as i32))

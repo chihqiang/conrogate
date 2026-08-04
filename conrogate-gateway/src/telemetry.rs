@@ -184,6 +184,56 @@ impl MetricAggregator {
         self
     }
 
+    /// 尝试落库（指数退避重试）；最终失败写入环形缓冲，待下次 flush 重试
+    async fn flush_rows(&mut self, rows: Vec<MetricRow>) {
+        if rows.is_empty() {
+            return;
+        }
+        let Some(repo) = self.metric_repo.clone() else {
+            return;
+        };
+        let mut retry_backoff = std::time::Duration::from_millis(500);
+        let max_backoff = std::time::Duration::from_secs(30);
+        let mut attempt = 0;
+        let max_attempts = 3;
+
+        loop {
+            match repo.upsert_batch(&rows).await {
+                Ok(()) => return,
+                Err(e) => {
+                    attempt += 1;
+                    if attempt >= max_attempts {
+                        tracing::warn!(
+                            error = %e,
+                            attempts = attempt,
+                            "metric batch insert failed after retries, buffering"
+                        );
+                        // 放入环形缓冲，下次 flush 重试
+                        self.recently_failed.push_back(rows.clone());
+                        // 环形缓冲上限：保留最近 10 批失败数据
+                        if self.recently_failed.len() > 10 {
+                            let dropped = self.recently_failed.pop_front();
+                            if let Some(d) = dropped {
+                                tracing::warn!(
+                                    count = d.len(),
+                                    "ring buffer full, dropping oldest failed batch"
+                                );
+                            }
+                        }
+                        return;
+                    }
+                    tracing::warn!(
+                        error = %e,
+                        attempt = attempt,
+                        "metric batch insert failed, retrying after backoff"
+                    );
+                    tokio::time::sleep(retry_backoff).await;
+                    retry_backoff = (retry_backoff * 2).min(max_backoff);
+                }
+            }
+        }
+    }
+
     /// 运行聚合循环
     pub async fn run(&mut self, flush_interval: std::time::Duration) {
         let mut flush_timer = tokio::time::interval(flush_interval);
@@ -212,51 +262,12 @@ impl MetricAggregator {
                             rows_to_flush.push(row);
                         }
                     }
-                    // 批量落库（带指数退避重试 + 环形缓冲兜底）
-                    if !rows_to_flush.is_empty() {
-                        if let Some(ref repo) = self.metric_repo {
-                            let mut retry_backoff = std::time::Duration::from_millis(500);
-                            let max_backoff = std::time::Duration::from_secs(30);
-                            let mut attempt = 0;
-                            let max_attempts = 3;
-
-                            loop {
-                                match repo.upsert_batch(&rows_to_flush).await {
-                                    Ok(()) => break,
-                                    Err(e) => {
-                                        attempt += 1;
-                                        if attempt >= max_attempts {
-                                            tracing::warn!(
-                                                error = %e,
-                                                attempts = attempt,
-                                                "metric batch insert failed after retries, buffering"
-                                            );
-                                            // 放入环形缓冲，下次 flush 重试
-                                            self.recently_failed.push_back(rows_to_flush.clone());
-                                            // 环形缓冲上限：保留最近 10 批失败数据
-                                            if self.recently_failed.len() > 10 {
-                                                let dropped = self.recently_failed.pop_front();
-                                                if let Some(d) = dropped {
-                                                    tracing::warn!(
-                                        count = d.len(),
-                                        "ring buffer full, dropping oldest failed batch"
-                                    );
-                                                }
-                                            }
-                                            break;
-                                        }
-                                        tracing::warn!(
-                                            error = %e,
-                                            attempt = attempt,
-                                            "metric batch insert failed, retrying after backoff"
-                                        );
-                                        tokio::time::sleep(retry_backoff).await;
-                                        retry_backoff = (retry_backoff * 2).min(max_backoff);
-                                    }
-                                }
-                            }
-                        }
+                    // 先重试环形缓冲中的失败批次，再落库新批次
+                    let buffered: Vec<Vec<MetricRow>> = self.recently_failed.drain(..).collect();
+                    for batch in buffered {
+                        self.flush_rows(batch).await;
                     }
+                    self.flush_rows(rows_to_flush).await;
                 }
             }
         }

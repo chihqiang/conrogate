@@ -131,13 +131,18 @@ async fn run_without_db(config: conrogate_contract::config::Config) -> anyhow::R
         server: &conrogate_gateway::server::GatewayServer,
         loader: &http_config_loader::HttpConfigLoader,
     ) {
-        match loader.load_routes().await {
-            Ok(routes) => {
-                let upstreams = loader.load_upstreams().await.unwrap_or_default();
-                let bindings = loader
-                    .load_all_plugin_bindings(&routes)
-                    .await
-                    .unwrap_or_default();
+        // 原子加载：路由/上游/插件绑定任一失败则整体放弃，保持当前配置，
+        // 避免瞬时故障被 unwrap_or_default 静默清空配置导致流量中断
+        let result = async {
+            let routes = loader.load_routes().await?;
+            let upstreams = loader.load_upstreams().await?;
+            let bindings = loader.load_all_plugin_bindings(&routes).await?;
+            Ok::<_, conrogate_contract::ConrogateError>((routes, upstreams, bindings))
+        }
+        .await;
+
+        match result {
+            Ok((routes, upstreams, bindings)) => {
                 server.reload_routes_with_bindings(routes, bindings);
                 server.reload_upstreams(upstreams);
                 tracing::debug!("config hot-reloaded from control HTTP API");

@@ -290,15 +290,15 @@ impl Limiter for TokenBucketLimiter {
         let window_secs = window.as_secs_f64().max(0.001);
         let refill_rate = limit as f64 / window_secs;
 
-        let bucket = buckets.entry(key.to_string()).or_insert(TokenBucket {
+        let entry = buckets.entry(key.to_string());
+        // 是否本调用新建（新建桶即为满桶，无需清理）
+        let is_fresh = matches!(entry, std::collections::hash_map::Entry::Vacant(_));
+        let bucket = entry.or_insert(TokenBucket {
             tokens: limit as f64,
             capacity: limit as f64,
             refill_rate,
             last_refill: now,
         });
-
-        // 是否本调用新建（新建桶即为满桶，无需清理）
-        let is_fresh = bucket.tokens >= limit as f64;
 
         // 补充令牌
         let elapsed = now.duration_since(bucket.last_refill).as_secs_f64();

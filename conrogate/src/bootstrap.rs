@@ -550,17 +550,9 @@ async fn config_hot_reload_loop(
             tokio::time::sleep(poll_dur).await;
         }
 
-        // 读取配置：优先 Redis 快照，失败降级直连 DB
-        let (r, u, bindings) = if let Some(ref cache) = config_cache {
-            match cache.get_snapshot().await {
-                Ok(Some(snap)) => (snap.routes, snap.upstreams, snap.plugin_bindings),
-                _ => load_config_from_db(&db).await,
-            }
-        } else {
-            load_config_from_db(&db).await
-        };
-
-        if !r.is_empty() || !u.is_empty() {
+        // 读取配置：优先 Redis 快照，失败降级直连 DB。任一数据源读取失败
+        // 则跳过本次重载，保持当前生效配置（原子替换，不半套刷入）。
+        if let Some((r, u, bindings)) = load_config_snapshot(config_cache.as_deref(), &db).await {
             let body_req = registry.body_required_plugin_names();
             // 热加载：更新路由插件链
             let mut chains: std::collections::HashMap<
@@ -583,14 +575,37 @@ async fn config_hot_reload_loop(
     }
 }
 
-/// 从数据库直接读取配置（降级路径）
-async fn load_config_from_db(
+/// 原子读取配置快照：优先 Redis 快照，失败降级直连 DB；
+/// 任一数据源读取失败返回 `None`，保持当前生效配置。
+async fn load_config_snapshot(
+    config_cache: Option<&dyn conrogate_contract::storage::ConfigCache>,
     db: &Arc<sea_orm::DatabaseConnection>,
-) -> (
+) -> Option<(
     Vec<conrogate_contract::dto::RouteDto>,
     Vec<conrogate_contract::dto::UpstreamDto>,
     Vec<conrogate_contract::dto::PluginBindingDto>,
-) {
+)> {
+    if let Some(cache) = config_cache {
+        match cache.get_snapshot().await {
+            Ok(Some(snap)) => return Some((snap.routes, snap.upstreams, snap.plugin_bindings)),
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(error = %e, "config snapshot read failed, falling back to DB");
+            }
+        }
+    }
+
+    load_config_from_db(db).await
+}
+
+/// 从数据库直接读取配置（降级路径）
+async fn load_config_from_db(
+    db: &Arc<sea_orm::DatabaseConnection>,
+) -> Option<(
+    Vec<conrogate_contract::dto::RouteDto>,
+    Vec<conrogate_contract::dto::UpstreamDto>,
+    Vec<conrogate_contract::dto::PluginBindingDto>,
+)> {
     use conrogate_contract::storage::*;
 
     let route_repo = conrogate_storage::repository::route_repo::RouteRepoImpl::new((**db).clone());
@@ -601,18 +616,29 @@ async fn load_config_from_db(
             (**db).clone(),
         );
 
-    let r = ReadOnlyRouteRepo::list_enabled(&route_repo)
-        .await
-        .unwrap_or_default();
-    let u = ReadOnlyUpstreamRepo::list_all(&upstream_repo)
-        .await
-        .unwrap_or_default();
+    let r = match ReadOnlyRouteRepo::list_enabled(&route_repo).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error = %e, "config reload: route load failed, keeping current config");
+            return None;
+        }
+    };
+    let u = match ReadOnlyUpstreamRepo::list_all(&upstream_repo).await {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::warn!(error = %e, "config reload: upstream load failed, keeping current config");
+            return None;
+        }
+    };
     let mut bindings = Vec::new();
     for route in &r {
-        let rb = ReadOnlyPluginBindingRepo::list_by_route(&binding_repo, route.id)
-            .await
-            .unwrap_or_default();
-        bindings.extend(rb);
+        match ReadOnlyPluginBindingRepo::list_by_route(&binding_repo, route.id).await {
+            Ok(rb) => bindings.extend(rb),
+            Err(e) => {
+                tracing::warn!(error = %e, "config reload: plugin binding load failed, keeping current config");
+                return None;
+            }
+        }
     }
-    (r, u, bindings)
+    Some((r, u, bindings))
 }

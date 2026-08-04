@@ -104,12 +104,10 @@ impl HealthChecker for PassiveHealthChecker {
 }
 
 impl PassiveHealthChecker {
-    /// 标记节点成功（重置失败计数）
+    /// 标记节点成功（重置失败计数，同时移除条目防 state 表无界增长）
     pub fn mark_success(&self, node_id: u64) {
         let mut states = self.states.lock().unwrap();
-        if let Some(state) = states.get_mut(&node_id) {
-            state.consecutive_failures = 0;
-        }
+        states.remove(&node_id);
     }
 
     /// 过滤健康节点

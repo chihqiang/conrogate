@@ -49,6 +49,69 @@ struct TelemetryChannels {
     event_rx: mpsc::Receiver<conrogate_contract::dto::EventRow>,
 }
 
+/// 原子读取配置快照：任一数据源读取失败返回 `None`（保持当前生效配置，
+/// 避免把半套配置刷入运行时导致路由/上游/插件链被部分清空）。
+async fn load_config_snapshot(
+    config_cache: Option<&dyn conrogate_contract::storage::ConfigCache>,
+    db: &Arc<conrogate_storage::pool::DbConn>,
+) -> Option<(
+    Vec<conrogate_contract::dto::RouteDto>,
+    Vec<conrogate_contract::dto::UpstreamDto>,
+    Vec<conrogate_contract::dto::PluginBindingDto>,
+)> {
+    // 优先 Redis 快照（单次读取即为完整三件套）
+    if let Some(cache) = config_cache {
+        match cache.get_snapshot().await {
+            Ok(Some(snap)) => return Some((snap.routes, snap.upstreams, snap.plugin_bindings)),
+            Ok(None) => {}
+            Err(e) => {
+                tracing::warn!(error = %e, "config snapshot read failed, falling back to DB");
+            }
+        }
+    }
+
+    let routes = match conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(
+        &conrogate_storage::repository::route_repo::RouteRepoImpl::new((**db).clone()),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error = %e, "config reload: route load failed, keeping current config");
+            return None;
+        }
+    };
+    let upstreams = match conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(
+        &conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((**db).clone()),
+    )
+    .await
+    {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::warn!(error = %e, "config reload: upstream load failed, keeping current config");
+            return None;
+        }
+    };
+    let mut bindings = Vec::new();
+    for route in &routes {
+        match conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
+            &conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
+                (**db).clone(),
+            ),
+            route.id,
+        )
+        .await
+        {
+            Ok(rb) => bindings.extend(rb),
+            Err(e) => {
+                tracing::warn!(error = %e, "config reload: plugin binding load failed, keeping current config");
+                return None;
+            }
+        }
+    }
+    Some((routes, upstreams, bindings))
+}
+
 impl GatewayServer {
     /// 组装服务器（不消费遥测通道，由调用方决定消费方式）
     async fn from_config_inner(config: Config) -> (Self, TelemetryChannels) {
@@ -151,12 +214,15 @@ impl GatewayServer {
                 .with_trusted_proxies(config.gate.listen.trusted_proxies.clone())
                 .with_max_retries(config.gate.retry.max_attempts),
         ));
-        protocols.register(Arc::new(TcpTunnelProtocolHandler::with_config(
-            svc,
-            timeout,
-            conn_qps,
-            bandwidth_kbps,
-        )));
+        protocols.register(Arc::new(
+            TcpTunnelProtocolHandler::with_registry(
+                svc.clone(),
+                plugin_registry.clone(),
+                timeout,
+                conn_qps,
+                bandwidth_kbps,
+            ),
+        ));
 
         let server = Self {
             config: config_reloader,
@@ -236,12 +302,15 @@ impl GatewayServer {
                 .with_trusted_proxies(config.gate.listen.trusted_proxies.clone())
                 .with_max_retries(config.gate.retry.max_attempts),
         ));
-        protocols.register(Arc::new(TcpTunnelProtocolHandler::with_config(
-            svc,
-            timeout,
-            conn_qps,
-            bandwidth_kbps,
-        )));
+        protocols.register(Arc::new(
+            TcpTunnelProtocolHandler::with_registry(
+                svc.clone(),
+                plugin_registry.clone(),
+                timeout,
+                conn_qps,
+                bandwidth_kbps,
+            ),
+        ));
 
         Self {
             config: config_reloader,
@@ -429,58 +498,11 @@ impl GatewayServer {
                     tokio::time::sleep(poll_dur).await;
                 }
 
-                // 读取配置：优先 Redis 快照，失败降级直连 DB（fail-open，docs/09 §9）
-                let (r, u, bindings) = if let Some(ref cache) = config_cache {
-                    match cache.get_snapshot().await {
-                        Ok(Some(snap)) => (snap.routes, snap.upstreams, snap.plugin_bindings),
-                        _ => {
-                            let r = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(
-                                &conrogate_storage::repository::route_repo::RouteRepoImpl::new(
-                                    (*db).clone(),
-                                ),
-                            )
-                            .await
-                            .unwrap_or_default();
-                            let u = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(
-                                &conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*db).clone()),
-                            ).await.unwrap_or_default();
-                            let mut bindings = Vec::new();
-                            for route in &r {
-                                let rb = conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
-                                    &conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new((*db).clone()),
-                                    route.id,
-                                ).await.unwrap_or_default();
-                                bindings.extend(rb);
-                            }
-                            (r, u, bindings)
-                        }
-                    }
-                } else {
-                    let r = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(
-                        &conrogate_storage::repository::route_repo::RouteRepoImpl::new(
-                            (*db).clone(),
-                        ),
-                    )
+                // 读取配置：优先 Redis 快照，失败降级直连 DB（fail-open，docs/09 §9）。
+                // 任一数据源读取失败则跳过本次重载，保持当前生效配置（原子替换，不半套刷入）。
+                if let Some((r, u, bindings)) = load_config_snapshot(config_cache.as_deref(), &db)
                     .await
-                    .unwrap_or_default();
-                    let u = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(
-                        &conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new(
-                            (*db).clone(),
-                        ),
-                    )
-                    .await
-                    .unwrap_or_default();
-                    let mut bindings = Vec::new();
-                    for route in &r {
-                        let rb = conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
-                            &conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new((*db).clone()),
-                            route.id,
-                        ).await.unwrap_or_default();
-                        bindings.extend(rb);
-                    }
-                    (r, u, bindings)
-                };
-                if !r.is_empty() || !u.is_empty() {
+                {
                     let body_req = registry.body_required_plugin_names();
                     // 热加载：更新路由插件链（set_route_chains）
                     // 按 route_id 分组绑定，解析插件实例，原子替换插件链缓存
@@ -499,7 +521,7 @@ impl GatewayServer {
                     plugin_executor.set_route_chains(chains);
                     matcher.load_with_bindings(r, bindings, &body_req);
                     selector.load_upstreams(u);
-                    tracing::debug!("config hot-reloaded from DB");
+                    tracing::debug!("config hot-reloaded");
                 }
             }
         });
@@ -728,6 +750,20 @@ impl GatewayServer {
         bindings: Vec<conrogate_contract::dto::PluginBindingDto>,
     ) {
         let body_required = self.plugin_registry.body_required_plugin_names();
+        // 按 route_id 分组绑定，解析插件实例，原子替换插件链缓存
+        let mut chains: std::collections::HashMap<
+            u64,
+            Vec<Arc<dyn conrogate_contract::plugin::Plugin>>,
+        > = std::collections::HashMap::new();
+        for binding in &bindings {
+            if !binding.enabled {
+                continue;
+            }
+            if let Some(plugin) = self.plugin_registry.get(&binding.plugin_name) {
+                chains.entry(binding.route_id).or_default().push(plugin);
+            }
+        }
+        self.plugin_executor.set_route_chains(chains);
         self.route_matcher
             .load_with_bindings(routes, bindings, &body_required);
         tracing::info!("routes reloaded with bindings");
