@@ -79,7 +79,11 @@ impl LatencyHistogram {
     }
 
     fn bin_index(latency_ms: u32) -> usize {
-        let idx = latency_ms.ilog2() as usize;
+        let idx = if latency_ms == 0 {
+            0
+        } else {
+            latency_ms.ilog2() as usize
+        };
         idx.min(Self::BIN_COUNT - 1)
     }
 
@@ -291,6 +295,14 @@ mod tests {
     fn histogram_percentile_empty() {
         let hist = LatencyHistogram::new();
         assert_eq!(hist.percentile(0.5), 0);
+    }
+
+    #[test]
+    fn histogram_zero_latency() {
+        let mut hist = LatencyHistogram::new();
+        hist.add(0, 1);
+        assert_eq!(hist.percentile(0.5), 2);
+        assert_eq!(hist.percentile(0.99), 2);
     }
 
     #[test]

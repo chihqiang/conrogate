@@ -99,9 +99,13 @@ enum MetricAggregates {
     P50Ms,
     P90Ms,
     P99Ms,
+    #[sea_orm(iden = "status_2xx")]
     Status2xx,
+    #[sea_orm(iden = "status_3xx")]
     Status3xx,
+    #[sea_orm(iden = "status_4xx")]
     Status4xx,
+    #[sea_orm(iden = "status_5xx")]
     Status5xx,
     Sessions,
     BytesIn,

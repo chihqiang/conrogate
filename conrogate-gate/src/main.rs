@@ -16,8 +16,7 @@ struct Cli {
     env_file: Option<String>,
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     if let Some(path) = cli.env_file {
