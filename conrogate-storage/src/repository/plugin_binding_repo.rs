@@ -6,8 +6,8 @@ use conrogate_contract::dto::{BindPluginDto, PluginBindingDto, UpdatePluginBindi
 use conrogate_contract::storage::{PluginBindingRepo, ReadOnlyPluginBindingRepo};
 use conrogate_contract::ConrogateError;
 use sea_orm::{
-    sea_query::Expr, ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter,
-    QueryOrder, Set,
+    sea_query::Expr, ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, Set,
 };
 
 pub struct PluginBindingRepoImpl {
@@ -46,6 +46,23 @@ impl PluginBindingRepo for PluginBindingRepoImpl {
         route_id: u64,
         dto: BindPluginDto,
     ) -> Result<PluginBindingDto, ConrogateError> {
+        // 活跃绑定唯一性预检查（route_id, plugin_name）。PG/SQLite 有 partial unique
+        // index 兜底；MySQL 唯一索引为复合 (route_id, plugin_name, deleted_at) 无法拦截
+        // 同名活跃绑定，故统一在此拦截。
+        let dup = BindingEntity::find()
+            .filter(route_plugin_bindings::Column::RouteId.eq(route_id as i64))
+            .filter(route_plugin_bindings::Column::PluginName.eq(&dto.plugin_name))
+            .filter(route_plugin_bindings::Column::DeletedAt.is_null())
+            .count(&self.db)
+            .await
+            .map_err(|_| ConrogateError::DatabaseInternal)?;
+        if dup > 0 {
+            return Err(ConrogateError::Conflict(format!(
+                "plugin '{}' already bound to route {}",
+                dto.plugin_name, route_id
+            )));
+        }
+
         let active = convert::binding_create_to_active_model(route_id as i64, dto);
         let model = active
             .insert(&self.db)

@@ -51,6 +51,21 @@ impl ReadOnlyRouteRepo for RouteRepoImpl {
 #[async_trait::async_trait]
 impl RouteRepo for RouteRepoImpl {
     async fn create(&self, dto: CreateRouteDto) -> Result<RouteDto, ConrogateError> {
+        // 路由名唯一性预检查（活跃行）。PG/SQLite 有 partial unique index 兜底，
+        // MySQL 唯一索引为复合 (name, deleted_at) 无法拦截同名活跃行，故统一在此拦截。
+        let dup = RouteEntity::find()
+            .filter(routes::Column::Name.eq(&dto.name))
+            .filter(routes::Column::DeletedAt.is_null())
+            .count(&self.db)
+            .await
+            .map_err(|_| ConrogateError::DatabaseInternal)?;
+        if dup > 0 {
+            return Err(ConrogateError::Conflict(format!(
+                "route name '{}' already exists",
+                dto.name
+            )));
+        }
+
         let active = convert::route_create_to_active_model(dto);
         let model = active
             .insert(&self.db)
@@ -69,6 +84,23 @@ impl RouteRepo for RouteRepoImpl {
             .await
             .map_err(|_| ConrogateError::DatabaseInternal)?
             .ok_or_else(|| ConrogateError::NotFound(format!("route {}", dto.id)))?;
+
+        if let Some(ref name) = dto.name {
+            if *name != model.name {
+                let dup = RouteEntity::find()
+                    .filter(routes::Column::Name.eq(name))
+                    .filter(routes::Column::DeletedAt.is_null())
+                    .filter(routes::Column::Id.ne(dto.id as i64))
+                    .count(&self.db)
+                    .await
+                    .map_err(|_| ConrogateError::DatabaseInternal)?;
+                if dup > 0 {
+                    return Err(ConrogateError::Conflict(format!(
+                        "route name '{name}' already exists"
+                    )));
+                }
+            }
+        }
 
         let mut active: routes::ActiveModel = model.into();
         if let Some(name) = dto.name {

@@ -1,5 +1,6 @@
 //! 初始迁移：创建全部表 + 索引。
 
+use sea_orm::DatabaseBackend;
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::MigrationName;
 
@@ -415,12 +416,30 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        manager
-            .get_connection()
-            .execute_unprepared(
-                "CREATE UNIQUE INDEX idx_routes_name ON routes (name) WHERE deleted_at IS NULL",
-            )
-            .await?;
+        // 路由名唯一约束（活跃行）：PG/SQLite 支持 partial index；
+        // MySQL 不支持谓词索引，退化为 (name, deleted_at) 复合唯一索引，
+        // 活跃名唯一性由仓储层预检查保证（见 route_repo）。
+        let backend = manager.get_database_backend();
+        if backend == DatabaseBackend::MySql {
+            manager
+                .create_index(
+                    Index::create()
+                        .name("idx_routes_name")
+                        .table(Routes::Table)
+                        .col(Routes::Name)
+                        .col(Routes::DeletedAt)
+                        .unique()
+                        .to_owned(),
+                )
+                .await?;
+        } else {
+            manager
+                .get_connection()
+                .execute_unprepared(
+                    "CREATE UNIQUE INDEX idx_routes_name ON routes (name) WHERE deleted_at IS NULL",
+                )
+                .await?;
+        }
 
         manager
             .create_index(
@@ -462,8 +481,7 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(RoutePluginBindings::Config)
                             .json()
                             .not_null()
-                            .default("{}")
-                            .comment("插件配置 JSON"),
+                            .comment("插件配置 JSON（无 DB 默认值：MySQL JSON 列不支持默认值，由应用层写入）"),
                     )
                     .col(
                         ColumnDef::new(RoutePluginBindings::Order)
@@ -517,12 +535,28 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        manager
-            .get_connection()
-            .execute_unprepared(
-                "CREATE UNIQUE INDEX uk_route_plugin ON route_plugin_bindings (route_id, plugin_name) WHERE deleted_at IS NULL",
-            )
-            .await?;
+        // 路由+插件唯一绑定（活跃行）：同上做方言分支
+        if manager.get_database_backend() == DatabaseBackend::MySql {
+            manager
+                .create_index(
+                    Index::create()
+                        .name("uk_route_plugin")
+                        .table(RoutePluginBindings::Table)
+                        .col(RoutePluginBindings::RouteId)
+                        .col(RoutePluginBindings::PluginName)
+                        .col(RoutePluginBindings::DeletedAt)
+                        .unique()
+                        .to_owned(),
+                )
+                .await?;
+        } else {
+            manager
+                .get_connection()
+                .execute_unprepared(
+                    "CREATE UNIQUE INDEX uk_route_plugin ON route_plugin_bindings (route_id, plugin_name) WHERE deleted_at IS NULL",
+                )
+                .await?;
+        }
 
         // ── 5. config_versions ──
         manager
@@ -1037,8 +1071,7 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(InstalledPlugins::Manifest)
                             .json()
                             .not_null()
-                            .default("{}")
-                            .comment("插件清单 JSON"),
+                            .comment("插件清单 JSON（无 DB 默认值：MySQL JSON 列不支持默认值，由应用层写入）"),
                     )
                     .col(
                         ColumnDef::new(InstalledPlugins::InstalledAt)

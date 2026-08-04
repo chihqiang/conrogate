@@ -18,21 +18,55 @@ pub async fn run(
     let main_db = Arc::new(main_db);
     let read_db = Arc::new(read_db);
 
-    // ── 3. [auto_migrate] 自动迁移（PG advisory lock 串行化）──
+    // ── 3. [auto_migrate] 自动迁移（按方言加锁串行化）──
     if config.node.auto_migrate {
         tracing::info!("auto_migrate enabled, running migrations");
-        // PG advisory lock 防止多实例并发迁移
-        use sea_orm::ConnectionTrait;
-        let lock_result = main_db
-            .execute_unprepared("SELECT pg_advisory_lock(20260101)")
-            .await;
-        if lock_result.is_err() {
-            tracing::warn!("failed to acquire advisory lock, proceeding anyway");
+        // 防止多实例并发迁移：PG 用 advisory lock，MySQL 用 GET_LOCK，SQLite 单写者无需加锁
+        use sea_orm::{ConnectionTrait, DatabaseBackend};
+        let backend = main_db.get_database_backend();
+        let locked = match backend {
+            DatabaseBackend::Postgres => {
+                main_db
+                    .execute_unprepared("SELECT pg_advisory_lock(20260101)")
+                    .await
+                    .is_ok()
+            }
+            DatabaseBackend::MySql => {
+                // GET_LOCK 返回 1=获取成功 0=超时 NULL=错误
+                match main_db
+                    .query_one(sea_orm::Statement::from_sql_and_values(
+                        DatabaseBackend::MySql,
+                        "SELECT GET_LOCK('conrogate_migrate', 10) AS got_lock",
+                        [],
+                    ))
+                    .await
+                {
+                    Ok(Some(row)) => row
+                        .try_get("", "got_lock")
+                        .map(|v: Option<u8>| v == Some(1))
+                        .unwrap_or(false),
+                    _ => false,
+                }
+            }
+            _ => true, // SQLite：无 advisory lock，串行写由引擎自身保证
+        };
+        if !locked {
+            tracing::warn!("failed to acquire migration lock, proceeding anyway");
         }
         let result = conrogate_storage::migration::run_migrations(&config.db).await;
-        let _ = main_db
-            .execute_unprepared("SELECT pg_advisory_unlock(20260101)")
-            .await;
+        match backend {
+            DatabaseBackend::Postgres => {
+                let _ = main_db
+                    .execute_unprepared("SELECT pg_advisory_unlock(20260101)")
+                    .await;
+            }
+            DatabaseBackend::MySql => {
+                let _ = main_db
+                    .execute_unprepared("SELECT RELEASE_LOCK('conrogate_migrate')")
+                    .await;
+            }
+            _ => {}
+        }
         result?;
     }
 
