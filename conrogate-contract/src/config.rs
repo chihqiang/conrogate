@@ -316,6 +316,10 @@ pub struct AuthConfig {
 
 #[derive(Debug, Clone)]
 pub struct DbConfig {
+    /// 完整连接 URL（`CONROGATE_DB_URL`），非空时优先使用，不再拼接 host/port/name/...（推荐）
+    pub url: String,
+    /// 只读库完整连接 URL（`CONROGATE_DB_READ_URL`）；为空时回退到主库 URL，再回退到 read_host 拼接
+    pub read_url: String,
     pub host: String,
     pub port: u16,
     pub name: String,
@@ -330,6 +334,8 @@ pub struct DbConfig {
 impl Default for DbConfig {
     fn default() -> Self {
         Self {
+            url: String::new(),
+            read_url: String::new(),
             host: "127.0.0.1".into(),
             port: 5432,
             name: "conrogate".into(),
@@ -344,10 +350,32 @@ impl Default for DbConfig {
 }
 
 impl DbConfig {
+    /// 主库连接 URL：优先完整 URL，否则按组件拼接（向后兼容）
     pub fn database_url(&self) -> String {
+        if !self.url.is_empty() {
+            return self.url.clone();
+        }
+        self.build_url(&self.host)
+    }
+
+    /// 只读库连接 URL：优先 `read_url`，其次主库 `url`，再次 `read_host` 拼接，最后回退主库
+    pub fn read_database_url(&self) -> String {
+        if !self.read_url.is_empty() {
+            return self.read_url.clone();
+        }
+        if !self.url.is_empty() {
+            return self.url.clone();
+        }
+        if !self.read_host.is_empty() {
+            return self.build_url(&self.read_host);
+        }
+        self.database_url()
+    }
+
+    fn build_url(&self, host: &str) -> String {
         format!(
             "postgres://{}:{}@{}:{}/{}?ssl-mode={}",
-            self.username, self.password, self.host, self.port, self.name, self.ssl_mode
+            self.username, self.password, host, self.port, self.name, self.ssl_mode
         )
     }
 }
@@ -728,6 +756,8 @@ impl Config {
                 },
             },
             db: DbConfig {
+                url: env_str("CONROGATE_DB_URL", &def.db.url),
+                read_url: env_str("CONROGATE_DB_READ_URL", &def.db.read_url),
                 host: env_str("CONROGATE_DB_HOST", &def.db.host),
                 port: env_u16("CONROGATE_DB_PORT", def.db.port),
                 name: env_str("CONROGATE_DB_NAME", &def.db.name),
@@ -759,9 +789,10 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<(), ConrogateError> {
-        if self.db.password.is_empty() {
+        // 使用完整 URL 时密码内嵌于 URL，无需单独校验 CONROGATE_DB_PASSWORD
+        if self.db.url.is_empty() && self.db.password.is_empty() {
             return Err(ConrogateError::ConfigInvalid(
-                "CONROGATE_DB_PASSWORD is required".into(),
+                "CONROGATE_DB_PASSWORD or CONROGATE_DB_URL is required".into(),
             ));
         }
 
@@ -925,8 +956,61 @@ mod tests {
         assert_eq!(parsed.db.name, default.db.name);
         assert_eq!(parsed.db.max_connections, default.db.max_connections);
         assert_eq!(parsed.db.connect_timeout, default.db.connect_timeout);
+        assert_eq!(parsed.db.url, default.db.url);
+        assert_eq!(parsed.db.read_url, default.db.read_url);
         assert_eq!(parsed.log.level, default.log.level);
         assert_eq!(parsed.log.rotation_size_mb, default.log.rotation_size_mb);
+    }
+
+    /// CONROGATE_DB_URL 完整 URL 优先，不再拼接组件
+    #[test]
+    fn test_db_url_takes_precedence() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _env = EnvGuard::clear();
+        std::env::set_var(
+            "CONROGATE_DB_URL",
+            "postgres://app:pw@db.example.com:5433/argo?sslmode=require",
+        );
+        let parsed = Config::from_env().expect("from_env should succeed");
+        assert_eq!(
+            parsed.db.database_url(),
+            "postgres://app:pw@db.example.com:5433/argo?sslmode=require"
+        );
+        // 完整 URL 时不再要求单独密码
+        assert!(parsed.validate().is_ok());
+    }
+
+    /// 只读库 URL 优先级：read_url > 主库 url > read_host 拼接
+    #[test]
+    fn test_read_db_url_precedence() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _env = EnvGuard::clear();
+
+        // 无 read_url/url/read_host → 回退主库
+        std::env::set_var("CONROGATE_DB_PASSWORD", "pw");
+        let parsed = Config::from_env().expect("from_env should succeed");
+        assert_eq!(parsed.db.read_database_url(), parsed.db.database_url());
+
+        // read_host 拼接（无 url）
+        std::env::set_var("CONROGATE_DB_READ_HOST", "ro.example.com");
+        let parsed = Config::from_env().expect("from_env should succeed");
+        assert!(parsed.db.read_database_url().contains("ro.example.com"));
+
+        // 主库 url 优先于 read_host
+        std::env::set_var(
+            "CONROGATE_DB_URL",
+            "postgres://app:pw@db.example.com:5433/argo?sslmode=require",
+        );
+        let parsed = Config::from_env().expect("from_env should succeed");
+        assert_eq!(parsed.db.read_database_url(), parsed.db.database_url());
+
+        // read_url 最高优先
+        std::env::set_var(
+            "CONROGATE_DB_READ_URL",
+            "postgres://ro:pw@ro.example.com:5433/argo?sslmode=require",
+        );
+        let parsed = Config::from_env().expect("from_env should succeed");
+        assert!(parsed.db.read_database_url().contains("ro.example.com"));
     }
 
     /// 环境变量覆盖生效（默认值来源仍是 Default）

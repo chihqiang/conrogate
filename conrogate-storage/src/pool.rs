@@ -24,19 +24,7 @@ pub async fn create_main_pool(db_config: &DbConfig) -> Result<DatabaseConnection
 
 /// 只读库连接池（gate 组件使用）
 pub async fn create_read_pool(db_config: &DbConfig) -> Result<DatabaseConnection, ConrogateError> {
-    let url = if db_config.read_host.is_empty() {
-        db_config.database_url()
-    } else {
-        format!(
-            "postgres://{}:{}@{}:{}/{}?ssl-mode={}",
-            db_config.username,
-            db_config.password,
-            db_config.read_host,
-            db_config.port,
-            db_config.name,
-            db_config.ssl_mode
-        )
-    };
+    let url = db_config.read_database_url();
 
     let mut opt = ConnectOptions::new(url);
     opt.connect_timeout(db_config.connect_timeout)

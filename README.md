@@ -68,7 +68,9 @@ conrogate-code/
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
-| `CONROGATE_DB_PASSWORD` | (必填) | 数据库密码 |
+| `CONROGATE_DB_URL` | (必填二选一) | 数据库完整连接 URL，如 `postgres://user:pw@host:5432/db?sslmode=prefer`，设置后无需再配 host/port/name/user/password |
+| `CONROGATE_DB_READ_URL` | 主库 URL | 只读库完整 URL（可选）；不设置时复用 `CONROGATE_DB_URL` |
+| `CONROGATE_DB_PASSWORD` | (必填二选一) | 数据库密码（`CONROGATE_DB_URL` 未设置时使用组件拼接方式需要） |
 | `CONROGATE_GATE_PORT` | 8080 | 数据面端口 |
 | `CONROGATE_CONTROL_LISTEN_PORT` | 9000 | 控制面端口 |
 | `CONROGATE_NODE_AUTO_MIGRATE` | false | 自动迁移 |
