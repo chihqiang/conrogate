@@ -38,7 +38,7 @@ impl EventRepo for EventRepoImpl {
                     gateway_events::Column::Ts,
                     gateway_events::Column::EventType,
                 ])
-                .do_nothing()
+                .do_nothing_on([gateway_events::Column::Id])
                 .to_owned(),
             )
             .exec(&self.db)
