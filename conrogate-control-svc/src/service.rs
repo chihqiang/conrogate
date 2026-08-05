@@ -6,7 +6,7 @@ use conrogate_contract::storage::*;
 use conrogate_contract::ConrogateError;
 use std::sync::Arc;
 
-/// 单批上报条数上限（docs/12：批量大小上限 1000 条/批）
+/// 单批上报条数上限（批量大小上限 1000 条/批）
 const REPORT_BATCH_LIMIT: usize = 1000;
 
 /// 控制面服务

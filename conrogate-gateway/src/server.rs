@@ -500,7 +500,7 @@ impl GatewayServer {
                     tokio::time::sleep(poll_dur).await;
                 }
 
-                // 读取配置：优先 Redis 快照，失败降级直连 DB（fail-open，docs/09 §9）。
+                // 读取配置：优先 Redis 快照，失败降级直连 DB（fail-open）。
                 // 任一数据源读取失败则跳过本次重载，保持当前生效配置（原子替换，不半套刷入）。
                 if let Some((r, u, bindings)) =
                     load_config_snapshot(config_cache.as_deref(), &db).await
@@ -619,7 +619,7 @@ impl GatewayServer {
 
                         // TLS passthrough 模式：原始 TCP 隧道转发，不终止 TLS
                         if tls_passthrough {
-                            // peek ClientHello 提取 SNI，用于按域名路由（docs/10 §2.3）
+                            // peek ClientHello 提取 SNI，用于按域名路由
                             let mut buf = [0u8; 4096];
                             let sni = match stream.peek(&mut buf).await {
                                 Ok(n) if n >= 5 => {
@@ -667,7 +667,7 @@ impl GatewayServer {
                         let result = if let Some(acc) = tls_acc {
                             match acc.accept(stream).await {
                                 Ok(tls_stream) => {
-                                    // ALPN 协商决定 HTTP/2 或 HTTP/1.1（docs/10 §2.1 入站 HTTP/2）
+                                    // ALPN 协商决定 HTTP/2 或 HTTP/1.1
                                     let alpn = tls_stream
                                         .get_ref()
                                         .1

@@ -231,7 +231,7 @@ impl TcpTunnelProtocolHandler {
         // 连接结束，释放节点（LeastConnections 递减计数）
         self.svc.balancer.release_node(&route, &node).await;
 
-        // 7a. 隧道遥测：成功/失败都上报会话与字节数（docs/10 §2.4）。
+        // 7a. 隧道遥测：成功/失败都上报会话与字节数。
         // 失败会话无响应体，若不记录则在指标中完全不可观测。
         let (bytes_in, bytes_out) = match &result {
             Ok(stats) => (stats.bytes_in, stats.bytes_out),

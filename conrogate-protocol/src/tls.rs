@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-/// 跳过上游证书校验的 ServerCertVerifier（docs/15：仅非生产）。
+/// 跳过上游证书校验的 ServerCertVerifier（仅非生产）。
 #[derive(Debug)]
 pub struct NoVerifyServerCertVerifier;
 
@@ -43,7 +43,7 @@ impl rustls::client::danger::ServerCertVerifier for NoVerifyServerCertVerifier {
     }
 }
 
-/// 从 TLS ClientHello 首包中提取 SNI（docs/10 §2.3：passthrough 模式按 SNI 路由）。
+/// 从 TLS ClientHello 首包中提取 SNI（passthrough 模式按 SNI 路由）。
 ///
 /// 解析失败返回 None（非 TLS 或格式异常），调用方按无 SNI 处理。
 pub fn extract_sni_from_client_hello(buf: &[u8]) -> Option<String> {

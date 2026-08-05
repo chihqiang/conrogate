@@ -61,7 +61,7 @@ pub fn err(e: ConrogateError) -> Response {
     (http_status, Json(body)).into_response()
 }
 
-/// ConrogateError → 错误码（对照 docs/06 §4）
+/// ConrogateError → 错误码
 fn error_code(e: &ConrogateError) -> i32 {
     match e {
         ConrogateError::BadRequest(_) => 10001,

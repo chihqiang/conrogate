@@ -61,7 +61,7 @@ fn parse_token(token: &str) -> Option<(&str, &str, Role)> {
     Some((parts[0], parts[1], role))
 }
 
-/// 构建 401 统一错误体（docs/12 §10.5：code=10002）
+/// 构建 401 统一错误体（code=10002）
 fn unauthorized_response() -> Response {
     use std::time::{SystemTime, UNIX_EPOCH};
     let trace_id = format!(

@@ -13,7 +13,7 @@ use serde_json;
 
 // ── 协议枚举映射 ──
 
-// docs/13：protocol 编号 1=http 2=websocket 3=tcp_tunnel
+// protocol 编号 1=http 2=websocket 3=tcp_tunnel
 pub(crate) fn protocol_to_i16(p: ProtocolId) -> i16 {
     match p {
         ProtocolId::Http => 1,
@@ -32,7 +32,7 @@ fn i16_to_protocol(v: i16) -> ProtocolId {
 
 // ── 算法枚举映射 ──
 
-// docs/13：algorithm 编号 1=round_robin 2=weighted_round_robin 3=least_connections 4=consistent_hash
+// algorithm 编号 1=round_robin 2=weighted_round_robin 3=least_connections 4=consistent_hash
 pub(crate) fn algorithm_to_i16(a: BalancerAlgorithm) -> i16 {
     match a {
         BalancerAlgorithm::RoundRobin => 1,

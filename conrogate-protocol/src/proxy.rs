@@ -254,7 +254,7 @@ mod tests {
             .build(connector.enable_http1().enable_http2().build())
     }
 
-    /// 流式转发：响应体以 Incoming 流式返回，不提前 collect（docs/10 §11.1 响应侧流式）
+    /// 流式转发：响应体以 Incoming 流式返回，不提前 collect
     #[tokio::test]
     async fn forward_http_stream_returns_streamed_body() {
         let (host, addr) = spawn_upstream().await;

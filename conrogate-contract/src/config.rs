@@ -175,7 +175,7 @@ pub struct BreakerConfig {
     pub min_requests: u32,
     pub wait: Duration,
     pub half_open_max: u32,
-    /// 集群模式共享计数存储（docs/10 §9.3）
+    /// 集群模式共享计数存储
     pub cluster_store: Option<RedisStoreConfig>,
 }
 
@@ -206,10 +206,10 @@ impl Default for ShutdownConfig {
     }
 }
 
-/// 出站 TLS 配置（docs/10 §2.1、docs/15 §2）
+/// 出站 TLS 配置
 #[derive(Debug, Clone, Default)]
 pub struct OutboundTlsConfig {
-    /// 跳过上游证书校验（仅非生产，docs/15：需显式配置 + 告警日志）
+    /// 跳过上游证书校验（仅非生产环境，需显式配置 + 告警日志）
     pub skip_verify: bool,
 }
 

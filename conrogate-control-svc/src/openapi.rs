@@ -1,6 +1,6 @@
 //! OpenAPI 文档生成。
 //!
-//! 依据 docs/12 §8：基于 axum 路由与 contract DTO 生成 OpenAPI 3 规范，
+//! 基于 axum 路由与 contract DTO 生成 OpenAPI 3 规范，
 //! 暴露于 `GET /openapi.json`。路径表与 `api.rs::build_router` 保持一致。
 
 use conrogate_contract::balancer::BalancerAlgorithm;
@@ -117,7 +117,7 @@ fn ok_response() -> Response {
 
 fn bad_response() -> Response {
     ResponseBuilder::new()
-        .description("业务错误：HTTP 200 + code/msg（10001/10004/10005 等），见 docs/06 §4")
+        .description("业务错误：HTTP 200 + code/msg（10001/10004/10005 等）")
         .content(
             "application/json",
             json_content(Some(ref_to("ApiResponse"))),

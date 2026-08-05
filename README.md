@@ -62,7 +62,8 @@ conrogate/
 │   ├── api.md              # 控制面 REST API 完整文档（31 个端点）
 │   ├── env.md              # 环境变量参考（70+ 变量）
 │   ├── architecture.md     # 协调架构：配置下发、遥测上报、进程内调度
-│   └── deployment.md       # 部署指南：本地 / 容器化 / 生产
+│   ├── deployment.md       # 部署指南：本地 / 容器化 / 生产
+│   └── operations.md       # 操作指南：启动后的配置 / 发布 / 观测 / 回滚
 ├── conrogate-contract/     # 契约层：Trait + DTO + 枚举 + Config
 ├── conrogate-storage/      # 持久化层：SeaORM Entity + 迁移 + 仓储 + 配置缓存
 ├── conrogate-balancer/     # 负载均衡：4 种算法 + Registry
