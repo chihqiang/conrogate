@@ -36,13 +36,19 @@
 Authorization: Bearer <operator>:<secret>:<role>
 ```
 
+其中 `<role>` 取值 `viewer` / `operator` / `admin`。服务端通过环境变量 `CONROGATE_CONTROL_AUTH_TOKEN` 配置一个或多个这样的完整 token（**逗号分隔**，例如 `alice:ak:admin,bob:bk:operator,carol:ck:viewer`），请求携带的 token 需与其中**任一**完全一致；角色由命中的 token 自身携带的 `<role>` 段决定。
+
 | 角色        | 权限范围                                                       |
 |-------------|----------------------------------------------------------------|
 | `admin`     | 完全权限；可激活/停用/卸载插件                                 |
 | `operator`  | 可创建/更新/删除路由、上游、插件绑定、发布配置版本              |
 | `viewer`    | 只读（仅列表查询和详情查询）                                   |
 
-未认证请求返回 HTTP `401`，错误码 `10002`。
+注意事项：
+
+- 未认证请求返回 HTTP `401`，错误码 `10002`；角色不足返回 HTTP `200` + 错误码 `10003`（无权限）。
+- 若 token 不是严格 `operator:secret:role` 三段格式（例如纯随机密钥），则通过鉴权但**角色回退为 `viewer`**，写操作将被拒绝。
+- 数据上报接口（心跳/指标/事件）不校验角色，仅要求 token 匹配。
 
 ---
 

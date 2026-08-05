@@ -143,6 +143,7 @@ gate 每 30s 上报心跳 `POST /api/v1/reports/heartbeat`（gate_id + version +
 
 - 公开路由：`/health`、`/healthz`、`/readyz`、`/openapi.json`。
 - 受保护路由：所有管理 + 上报端点，通过 `Authorization: Bearer <token>` 校验。
+- `CONROGATE_CONTROL_AUTH_TOKEN` 支持逗号分隔的多个 `operator:secret:role` token，请求携带任一匹配即通过，角色由命中 token 自身决定；无 `:role` 段的 token 回退 `viewer`。
 - `CONROGATE_CONTROL_AUTH_TOKEN` 为空字符串时鉴权中间件放行（无鉴权模式）。
 - gate 上报 / 拉取配置时携带同一 token（`CONROGATE_GATE_REFRESH_CONTROL_API_TOKEN`）。
 

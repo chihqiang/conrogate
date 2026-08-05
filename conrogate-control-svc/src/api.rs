@@ -12,9 +12,7 @@ use tower_http::trace::TraceLayer;
 /// 公开路由（health/healthz/readyz/openapi.json）挂在根路径；
 /// 受保护路由挂载在 `api_prefix` 下（默认 `/api/v1`）。
 pub fn build_router(state: AppState, auth_token: &str, api_prefix: &str) -> Router {
-    let auth_state = crate::auth::AuthState {
-        token: auth_token.to_string(),
-    };
+    let auth_state = crate::auth::AuthState::from_configured(auth_token);
 
     // 公开路由（不需要认证）
     let public_routes = Router::new()

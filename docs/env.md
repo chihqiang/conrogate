@@ -185,16 +185,16 @@ sqlite::memory:
 | `CONROGATE_CONTROL_LISTEN_HOST` | `String` | `0.0.0.0` | 监听地址 |
 | `CONROGATE_CONTROL_LISTEN_PORT` | `u16` | `9000` | 监听端口 |
 | `CONROGATE_CONTROL_LISTEN_API_PREFIX` | `String` | `/api/v1` | API 路由前缀 |
-| `CONROGATE_CONTROL_AUTH_TOKEN` | `String` | `""` | 鉴权 Token（空字符串时无鉴权） |
+| `CONROGATE_CONTROL_AUTH_TOKEN` | `String` | `""` | 鉴权 Token，支持逗号分隔多个 `operator:secret:role`（空字符串时无鉴权） |
 
 ### 控制面 TLS
 
 | 变量 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `CONROGATE_CONTROL_TLS_ENABLED` | `bool` | `false` | 是否启用 TLS |
-| `CONROGATE_CONTROL_TLS_MODE` | `String` | `terminate` | TLS 模式 |
-| `CONROGATE_CONTROL_TLS_CERT_FILE` | `String` | `""` | 证书文件路径 |
-| `CONROGATE_CONTROL_TLS_KEY` | `String` | `""` | 私钥文件路径 |
+| `CONROGATE_CONTROL_LISTEN_TLS_ENABLED` | `bool` | `false` | 是否启用 TLS |
+| `CONROGATE_CONTROL_LISTEN_TLS_MODE` | `String` | `terminate` | TLS 模式 |
+| `CONROGATE_CONTROL_LISTEN_TLS_CERT_FILE` | `String` | `""` | 证书文件路径 |
+| `CONROGATE_CONTROL_LISTEN_TLS_KEY` | `String` | `""` | 私钥文件路径 |
 
 ## 变量类型说明
 

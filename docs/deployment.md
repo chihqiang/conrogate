@@ -338,7 +338,7 @@ docker run --rm \
 
 | 变量 | 推荐值 | 说明 |
 |------|--------|------|
-| `CONROGATE_CONTROL_AUTH_TOKEN` | 非空随机字符串 | 鉴权 token |
+| `CONROGATE_CONTROL_AUTH_TOKEN` | 逗号分隔的 `operator:secret:role`（如 `admin:secret-1:admin,ops:secret-2:operator`） | 鉴权 token；需按角色分段才具备对应写权限，纯随机串仅限 `viewer` |
 | `CONROGATE_GATE_CONFIG_CACHE_REDIS_URL` | Redis URL | 配置缓存 + Pub/Sub 推送 |
 | `CONROGATE_NODE_AUTO_MIGRATE` | `false` | 生产环境由迁移工具独立执行 |
 | `CONROGATE_GATE_RATE_LIMIT_ENABLED` | `true` | 启用限流保护 |

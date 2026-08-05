@@ -82,7 +82,7 @@ conrogate/
 
 ## 配置
 
-所有配置通过环境变量加载（支持 `.env` 文件，参考 `.env.example`）。
+所有配置通过环境变量加载（支持 `.env` 文件）。环境模板：`.env.example`（本地测试，SQLite）/ `.env.prod.example`（生产，PostgreSQL/MySQL）。
 
 **最小配置：**
 
@@ -98,7 +98,7 @@ CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate'
 CONROGATE_DB_READ_URL='mysql://readonly:ro@slave:3306/conrogate'
 CONROGATE_GATE_PORT=8080
 CONROGATE_CONTROL_LISTEN_PORT=9000
-CONROGATE_CONTROL_AUTH_TOKEN=your-secret-token
+CONROGATE_CONTROL_AUTH_TOKEN='admin:admin-secret:admin,ops:ops-secret:operator,guest:guest-secret:viewer'
 CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='redis://127.0.0.1:6379'
 CONROGATE_GATE_RATE_LIMIT_ENABLED=true
 CONROGATE_GATE_BREAKER_ENABLED=true
@@ -179,9 +179,13 @@ CONROGATE_LOG_OUTPUT_FILE_ENABLED=false
 ## 开发
 
 ```bash
-cargo check --workspace   # 编译检查
-cargo test --workspace    # 运行测试
-cargo clippy --workspace  # 代码质量
+cargo check --workspace              # 编译检查
+cargo test --workspace               # 运行测试
+cargo clippy --workspace             # 代码质量
+cargo run -p conrogate-migrate       # 手动执行数据库迁移
+cargo run -p conrogate               # 合并模式（数据面 8080 + 控制面 9000）
+cargo run -p conrogate-control       # 分离模式：控制面（9000）
+cargo run -p conrogate-gate          # 分离模式：数据面（8080）
 ```
 
 ## License
