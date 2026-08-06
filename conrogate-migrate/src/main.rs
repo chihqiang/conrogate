@@ -30,11 +30,11 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("starting conrogate-migrate");
 
     // 加载配置
-    let config = conrogate_contract::config::Config::from_env()
+    let config = conrogate_core::contract::config::Config::from_env()
         .map_err(|e| anyhow::anyhow!("config load failed: {e}"))?;
 
     // 执行迁移
-    conrogate_storage::migration::run_migrations(&config.db).await?;
+    conrogate_core::storage::migration::run_migrations(&config.db).await?;
 
     tracing::info!("migration completed successfully");
     Ok(())

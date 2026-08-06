@@ -57,8 +57,7 @@ Conrogate 采用「控制面 + 数据面」双平面架构，提供三种部署�
 
 | 组件 | 位置 | 职责 |
 |------|------|------|
-| `conrogate-contract` | 契约层 | Trait 抽象（Repos、ConfigCache、Plugin、Limiter 等）、DTO、Config 结构 |
-| `conrogate-storage` | 持久化 | SeaORM Entity、迁移、仓储实现、配置缓存（DB/Redis） |
+| `conrogate-core` | 核心层 | 契约（Trait/DTO/Config）、负载均衡、插件框架、协议适配、持久化（Entity/迁移/仓储/配置缓存）、流量治理 |
 | `conrogate-gateway` | 网关核心 | 路由匹配、上游选择、遥测、健康检查、配置热载 |
 | `conrogate-control-svc` | 控制面服务 | REST API、鉴权、审计、配置版本管理 |
 | `conrogate-gate` | 数据面二进制 | 独立启动数据面（含心跳上报） |
@@ -157,5 +156,5 @@ gate 每 30s 上报心跳 `POST /api/v1/reports/heartbeat`（gate_id + version +
 | `conrogate-gateway/src/server.rs` | 数据面配置快照加载（Redis 优先 + DB 降级） |
 | `conrogate-gate/src/http_config_loader.rs` | HTTP 模式配置拉取（翻页 + 原子重载） |
 | `conrogate-control-svc/src/service.rs` | 配置发布/回滚 + Redis 快照写入 |
-| `conrogate-storage/src/config_cache.rs` | ConfigCache 抽象：DB 直读实现 / Redis 实现（原子管道 + Pub/Sub） |
+| `conrogate-core/src/storage/config_cache.rs` | ConfigCache 抽象：DB 直读实现 / Redis 实现（原子管道 + Pub/Sub） |
 | `conrogate-control-svc/src/api.rs` | 控制面路由注册与鉴权分层 |

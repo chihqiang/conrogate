@@ -2,19 +2,19 @@
 //!
 //! 合并模式装配流程。
 
-use conrogate_contract::storage::EventRepo;
+use conrogate_core::contract::storage::EventRepo;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// 启动全部组件，返回停机信号发送端
 pub async fn run(
-    config: conrogate_contract::config::Config,
+    config: conrogate_core::contract::config::Config,
 ) -> anyhow::Result<tokio::sync::broadcast::Sender<()>> {
     let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(1);
 
     // ── 2. 初始化 DB 连接池 ──
-    let main_db = conrogate_storage::pool::create_main_pool(&config.db).await?;
-    let read_db = conrogate_storage::pool::create_read_pool(&config.db).await?;
+    let main_db = conrogate_core::storage::pool::create_main_pool(&config.db).await?;
+    let read_db = conrogate_core::storage::pool::create_read_pool(&config.db).await?;
     let main_db = Arc::new(main_db);
     let read_db = Arc::new(read_db);
 
@@ -51,7 +51,7 @@ pub async fn run(
         if !locked {
             tracing::warn!("failed to acquire migration lock, proceeding anyway");
         }
-        let result = conrogate_storage::migration::run_migrations(&config.db).await;
+        let result = conrogate_core::storage::migration::run_migrations(&config.db).await;
         match backend {
             DatabaseBackend::Postgres => {
                 let _ = main_db
@@ -76,50 +76,50 @@ pub async fn run(
 
     // ── 5. 初始化仓储 ──
     let route_repo =
-        Arc::new(conrogate_storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()));
+        Arc::new(conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()));
     let upstream_repo = Arc::new(
-        conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*main_db).clone()),
+        conrogate_core::storage::repository::upstream_repo::UpstreamRepoImpl::new((*main_db).clone()),
     );
     let binding_repo = Arc::new(
-        conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
+        conrogate_core::storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
             (*main_db).clone(),
         ),
     );
     let config_repo = Arc::new(
-        conrogate_storage::repository::config_version_repo::ConfigVersionRepoImpl::new(
+        conrogate_core::storage::repository::config_version_repo::ConfigVersionRepoImpl::new(
             (*main_db).clone(),
         ),
     );
     let metric_repo = Arc::new(
-        conrogate_storage::repository::metric_repo::MetricRepoImpl::new((*main_db).clone()),
+        conrogate_core::storage::repository::metric_repo::MetricRepoImpl::new((*main_db).clone()),
     );
     let event_repo =
-        Arc::new(conrogate_storage::repository::event_repo::EventRepoImpl::new((*main_db).clone()));
+        Arc::new(conrogate_core::storage::repository::event_repo::EventRepoImpl::new((*main_db).clone()));
     let audit_repo = Arc::new(
-        conrogate_storage::repository::audit_log_repo::AuditLogRepoImpl::new((*main_db).clone()),
+        conrogate_core::storage::repository::audit_log_repo::AuditLogRepoImpl::new((*main_db).clone()),
     );
     let node_app_repo = Arc::new(
-        conrogate_storage::repository::node_application_repo::NodeApplicationRepoImpl::new(
+        conrogate_core::storage::repository::node_application_repo::NodeApplicationRepoImpl::new(
             (*main_db).clone(),
         ),
     );
     let plugin_repo = Arc::new(
-        conrogate_storage::repository::installed_plugin_repo::InstalledPluginRepoImpl::new(
+        conrogate_core::storage::repository::installed_plugin_repo::InstalledPluginRepoImpl::new(
             (*main_db).clone(),
         ),
     );
 
     // ── 加载初始配置到内存 ──
-    let routes = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(&*route_repo)
+    let routes = conrogate_core::contract::storage::ReadOnlyRouteRepo::list_enabled(&*route_repo)
         .await
         .unwrap_or_default();
-    let upstreams = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(&*upstream_repo)
+    let upstreams = conrogate_core::contract::storage::ReadOnlyUpstreamRepo::list_all(&*upstream_repo)
         .await
         .unwrap_or_default();
     // 加载插件绑定（用于 requires_body 静态判定）
     let mut all_bindings = Vec::new();
     for route in &routes {
-        let rb = conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
+        let rb = conrogate_core::contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
             &*binding_repo,
             route.id,
         )
@@ -129,7 +129,7 @@ pub async fn run(
     }
 
     // ── 6. BalancerRegistry ──
-    let balancer_registry = conrogate_balancer::registry::create_default_registry();
+    let balancer_registry = conrogate_core::balancer::registry::create_default_registry();
 
     // ── 7. PassiveHealthChecker ──
     let health_checker = Arc::new(conrogate_gateway::health::PassiveHealthChecker::default());
@@ -156,12 +156,12 @@ pub async fn run(
     let limiter = if let Some(ref cluster) = config.gate.rate_limit.cluster_store {
         tracing::info!(redis_url = %cluster.redis_url, "rate limiter: cluster mode (Redis)");
         Arc::new(
-            conrogate_traffic::limiter::TokenBucketLimiter::new().with_redis(&cluster.redis_url),
+            conrogate_core::traffic::limiter::TokenBucketLimiter::new().with_redis(&cluster.redis_url),
         )
     } else {
-        Arc::new(conrogate_traffic::limiter::TokenBucketLimiter::new())
+        Arc::new(conrogate_core::traffic::limiter::TokenBucketLimiter::new())
     };
-    let breaker_config = conrogate_traffic::breaker::BreakerConfig {
+    let breaker_config = conrogate_core::traffic::breaker::BreakerConfig {
         window: config.gate.breaker.window,
         failure_rate_threshold: config.gate.breaker.failure_rate_threshold,
         min_requests: config.gate.breaker.min_requests,
@@ -174,7 +174,7 @@ pub async fn run(
             .as_ref()
             .map(|c| c.redis_url.clone()),
     };
-    let breaker_factory = Arc::new(conrogate_traffic::breaker::BreakerFactoryImpl::new(
+    let breaker_factory = Arc::new(conrogate_core::traffic::breaker::BreakerFactoryImpl::new(
         breaker_config,
     ));
 
@@ -190,19 +190,19 @@ pub async fn run(
     );
 
     // ── 12. PluginRegistry + 注册静态插件 ──
-    let plugin_registry = Arc::new(conrogate_plugin::registry::PluginRegistryImpl::new());
-    let log_plugin: Arc<dyn conrogate_contract::plugin::Plugin> =
+    let plugin_registry = Arc::new(conrogate_core::plugin::registry::PluginRegistryImpl::new());
+    let log_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
         Arc::new(conrogate_plugin_log::LogPlugin::new());
-    let cors_plugin: Arc<dyn conrogate_contract::plugin::Plugin> =
+    let cors_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
         Arc::new(conrogate_plugin_cors::CorsPlugin::new());
-    let auth_plugin: Arc<dyn conrogate_contract::plugin::Plugin> =
+    let auth_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
         Arc::new(conrogate_plugin_auth::AuthPlugin::new());
     plugin_registry.register(log_plugin.clone()).await;
     plugin_registry.register(cors_plugin.clone()).await;
     plugin_registry.register(auth_plugin.clone()).await;
     // 调用插件 init() 生命周期钩子
     for p in
-        [&*log_plugin, &*cors_plugin, &*auth_plugin] as [&dyn conrogate_contract::plugin::Plugin; 3]
+        [&*log_plugin, &*cors_plugin, &*auth_plugin] as [&dyn conrogate_core::contract::plugin::Plugin; 3]
     {
         if let Err(e) = p.init(&serde_json::Value::Null).await {
             if p.is_blocking() {
@@ -214,7 +214,7 @@ pub async fn run(
     }
 
     // ── 13. PluginPipeline ──
-    let plugin_executor = Arc::new(conrogate_plugin::pipeline::PluginPipelineImpl::new());
+    let plugin_executor = Arc::new(conrogate_core::plugin::pipeline::PluginPipelineImpl::new());
 
     // ── 14. RouteMatcher ──
     let route_matcher = Arc::new(conrogate_gateway::route::RouteMatcher::new());
@@ -229,7 +229,7 @@ pub async fn run(
     ));
 
     // ── 16. ServiceContext ──
-    let svc = Arc::new(conrogate_contract::gateway::ServiceContext {
+    let svc = Arc::new(conrogate_core::contract::gateway::ServiceContext {
         routes: route_matcher.clone(),
         balancer: upstream_selector.clone(),
         traffic,
@@ -247,9 +247,9 @@ pub async fn run(
     let gate_plugin_executor = plugin_executor.clone();
     let gate_handle = tokio::spawn(async move {
         let server = conrogate_gateway::server::GatewayServer::from_components(
-            conrogate_contract::config::Config {
+            conrogate_core::contract::config::Config {
                 gate: gate_config.clone(),
-                ..conrogate_contract::config::Config::default()
+                ..conrogate_core::contract::config::Config::default()
             },
             svc,
             gate_plugin_registry,
@@ -376,28 +376,28 @@ pub async fn run(
 
 /// 控制面仓储聚合
 struct ControlRepos {
-    route_repo: Arc<dyn conrogate_contract::storage::RouteRepo>,
-    upstream_repo: Arc<dyn conrogate_contract::storage::UpstreamRepo>,
-    binding_repo: Arc<dyn conrogate_contract::storage::PluginBindingRepo>,
-    config_repo: Arc<dyn conrogate_contract::storage::ConfigVersionRepo>,
-    metric_repo: Arc<dyn conrogate_contract::storage::MetricRepo>,
-    event_repo: Arc<dyn conrogate_contract::storage::EventRepo>,
-    audit_repo: Arc<dyn conrogate_contract::storage::AuditLogRepo>,
-    node_app_repo: Arc<dyn conrogate_contract::storage::NodeApplicationRepo>,
-    plugin_repo: Arc<dyn conrogate_contract::storage::InstalledPluginRepo>,
+    route_repo: Arc<dyn conrogate_core::contract::storage::RouteRepo>,
+    upstream_repo: Arc<dyn conrogate_core::contract::storage::UpstreamRepo>,
+    binding_repo: Arc<dyn conrogate_core::contract::storage::PluginBindingRepo>,
+    config_repo: Arc<dyn conrogate_core::contract::storage::ConfigVersionRepo>,
+    metric_repo: Arc<dyn conrogate_core::contract::storage::MetricRepo>,
+    event_repo: Arc<dyn conrogate_core::contract::storage::EventRepo>,
+    audit_repo: Arc<dyn conrogate_core::contract::storage::AuditLogRepo>,
+    node_app_repo: Arc<dyn conrogate_core::contract::storage::NodeApplicationRepo>,
+    plugin_repo: Arc<dyn conrogate_core::contract::storage::InstalledPluginRepo>,
 }
 
 /// 启动控制面 axum 服务
 async fn start_control_plane(
-    control_config: conrogate_contract::config::ControlConfig,
+    control_config: conrogate_core::contract::config::ControlConfig,
     repos: ControlRepos,
     redis_url: String,
 ) {
     // Redis 配置缓存（可选）
-    let config_cache: Option<Arc<dyn conrogate_contract::storage::ConfigCache>> = if !redis_url
+    let config_cache: Option<Arc<dyn conrogate_core::contract::storage::ConfigCache>> = if !redis_url
         .is_empty()
     {
-        match conrogate_storage::config_cache::RedisConfigCache::new(&redis_url) {
+        match conrogate_core::storage::config_cache::RedisConfigCache::new(&redis_url) {
             Ok(cache) => {
                 tracing::info!(redis_url = %redis_url, "control plane: Redis config cache enabled");
                 Some(Arc::new(cache))
@@ -456,15 +456,15 @@ async fn start_control_plane(
 
 /// 写入演示数据：1 个 echo 上游 + 1 个演示路由
 async fn seed_demo_data(main_db: &Arc<sea_orm::DatabaseConnection>) -> anyhow::Result<()> {
-    use conrogate_contract::balancer::BalancerAlgorithm;
-    use conrogate_contract::dto::*;
-    use conrogate_contract::protocol::{PathMatch, ProtocolId, RouteMatchConditions};
-    use conrogate_contract::storage::*;
+    use conrogate_core::contract::balancer::BalancerAlgorithm;
+    use conrogate_core::contract::dto::*;
+    use conrogate_core::contract::protocol::{PathMatch, ProtocolId, RouteMatchConditions};
+    use conrogate_core::contract::storage::*;
 
     let upstream_repo =
-        conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((**main_db).clone());
+        conrogate_core::storage::repository::upstream_repo::UpstreamRepoImpl::new((**main_db).clone());
     let route_repo =
-        conrogate_storage::repository::route_repo::RouteRepoImpl::new((**main_db).clone());
+        conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((**main_db).clone());
 
     // 检查是否已有数据
     let existing = ReadOnlyUpstreamRepo::list_all(&upstream_repo)
@@ -526,16 +526,16 @@ async fn config_hot_reload_loop(
     db: Arc<sea_orm::DatabaseConnection>,
     matcher: Arc<conrogate_gateway::route::RouteMatcher>,
     selector: Arc<conrogate_gateway::pool::UpstreamSelectorImpl>,
-    registry: Arc<conrogate_plugin::registry::PluginRegistryImpl>,
-    plugin_executor: Arc<conrogate_plugin::pipeline::PluginPipelineImpl>,
+    registry: Arc<conrogate_core::plugin::registry::PluginRegistryImpl>,
+    plugin_executor: Arc<conrogate_core::plugin::pipeline::PluginPipelineImpl>,
     redis_url: String,
     poll_interval: std::time::Duration,
 ) {
     // 尝试创建 Redis 配置缓存
-    let config_cache: Option<Arc<dyn conrogate_contract::storage::ConfigCache>> = if !redis_url
+    let config_cache: Option<Arc<dyn conrogate_core::contract::storage::ConfigCache>> = if !redis_url
         .is_empty()
     {
-        match conrogate_storage::config_cache::RedisConfigCache::new(&redis_url) {
+        match conrogate_core::storage::config_cache::RedisConfigCache::new(&redis_url) {
             Ok(cache) => {
                 tracing::info!("data plane: Redis config cache enabled for hot-reload");
                 Some(Arc::new(cache))
@@ -596,7 +596,7 @@ async fn config_hot_reload_loop(
             // 热加载：更新路由插件链
             let mut chains: std::collections::HashMap<
                 u64,
-                Vec<Arc<dyn conrogate_contract::plugin::Plugin>>,
+                Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>>,
             > = std::collections::HashMap::new();
             for binding in &bindings {
                 if !binding.enabled {
@@ -617,12 +617,12 @@ async fn config_hot_reload_loop(
 /// 原子读取配置快照：优先 Redis 快照，失败降级直连 DB；
 /// 任一数据源读取失败返回 `None`，保持当前生效配置。
 async fn load_config_snapshot(
-    config_cache: Option<&dyn conrogate_contract::storage::ConfigCache>,
+    config_cache: Option<&dyn conrogate_core::contract::storage::ConfigCache>,
     db: &Arc<sea_orm::DatabaseConnection>,
 ) -> Option<(
-    Vec<conrogate_contract::dto::RouteDto>,
-    Vec<conrogate_contract::dto::UpstreamDto>,
-    Vec<conrogate_contract::dto::PluginBindingDto>,
+    Vec<conrogate_core::contract::dto::RouteDto>,
+    Vec<conrogate_core::contract::dto::UpstreamDto>,
+    Vec<conrogate_core::contract::dto::PluginBindingDto>,
 )> {
     if let Some(cache) = config_cache {
         match cache.get_snapshot().await {
@@ -641,17 +641,17 @@ async fn load_config_snapshot(
 async fn load_config_from_db(
     db: &Arc<sea_orm::DatabaseConnection>,
 ) -> Option<(
-    Vec<conrogate_contract::dto::RouteDto>,
-    Vec<conrogate_contract::dto::UpstreamDto>,
-    Vec<conrogate_contract::dto::PluginBindingDto>,
+    Vec<conrogate_core::contract::dto::RouteDto>,
+    Vec<conrogate_core::contract::dto::UpstreamDto>,
+    Vec<conrogate_core::contract::dto::PluginBindingDto>,
 )> {
-    use conrogate_contract::storage::*;
+    use conrogate_core::contract::storage::*;
 
-    let route_repo = conrogate_storage::repository::route_repo::RouteRepoImpl::new((**db).clone());
+    let route_repo = conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((**db).clone());
     let upstream_repo =
-        conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((**db).clone());
+        conrogate_core::storage::repository::upstream_repo::UpstreamRepoImpl::new((**db).clone());
     let binding_repo =
-        conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
+        conrogate_core::storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
             (**db).clone(),
         );
 

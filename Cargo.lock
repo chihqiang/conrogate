@@ -455,16 +455,12 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
- "conrogate-balancer",
- "conrogate-contract",
  "conrogate-control-svc",
+ "conrogate-core",
  "conrogate-gateway",
- "conrogate-plugin",
  "conrogate-plugin-auth",
  "conrogate-plugin-cors",
  "conrogate-plugin-log",
- "conrogate-storage",
- "conrogate-traffic",
  "dotenvy",
  "sea-orm",
  "serde_json",
@@ -474,44 +470,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "conrogate-balancer"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "conrogate-contract",
- "rand",
- "seahash",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "conrogate-contract"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "bytes",
- "chrono",
- "http",
- "serde",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "tracing",
- "utoipa",
- "uuid",
-]
-
-[[package]]
 name = "conrogate-control"
 version = "0.0.1"
 dependencies = [
  "anyhow",
  "axum",
  "clap",
- "conrogate-contract",
  "conrogate-control-svc",
- "conrogate-storage",
+ "conrogate-core",
  "dotenvy",
  "tokio",
  "tracing",
@@ -525,8 +491,7 @@ dependencies = [
  "async-trait",
  "axum",
  "chrono",
- "conrogate-contract",
- "conrogate-storage",
+ "conrogate-core",
  "redis",
  "serde",
  "serde_json",
@@ -539,6 +504,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "conrogate-core"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "base64",
+ "bytes",
+ "chrono",
+ "hex",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "ipnet",
+ "rand",
+ "redis",
+ "rustls",
+ "sea-orm",
+ "sea-orm-migration",
+ "seahash",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "utoipa",
+ "uuid",
+]
+
+[[package]]
 name = "conrogate-gate"
 version = "0.0.1"
 dependencies = [
@@ -546,15 +546,11 @@ dependencies = [
  "bytes",
  "chrono",
  "clap",
- "conrogate-balancer",
- "conrogate-contract",
+ "conrogate-core",
  "conrogate-gateway",
- "conrogate-plugin",
  "conrogate-plugin-auth",
  "conrogate-plugin-cors",
  "conrogate-plugin-log",
- "conrogate-storage",
- "conrogate-traffic",
  "dotenvy",
  "http",
  "http-body-util",
@@ -572,15 +568,10 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
- "conrogate-balancer",
- "conrogate-contract",
- "conrogate-plugin",
+ "conrogate-core",
  "conrogate-plugin-auth",
  "conrogate-plugin-cors",
  "conrogate-plugin-log",
- "conrogate-protocol",
- "conrogate-storage",
- "conrogate-traffic",
  "futures",
  "http",
  "http-body-util",
@@ -594,8 +585,6 @@ dependencies = [
  "tokio-rustls",
  "tokio-util",
  "tracing",
- "tracing-appender",
- "tracing-subscriber",
  "uuid",
 ]
 
@@ -605,23 +594,11 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "clap",
- "conrogate-contract",
- "conrogate-storage",
+ "conrogate-core",
  "dotenvy",
  "tokio",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "conrogate-plugin"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "conrogate-contract",
- "conrogate-traffic",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -631,8 +608,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
- "conrogate-contract",
- "conrogate-plugin",
+ "conrogate-core",
  "http",
  "http-body-util",
  "hyper",
@@ -651,8 +627,7 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "bytes",
- "conrogate-contract",
- "conrogate-plugin",
+ "conrogate-core",
  "http",
  "serde",
  "serde_json",
@@ -665,69 +640,9 @@ name = "conrogate-plugin-log"
 version = "0.0.1"
 dependencies = [
  "async-trait",
- "conrogate-contract",
- "conrogate-plugin",
+ "conrogate-core",
  "serde",
  "serde_json",
- "tracing",
-]
-
-[[package]]
-name = "conrogate-protocol"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "base64",
- "bytes",
- "chrono",
- "conrogate-contract",
- "conrogate-plugin",
- "http",
- "http-body-util",
- "hyper",
- "hyper-rustls",
- "hyper-util",
- "ipnet",
- "rustls",
- "serde_json",
- "sha1",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "conrogate-storage"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "chrono",
- "conrogate-balancer",
- "conrogate-contract",
- "hex",
- "redis",
- "sea-orm",
- "sea-orm-migration",
- "serde",
- "serde_json",
- "sha2",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "conrogate-traffic"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "conrogate-balancer",
- "conrogate-contract",
- "ipnet",
- "rand",
- "redis",
- "tokio",
- "tokio-util",
  "tracing",
 ]
 

@@ -26,14 +26,14 @@ fn main() -> anyhow::Result<()> {
     }
 
     // 先加载配置
-    let config = conrogate_contract::config::Config::from_env()
+    let config = conrogate_core::contract::config::Config::from_env()
         .map_err(|e| anyhow::anyhow!("config load failed: {e}"))?;
     config
         .validate()
         .map_err(|e| anyhow::anyhow!("config validation failed: {e}"))?;
 
     // 初始化日志（JSON 格式 + 文件输出）
-    conrogate_gateway::logging::init(&config.log);
+    conrogate_core::logging::init(&config.log);
 
     tracing::info!(
         host = %config.gate.listen.host,
@@ -55,7 +55,7 @@ fn main() -> anyhow::Result<()> {
     runtime.block_on(run(config))
 }
 
-async fn run(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
+async fn run(config: conrogate_core::contract::config::Config) -> anyhow::Result<()> {
     // ── 1. 配置源选择：http 模式不直连 DB ──
     if config.gate.refresh.config_source == "http" {
         tracing::info!("config_source=http, using HTTP config loader only");
@@ -63,7 +63,7 @@ async fn run(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
     }
 
     // ── 2. 只读 DB 连接池（config_source=db 时使用）──
-    let read_db = match conrogate_storage::pool::create_read_pool(&config.db).await {
+    let read_db = match conrogate_core::storage::pool::create_read_pool(&config.db).await {
         Ok(db) => Arc::new(db),
         Err(e) => {
             tracing::warn!(error = %e, "read db pool failed, starting with empty config");
@@ -91,7 +91,7 @@ async fn run(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
             let heartbeat_interval = std::time::Duration::from_secs(30);
             loop {
                 tokio::time::sleep(heartbeat_interval).await;
-                let hb = conrogate_contract::dto::Heartbeat {
+                let hb = conrogate_core::contract::dto::Heartbeat {
                     gate_id: gate_id.clone(),
                     version: 0,
                     timestamp: chrono::Utc::now(),
@@ -120,7 +120,7 @@ async fn run(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
 }
 
 /// 无 DB 模式启动（仅 HTTP 拉取配置 + 定时轮询热加载）
-async fn run_without_db(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
+async fn run_without_db(config: conrogate_core::contract::config::Config) -> anyhow::Result<()> {
     tracing::info!("starting gate without db (http config mode)");
 
     let control_url = config.gate.refresh.control_api_url.clone();
@@ -139,7 +139,7 @@ async fn run_without_db(config: conrogate_contract::config::Config) -> anyhow::R
             let routes = loader.load_routes().await?;
             let upstreams = loader.load_upstreams().await?;
             let bindings = loader.load_all_plugin_bindings(&routes).await?;
-            Ok::<_, conrogate_contract::ConrogateError>((routes, upstreams, bindings))
+            Ok::<_, conrogate_core::contract::ConrogateError>((routes, upstreams, bindings))
         }
         .await;
 

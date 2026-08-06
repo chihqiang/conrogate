@@ -45,7 +45,7 @@ export CONROGATE_DB_URL='sqlite:///tmp/conrogate.sqlite'
 export CONROGATE_DB_URL='sqlite::memory:'
 ```
 
-> 注意：SQLite 文件必须由进程自身创建，`create_if_missing(true)` 已在 `conrogate-storage/src/pool.rs` 中实现。SQLite 无需 Redis 即可运行。
+> 注意：SQLite 文件必须由进程自身创建，`create_if_missing(true)` 已在 `conrogate-core/src/storage/pool.rs` 中实现。SQLite 无需 Redis 即可运行。
 
 ### Redis（可选，用于配置缓存与集群限流）
 

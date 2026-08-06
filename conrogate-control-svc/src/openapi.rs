@@ -3,10 +3,10 @@
 //! 基于 axum 路由与 contract DTO 生成 OpenAPI 3 规范，
 //! 暴露于 `GET /openapi.json`。路径表与 `api.rs::build_router` 保持一致。
 
-use conrogate_contract::balancer::BalancerAlgorithm;
-use conrogate_contract::dto::*;
-use conrogate_contract::plugin::{PluginKind, PluginStatus};
-use conrogate_contract::protocol::{
+use conrogate_core::contract::balancer::BalancerAlgorithm;
+use conrogate_core::contract::dto::*;
+use conrogate_core::contract::plugin::{PluginKind, PluginStatus};
+use conrogate_core::contract::protocol::{
     HeaderMatch, MatchOp, PathMatch, ProtocolId, QueryMatch, RouteMatchConditions,
 };
 use utoipa::openapi::content::Content;

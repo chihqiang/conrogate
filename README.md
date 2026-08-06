@@ -64,12 +64,7 @@ conrogate/
 │   ├── architecture.md     # 协调架构：配置下发、遥测上报、进程内调度
 │   ├── deployment.md       # 部署指南：本地 / 容器化 / 生产
 │   └── operations.md       # 操作指南：启动后的配置 / 发布 / 观测 / 回滚
-├── conrogate-contract/     # 契约层：Trait + DTO + 枚举 + Config
-├── conrogate-storage/      # 持久化层：SeaORM Entity + 迁移 + 仓储 + 配置缓存
-├── conrogate-balancer/     # 负载均衡：4 种算法 + Registry
-├── conrogate-traffic/      # 流量治理：限流 + 熔断 + 重试 + 超时
-├── conrogate-plugin/       # 插件框架：注册表 + 管线
-├── conrogate-protocol/     # 协议适配层：Handler 抽象 + HTTP/WS/TCP 实现
+├── conrogate-core/         # 核心层：契约 + 负载均衡 / 插件框架 / 协议适配 / 持久化 / 流量治理
 ├── conrogate-gateway/      # 网关核心：路由/代理/遥测/健康检查/配置热载
 ├── conrogate-control-svc/  # 控制面服务：REST API + 鉴权 + 审计 + 版本管理
 ├── conrogate-plugin-log/   # 官方插件：访问日志

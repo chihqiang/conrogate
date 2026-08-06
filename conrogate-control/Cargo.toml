@@ -10,8 +10,7 @@ name = "conrogate-control"
 path = "src/main.rs"
 
 [dependencies]
-conrogate-contract = { workspace = true }
-conrogate-storage = { workspace = true }
+conrogate-core = { workspace = true }
 conrogate-control-svc = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }

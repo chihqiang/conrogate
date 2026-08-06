@@ -1,16 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    # 契约层
-    "conrogate-contract",
-    # 持久化层
-    "conrogate-storage",
-    # 领域组件
-    "conrogate-balancer",
-    "conrogate-traffic",
-    "conrogate-plugin",
-    # 协议适配层
-    "conrogate-protocol",
+    # 核心层（contract / balancer / plugin / protocol / storage / traffic）
+    "conrogate-core",
     # 网关核心
     "conrogate-gateway",
     # 控制面
@@ -99,12 +91,7 @@ redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 regex = "1.10"
 
 # 内部 crate 依赖
-conrogate-contract = { path = "conrogate-contract" }
-conrogate-storage = { path = "conrogate-storage" }
-conrogate-balancer = { path = "conrogate-balancer" }
-conrogate-traffic = { path = "conrogate-traffic" }
-conrogate-plugin = { path = "conrogate-plugin" }
-conrogate-protocol = { path = "conrogate-protocol" }
+conrogate-core = { path = "conrogate-core" }
 conrogate-gateway = { path = "conrogate-gateway" }
 conrogate-control-svc = { path = "conrogate-control-svc" }
 conrogate-plugin-log = { path = "conrogate-plugin-log" }

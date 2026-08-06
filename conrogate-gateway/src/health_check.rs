@@ -1,6 +1,6 @@
 //! 主动健康检查器：定期 HTTP/TCP 探测上游节点。
 
-use conrogate_contract::dto::UpstreamNodeDto;
+use conrogate_core::contract::dto::UpstreamNodeDto;
 use std::collections::HashMap;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};

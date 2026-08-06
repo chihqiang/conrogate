@@ -1,7 +1,7 @@
 //! 遥测上报实现：聚合指标 + 事件入库。
 
-use conrogate_contract::dto::{EventRow, MetricRow};
-use conrogate_contract::gateway::TelemetryReport;
+use conrogate_core::contract::dto::{EventRow, MetricRow};
+use conrogate_core::contract::gateway::TelemetryReport;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -42,9 +42,9 @@ pub struct MetricAggregator {
     >,
     bucket_sec: u32,
     /// 落库通道
-    metric_repo: Option<Arc<dyn conrogate_contract::storage::MetricRepo>>,
+    metric_repo: Option<Arc<dyn conrogate_core::contract::storage::MetricRepo>>,
     /// 落库失败的指标批次环形缓冲（指数退避重试兜底）
-    recently_failed: std::collections::VecDeque<Vec<conrogate_contract::dto::MetricRow>>,
+    recently_failed: std::collections::VecDeque<Vec<conrogate_core::contract::dto::MetricRow>>,
 }
 
 #[derive(Default)]
@@ -182,7 +182,7 @@ impl MetricAggregator {
     /// 设置落库仓储
     pub fn with_metric_repo(
         mut self,
-        repo: Arc<dyn conrogate_contract::storage::MetricRepo>,
+        repo: Arc<dyn conrogate_core::contract::storage::MetricRepo>,
     ) -> Self {
         self.metric_repo = Some(repo);
         self

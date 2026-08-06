@@ -8,8 +8,8 @@ use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Response};
 use axum::Extension;
 use axum::Json;
-use conrogate_contract::dto::*;
-use conrogate_contract::ConrogateError;
+use conrogate_core::contract::dto::*;
+use conrogate_core::contract::ConrogateError;
 use std::sync::Arc;
 
 use crate::auth::Role;
@@ -523,10 +523,10 @@ pub async fn list_plugins(
         .status
         .as_deref()
         .and_then(|s| match s.to_lowercase().as_str() {
-            "installed" => Some(conrogate_contract::plugin::PluginStatus::Installed),
-            "active" => Some(conrogate_contract::plugin::PluginStatus::Active),
-            "disabled" => Some(conrogate_contract::plugin::PluginStatus::Disabled),
-            "uninstalled" => Some(conrogate_contract::plugin::PluginStatus::Uninstalled),
+            "installed" => Some(conrogate_core::contract::plugin::PluginStatus::Installed),
+            "active" => Some(conrogate_core::contract::plugin::PluginStatus::Active),
+            "disabled" => Some(conrogate_core::contract::plugin::PluginStatus::Disabled),
+            "uninstalled" => Some(conrogate_core::contract::plugin::PluginStatus::Uninstalled),
             _ => None,
         });
     match state.svc.list_plugins(status).await {
@@ -554,7 +554,7 @@ pub async fn activate_plugin(
         .svc
         .update_plugin_status(
             &name,
-            conrogate_contract::plugin::PluginStatus::Active,
+            conrogate_core::contract::plugin::PluginStatus::Active,
             Some(&operator),
         )
         .await
@@ -578,7 +578,7 @@ pub async fn disable_plugin(
         .svc
         .update_plugin_status(
             &name,
-            conrogate_contract::plugin::PluginStatus::Disabled,
+            conrogate_core::contract::plugin::PluginStatus::Disabled,
             Some(&operator),
         )
         .await

@@ -7,7 +7,6 @@ pub mod discovery;
 pub mod filter;
 pub mod health;
 pub mod health_check;
-pub mod logging;
 pub mod pool;
 pub mod route;
 pub mod server;

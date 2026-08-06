@@ -1,11 +1,11 @@
 //! 路由匹配引擎：多维条件匹配 + 优先级排序。
 
-use conrogate_contract::dto::{RouteDto, RouteSnapshot};
-use conrogate_contract::gateway::RouteLookup;
-use conrogate_contract::protocol::{
+use conrogate_core::contract::dto::{RouteDto, RouteSnapshot};
+use conrogate_core::contract::gateway::RouteLookup;
+use conrogate_core::contract::protocol::{
     HeaderMatch, MatchOp, PathMatch, ProtocolId, QueryMatch, RouteMatchConditions, RouteMatchInfo,
 };
-use conrogate_contract::ConrogateError;
+use conrogate_core::contract::ConrogateError;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
@@ -47,14 +47,14 @@ impl RouteMatcher {
     pub fn load_with_bindings(
         &self,
         dtos: Vec<RouteDto>,
-        bindings: Vec<conrogate_contract::dto::PluginBindingDto>,
+        bindings: Vec<conrogate_core::contract::dto::PluginBindingDto>,
         body_required_plugins: &std::collections::HashSet<String>,
     ) {
         let mut routes = self.routes.write().unwrap();
         routes.clear();
 
         // 按 route_id 分组绑定
-        let mut binding_map: HashMap<u64, Vec<conrogate_contract::dto::PluginBindingDto>> =
+        let mut binding_map: HashMap<u64, Vec<conrogate_core::contract::dto::PluginBindingDto>> =
             HashMap::new();
         for b in bindings {
             if b.enabled {

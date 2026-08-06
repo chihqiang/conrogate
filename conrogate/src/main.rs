@@ -26,14 +26,14 @@ fn main() -> anyhow::Result<()> {
     }
 
     // 加载配置
-    let config = conrogate_contract::config::Config::from_env()
+    let config = conrogate_core::contract::config::Config::from_env()
         .map_err(|e| anyhow::anyhow!("config load failed: {e}"))?;
     config
         .validate()
         .map_err(|e| anyhow::anyhow!("config validation failed: {e}"))?;
 
     // 初始化日志（JSON 格式 + 文件输出）
-    conrogate_gateway::logging::init(&config.log);
+    conrogate_core::logging::init(&config.log);
 
     tracing::info!(
         instance_id = ?config.common.instance_id,
@@ -59,7 +59,7 @@ fn build_runtime(worker_threads: usize) -> anyhow::Result<tokio::runtime::Runtim
         .map_err(|e| anyhow::anyhow!("tokio runtime build failed: {e}"))
 }
 
-async fn run(config: conrogate_contract::config::Config) -> anyhow::Result<()> {
+async fn run(config: conrogate_core::contract::config::Config) -> anyhow::Result<()> {
     // Bootstrap 装配
     let shutdown_tx = bootstrap::run(config).await?;
 

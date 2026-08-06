@@ -5,20 +5,20 @@ use crate::pool::UpstreamSelectorImpl;
 use crate::route::RouteMatcher;
 use crate::telemetry::{MetricAggregator, TelemetryReportImpl};
 use bytes::Bytes;
-use conrogate_balancer::registry::create_default_registry;
-use conrogate_contract::config::Config;
-use conrogate_contract::gateway::ServiceContext;
-use conrogate_contract::protocol::{ProtocolId, RouteMatchInfo};
-use conrogate_contract::storage::EventRepo;
-use conrogate_contract::ConrogateError;
-use conrogate_plugin::pipeline::PluginPipelineImpl;
-use conrogate_plugin::registry::PluginRegistryImpl;
-use conrogate_protocol::proxy::ReqBody;
-use conrogate_protocol::{
+use conrogate_core::balancer::registry::create_default_registry;
+use conrogate_core::contract::config::Config;
+use conrogate_core::contract::gateway::ServiceContext;
+use conrogate_core::contract::protocol::{ProtocolId, RouteMatchInfo};
+use conrogate_core::contract::storage::EventRepo;
+use conrogate_core::contract::ConrogateError;
+use conrogate_core::plugin::pipeline::PluginPipelineImpl;
+use conrogate_core::plugin::registry::PluginRegistryImpl;
+use conrogate_core::protocol::proxy::ReqBody;
+use conrogate_core::protocol::{
     HttpProtocolHandler, ProtocolHandler, ProtocolHandlerRegistry, TcpTunnelProtocolHandler,
 };
-use conrogate_traffic::breaker::{BreakerConfig, BreakerFactoryImpl};
-use conrogate_traffic::limiter::TokenBucketLimiter;
+use conrogate_core::traffic::breaker::{BreakerConfig, BreakerFactoryImpl};
+use conrogate_core::traffic::limiter::TokenBucketLimiter;
 use http::{Request, Response};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
@@ -40,24 +40,24 @@ pub struct GatewayServer {
     max_body_bytes: usize,
     max_header_bytes: usize,
     idle_timeout: std::time::Duration,
-    config_cache: Option<Arc<dyn conrogate_contract::storage::ConfigCache>>,
+    config_cache: Option<Arc<dyn conrogate_core::contract::storage::ConfigCache>>,
 }
 
 /// 遥测通道（指标/事件接收端），由调用方决定消费方式（DB 落库或日志兜底）
 struct TelemetryChannels {
-    metric_rx: mpsc::Receiver<conrogate_contract::dto::MetricRow>,
-    event_rx: mpsc::Receiver<conrogate_contract::dto::EventRow>,
+    metric_rx: mpsc::Receiver<conrogate_core::contract::dto::MetricRow>,
+    event_rx: mpsc::Receiver<conrogate_core::contract::dto::EventRow>,
 }
 
 /// 原子读取配置快照：任一数据源读取失败返回 `None`（保持当前生效配置，
 /// 避免把半套配置刷入运行时导致路由/上游/插件链被部分清空）。
 async fn load_config_snapshot(
-    config_cache: Option<&dyn conrogate_contract::storage::ConfigCache>,
-    db: &Arc<conrogate_storage::pool::DbConn>,
+    config_cache: Option<&dyn conrogate_core::contract::storage::ConfigCache>,
+    db: &Arc<conrogate_core::storage::pool::DbConn>,
 ) -> Option<(
-    Vec<conrogate_contract::dto::RouteDto>,
-    Vec<conrogate_contract::dto::UpstreamDto>,
-    Vec<conrogate_contract::dto::PluginBindingDto>,
+    Vec<conrogate_core::contract::dto::RouteDto>,
+    Vec<conrogate_core::contract::dto::UpstreamDto>,
+    Vec<conrogate_core::contract::dto::PluginBindingDto>,
 )> {
     // 优先 Redis 快照（单次读取即为完整三件套）
     if let Some(cache) = config_cache {
@@ -70,8 +70,8 @@ async fn load_config_snapshot(
         }
     }
 
-    let routes = match conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(
-        &conrogate_storage::repository::route_repo::RouteRepoImpl::new((**db).clone()),
+    let routes = match conrogate_core::contract::storage::ReadOnlyRouteRepo::list_enabled(
+        &conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((**db).clone()),
     )
     .await
     {
@@ -81,8 +81,8 @@ async fn load_config_snapshot(
             return None;
         }
     };
-    let upstreams = match conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(
-        &conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((**db).clone()),
+    let upstreams = match conrogate_core::contract::storage::ReadOnlyUpstreamRepo::list_all(
+        &conrogate_core::storage::repository::upstream_repo::UpstreamRepoImpl::new((**db).clone()),
     )
     .await
     {
@@ -94,8 +94,8 @@ async fn load_config_snapshot(
     };
     let mut bindings = Vec::new();
     for route in &routes {
-        match conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
-            &conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
+        match conrogate_core::contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
+            &conrogate_core::storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
                 (**db).clone(),
             ),
             route.id,
@@ -172,7 +172,7 @@ impl GatewayServer {
         plugin_registry.register(auth_plugin.clone()).await;
         // 调用插件 init() 生命周期钩子
         for p in [&*log_plugin, &*cors_plugin, &*auth_plugin]
-            as [&dyn conrogate_contract::plugin::Plugin; 3]
+            as [&dyn conrogate_core::contract::plugin::Plugin; 3]
         {
             if let Err(e) = p.init(&serde_json::Value::Null).await {
                 if p.is_blocking() {
@@ -332,7 +332,7 @@ impl GatewayServer {
     /// 从配置 + DB 连接构建网关（含配置热加载）
     pub async fn from_config_with_db(
         config: Config,
-        read_db: Arc<conrogate_storage::pool::DbConn>,
+        read_db: Arc<conrogate_core::storage::pool::DbConn>,
     ) -> Self {
         // 提取 Redis 配置（在 config 被 move 之前）
         let redis_url = if !config.gate.refresh.config_cache_redis_url.is_empty() {
@@ -354,10 +354,10 @@ impl GatewayServer {
 
         // 数据面遥测落库：指标聚合批量写入 + 事件批量写入（复用合并模式管线）
         let metric_repo = Arc::new(
-            conrogate_storage::repository::metric_repo::MetricRepoImpl::new((*read_db).clone()),
+            conrogate_core::storage::repository::metric_repo::MetricRepoImpl::new((*read_db).clone()),
         );
         let event_repo = Arc::new(
-            conrogate_storage::repository::event_repo::EventRepoImpl::new((*read_db).clone()),
+            conrogate_core::storage::repository::event_repo::EventRepoImpl::new((*read_db).clone()),
         );
         tokio::spawn(async move {
             let mut aggregator = MetricAggregator::new(channels.metric_rx, telemetry_bucket_sec)
@@ -394,7 +394,7 @@ impl GatewayServer {
 
         // 尝试创建 Redis 配置缓存
         if let Some(ref url) = redis_url {
-            match conrogate_storage::config_cache::RedisConfigCache::new(url) {
+            match conrogate_core::storage::config_cache::RedisConfigCache::new(url) {
                 Ok(cache) => {
                     tracing::info!("Redis config cache initialized for Pub/Sub");
                     server.config_cache = Some(Arc::new(cache));
@@ -407,23 +407,23 @@ impl GatewayServer {
 
         // 加载初始路由 + 上游 + 插件绑定
         let route_repo =
-            conrogate_storage::repository::route_repo::RouteRepoImpl::new((*read_db).clone());
+            conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((*read_db).clone());
         let upstream_repo =
-            conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*read_db).clone());
+            conrogate_core::storage::repository::upstream_repo::UpstreamRepoImpl::new((*read_db).clone());
         let binding_repo =
-            conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
+            conrogate_core::storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
                 (*read_db).clone(),
             );
 
-        let routes = conrogate_contract::storage::ReadOnlyRouteRepo::list_enabled(&route_repo)
+        let routes = conrogate_core::contract::storage::ReadOnlyRouteRepo::list_enabled(&route_repo)
             .await
             .unwrap_or_default();
-        let upstreams = conrogate_contract::storage::ReadOnlyUpstreamRepo::list_all(&upstream_repo)
+        let upstreams = conrogate_core::contract::storage::ReadOnlyUpstreamRepo::list_all(&upstream_repo)
             .await
             .unwrap_or_default();
         let mut all_bindings = Vec::new();
         for route in &routes {
-            let rb = conrogate_contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
+            let rb = conrogate_core::contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
                 &binding_repo,
                 route.id,
             )
@@ -436,7 +436,7 @@ impl GatewayServer {
         // 初始加载：预解析路由插件链并缓存到 PluginPipelineImpl
         let mut init_chains: std::collections::HashMap<
             u64,
-            Vec<Arc<dyn conrogate_contract::plugin::Plugin>>,
+            Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>>,
         > = std::collections::HashMap::new();
         for binding in &all_bindings {
             if !binding.enabled {
@@ -510,7 +510,7 @@ impl GatewayServer {
                     // 按 route_id 分组绑定，解析插件实例，原子替换插件链缓存
                     let mut chains: std::collections::HashMap<
                         u64,
-                        Vec<Arc<dyn conrogate_contract::plugin::Plugin>>,
+                        Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>>,
                     > = std::collections::HashMap::new();
                     for binding in &bindings {
                         if !binding.enabled {
@@ -623,7 +623,7 @@ impl GatewayServer {
                             let mut buf = [0u8; 4096];
                             let sni = match stream.peek(&mut buf).await {
                                 Ok(n) if n >= 5 => {
-                                    conrogate_protocol::tls::extract_sni_from_client_hello(&buf[..n])
+                                    conrogate_core::protocol::tls::extract_sni_from_client_hello(&buf[..n])
                                 }
                                 _ => None,
                             };
@@ -740,7 +740,7 @@ impl GatewayServer {
     }
 
     /// 热加载路由
-    pub fn reload_routes(&self, routes: Vec<conrogate_contract::dto::RouteDto>) {
+    pub fn reload_routes(&self, routes: Vec<conrogate_core::contract::dto::RouteDto>) {
         self.route_matcher.load(routes);
         tracing::info!("routes reloaded");
     }
@@ -748,14 +748,14 @@ impl GatewayServer {
     /// 热加载路由 + 插件绑定（含 requires_body 静态判定）
     pub fn reload_routes_with_bindings(
         &self,
-        routes: Vec<conrogate_contract::dto::RouteDto>,
-        bindings: Vec<conrogate_contract::dto::PluginBindingDto>,
+        routes: Vec<conrogate_core::contract::dto::RouteDto>,
+        bindings: Vec<conrogate_core::contract::dto::PluginBindingDto>,
     ) {
         let body_required = self.plugin_registry.body_required_plugin_names();
         // 按 route_id 分组绑定，解析插件实例，原子替换插件链缓存
         let mut chains: std::collections::HashMap<
             u64,
-            Vec<Arc<dyn conrogate_contract::plugin::Plugin>>,
+            Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>>,
         > = std::collections::HashMap::new();
         for binding in &bindings {
             if !binding.enabled {
@@ -772,7 +772,7 @@ impl GatewayServer {
     }
 
     /// 热加载上游
-    pub fn reload_upstreams(&self, upstreams: Vec<conrogate_contract::dto::UpstreamDto>) {
+    pub fn reload_upstreams(&self, upstreams: Vec<conrogate_core::contract::dto::UpstreamDto>) {
         self.upstream_selector.load_upstreams(upstreams);
         tracing::info!("upstreams reloaded");
     }
@@ -1073,7 +1073,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                                 .unwrap();
                                             *upgrade_req.headers_mut() = headers;
                                             if strip_sensitive {
-                                                conrogate_protocol::http::strip_sensitive_headers(
+                                                conrogate_core::protocol::http::strip_sensitive_headers(
                                                     upgrade_req.headers_mut(),
                                                 );
                                             }
@@ -1084,7 +1084,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                                     .insert(http::header::HOST, v);
                                             }
                                             let forward =
-                                                conrogate_protocol::upgrade::forward_websocket(
+                                                conrogate_core::protocol::upgrade::forward_websocket(
                                                     &upstream_addr,
                                                     io,
                                                     upgrade_req,
@@ -1213,7 +1213,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                         .unwrap();
                                     *upgrade_req.headers_mut() = headers;
                                     if strip_sensitive {
-                                        conrogate_protocol::http::strip_sensitive_headers(
+                                        conrogate_core::protocol::http::strip_sensitive_headers(
                                             upgrade_req.headers_mut(),
                                         );
                                     }
@@ -1221,7 +1221,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                                     if let Ok(v) = upstream_host.parse() {
                                         upgrade_req.headers_mut().insert(http::header::HOST, v);
                                     }
-                                    let forward = conrogate_protocol::upgrade::forward_websocket(
+                                    let forward = conrogate_core::protocol::upgrade::forward_websocket(
                                         &upstream_addr,
                                         io,
                                         upgrade_req,

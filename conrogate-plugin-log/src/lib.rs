@@ -1,7 +1,7 @@
 //! Conrogate 官方日志插件：请求访问日志记录。
 
 use async_trait::async_trait;
-use conrogate_contract::{
+use conrogate_core::contract::{
     plugin::{Plugin, PluginContext, PluginOutcome, PluginResponse},
     protocol::ProtocolId,
     ConrogateError,
@@ -51,8 +51,8 @@ impl Plugin for LogPlugin {
         "log"
     }
 
-    fn kind(&self) -> conrogate_contract::plugin::PluginKind {
-        conrogate_contract::plugin::PluginKind::Native
+    fn kind(&self) -> conrogate_core::contract::plugin::PluginKind {
+        conrogate_core::contract::plugin::PluginKind::Native
     }
 
     fn protocols(&self) -> &[ProtocolId] {

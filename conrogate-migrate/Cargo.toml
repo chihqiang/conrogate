@@ -10,8 +10,7 @@ name = "conrogate-migrate"
 path = "src/main.rs"
 
 [dependencies]
-conrogate-storage = { workspace = true }
-conrogate-contract = { workspace = true }
+conrogate-core = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

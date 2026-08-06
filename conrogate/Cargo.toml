@@ -10,13 +10,9 @@ name = "conrogate"
 path = "src/main.rs"
 
 [dependencies]
-conrogate-contract = { workspace = true }
-conrogate-storage = { workspace = true }
+conrogate-core = { workspace = true }
 conrogate-gateway = { workspace = true }
 conrogate-control-svc = { workspace = true }
-conrogate-balancer = { workspace = true }
-conrogate-traffic = { workspace = true }
-conrogate-plugin = { workspace = true }
 conrogate-plugin-log = { workspace = true }
 conrogate-plugin-cors = { workspace = true }
 conrogate-plugin-auth = { workspace = true }

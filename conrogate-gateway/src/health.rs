@@ -1,8 +1,8 @@
 //! 被动健康检查器：基于快速失败标记跳过故障节点。
 
-use conrogate_contract::dto::UpstreamNodeDto;
-use conrogate_contract::health::{HealthChecker, NodeHealth};
-use conrogate_contract::ConrogateError;
+use conrogate_core::contract::dto::UpstreamNodeDto;
+use conrogate_core::contract::health::{HealthChecker, NodeHealth};
+use conrogate_core::contract::ConrogateError;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};

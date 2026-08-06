@@ -1,7 +1,7 @@
 //! Conrogate 官方跨域插件：CORS 响应头注入与预检处理。
 
 use async_trait::async_trait;
-use conrogate_contract::{
+use conrogate_core::contract::{
     plugin::{Plugin, PluginContext, PluginKind, PluginOutcome, PluginResponse},
     protocol::ProtocolId,
     ConrogateError,
@@ -176,7 +176,7 @@ impl Plugin for CorsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use conrogate_contract::plugin::{HttpContext, PluginLogger, PluginMetrics, PluginServices};
+    use conrogate_core::contract::plugin::{HttpContext, PluginLogger, PluginMetrics, PluginServices};
     use http::Method;
     use std::sync::Arc;
 

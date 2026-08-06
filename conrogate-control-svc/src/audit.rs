@@ -1,7 +1,7 @@
 //! 审计日志记录。
 
-use conrogate_contract::dto::AuditLogRow;
-use conrogate_contract::storage::AuditLogRepo;
+use conrogate_core::contract::dto::AuditLogRow;
+use conrogate_core::contract::storage::AuditLogRepo;
 use std::sync::Arc;
 
 /// 审计服务

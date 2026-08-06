@@ -1,9 +1,9 @@
 //! 控制面业务服务层：聚合仓储 + 审计 + 配置版本管理。
 
 use crate::audit::AuditService;
-use conrogate_contract::dto::*;
-use conrogate_contract::storage::*;
-use conrogate_contract::ConrogateError;
+use conrogate_core::contract::dto::*;
+use conrogate_core::contract::storage::*;
+use conrogate_core::contract::ConrogateError;
 use std::sync::Arc;
 
 /// 单批上报条数上限（批量大小上限 1000 条/批）
@@ -557,7 +557,7 @@ impl ControlService {
 
     pub async fn list_plugins(
         &self,
-        status: Option<conrogate_contract::plugin::PluginStatus>,
+        status: Option<conrogate_core::contract::plugin::PluginStatus>,
     ) -> Result<Vec<InstalledPluginDto>, ConrogateError> {
         self.plugin_repo.list(status).await
     }
@@ -566,7 +566,7 @@ impl ControlService {
     pub async fn update_plugin_status(
         &self,
         name: &str,
-        status: conrogate_contract::plugin::PluginStatus,
+        status: conrogate_core::contract::plugin::PluginStatus,
         operator: Option<&str>,
     ) -> Result<(), ConrogateError> {
         self.plugin_repo.update_status(name, status).await?;

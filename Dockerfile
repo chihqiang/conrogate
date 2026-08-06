@@ -8,11 +8,7 @@ RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/li
 
 # 复制工作空间清单 + 源码桩（利用 Docker 层缓存，依赖不变时跳过编译）
 COPY Cargo.toml Cargo.lock ./
-COPY conrogate-contract/Cargo.toml conrogate-contract/
-COPY conrogate-storage/Cargo.toml conrogate-storage/
-COPY conrogate-balancer/Cargo.toml conrogate-balancer/
-COPY conrogate-traffic/Cargo.toml conrogate-traffic/
-COPY conrogate-plugin/Cargo.toml conrogate-plugin/
+COPY conrogate-core/Cargo.toml conrogate-core/
 COPY conrogate-gateway/Cargo.toml conrogate-gateway/
 COPY conrogate-control-svc/Cargo.toml conrogate-control-svc/
 COPY conrogate-plugin-log/Cargo.toml conrogate-plugin-log/
@@ -24,11 +20,15 @@ COPY conrogate-control/Cargo.toml conrogate-control/
 COPY conrogate/Cargo.toml conrogate/
 
 # 为每个 crate 生成空源文件，使 cargo 能解析并编译依赖
-RUN for dir in conrogate-contract conrogate-storage conrogate-balancer conrogate-traffic \
-    conrogate-plugin conrogate-gateway conrogate-control-svc conrogate-plugin-log \
+RUN for dir in conrogate-core conrogate-gateway conrogate-control-svc conrogate-plugin-log \
     conrogate-plugin-cors conrogate-plugin-auth conrogate-migrate conrogate-gate \
     conrogate-control conrogate; do \
-      mkdir -p $dir/src; echo 'fn main(){}' > $dir/src/main.rs; \
+      mkdir -p $dir/src; \
+      if [ "$dir" = "conrogate-core" ]; then \
+        printf 'pub mod contract; pub mod balancer; pub mod plugin; pub mod protocol; pub mod storage; pub mod traffic;\n' > $dir/src/lib.rs; \
+      else \
+        echo 'fn main(){}' > $dir/src/main.rs; \
+      fi; \
     done
 
 # 预拉依赖（仅依赖变化时重建此层）

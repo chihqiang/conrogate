@@ -1,0 +1,37 @@
+[package]
+name = "conrogate-core"
+description = "Conrogate 核心层：负载均衡、插件框架、协议适配、持久化、流量治理"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+rand = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+hyper-rustls = { workspace = true }
+bytes = { workspace = true }
+ipnet = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+utoipa = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+redis = { workspace = true }
+sea-orm = { workspace = true }
+sea-orm-migration = { workspace = true }
+seahash = "4"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+sha1 = { version = "0.10", features = ["std"] }
+base64 = "0.22"

@@ -2,7 +2,7 @@
 
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use conrogate_contract::ConrogateError;
+use conrogate_core::contract::ConrogateError;
 use serde::Serialize;
 
 /// 统一响应包装

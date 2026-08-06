@@ -23,13 +23,14 @@ async fn main() -> anyhow::Result<()> {
         let _ = dotenvy::dotenv();
     }
 
-    tracing_subscriber::fmt::init();
-
-    let config = conrogate_contract::config::Config::from_env()
+    let config = conrogate_core::contract::config::Config::from_env()
         .map_err(|e| anyhow::anyhow!("config load failed: {e}"))?;
     config
         .validate()
         .map_err(|e| anyhow::anyhow!("config validation failed: {e}"))?;
+
+    // 初始化日志（JSON 格式 + 文件输出）
+    conrogate_core::logging::init(&config.log);
 
     tracing::info!(
         host = %config.control.listen.host,
@@ -38,59 +39,59 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // ── 1. DB 连接池（主库读写）──
-    let main_db = conrogate_storage::pool::create_main_pool(&config.db).await?;
+    let main_db = conrogate_core::storage::pool::create_main_pool(&config.db).await?;
     let main_db = Arc::new(main_db);
 
     // ── 2. 自动迁移 ──
     if config.node.auto_migrate {
         tracing::info!("auto_migrate enabled, running migrations");
-        conrogate_storage::migration::run_migrations(&config.db).await?;
+        conrogate_core::storage::migration::run_migrations(&config.db).await?;
     }
 
     // ── 3. 初始化仓储 ──
-    let route_repo: Arc<dyn conrogate_contract::storage::RouteRepo> =
-        Arc::new(conrogate_storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()));
-    let upstream_repo: Arc<dyn conrogate_contract::storage::UpstreamRepo> = Arc::new(
-        conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*main_db).clone()),
+    let route_repo: Arc<dyn conrogate_core::contract::storage::RouteRepo> =
+        Arc::new(conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()));
+    let upstream_repo: Arc<dyn conrogate_core::contract::storage::UpstreamRepo> = Arc::new(
+        conrogate_core::storage::repository::upstream_repo::UpstreamRepoImpl::new((*main_db).clone()),
     );
-    let binding_repo: Arc<dyn conrogate_contract::storage::PluginBindingRepo> = Arc::new(
-        conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
+    let binding_repo: Arc<dyn conrogate_core::contract::storage::PluginBindingRepo> = Arc::new(
+        conrogate_core::storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
             (*main_db).clone(),
         ),
     );
-    let config_repo: Arc<dyn conrogate_contract::storage::ConfigVersionRepo> = Arc::new(
-        conrogate_storage::repository::config_version_repo::ConfigVersionRepoImpl::new(
+    let config_repo: Arc<dyn conrogate_core::contract::storage::ConfigVersionRepo> = Arc::new(
+        conrogate_core::storage::repository::config_version_repo::ConfigVersionRepoImpl::new(
             (*main_db).clone(),
         ),
     );
-    let metric_repo: Arc<dyn conrogate_contract::storage::MetricRepo> = Arc::new(
-        conrogate_storage::repository::metric_repo::MetricRepoImpl::new((*main_db).clone()),
+    let metric_repo: Arc<dyn conrogate_core::contract::storage::MetricRepo> = Arc::new(
+        conrogate_core::storage::repository::metric_repo::MetricRepoImpl::new((*main_db).clone()),
     );
-    let event_repo: Arc<dyn conrogate_contract::storage::EventRepo> =
-        Arc::new(conrogate_storage::repository::event_repo::EventRepoImpl::new((*main_db).clone()));
-    let audit_repo: Arc<dyn conrogate_contract::storage::AuditLogRepo> = Arc::new(
-        conrogate_storage::repository::audit_log_repo::AuditLogRepoImpl::new((*main_db).clone()),
+    let event_repo: Arc<dyn conrogate_core::contract::storage::EventRepo> =
+        Arc::new(conrogate_core::storage::repository::event_repo::EventRepoImpl::new((*main_db).clone()));
+    let audit_repo: Arc<dyn conrogate_core::contract::storage::AuditLogRepo> = Arc::new(
+        conrogate_core::storage::repository::audit_log_repo::AuditLogRepoImpl::new((*main_db).clone()),
     );
-    let node_app_repo: Arc<dyn conrogate_contract::storage::NodeApplicationRepo> = Arc::new(
-        conrogate_storage::repository::node_application_repo::NodeApplicationRepoImpl::new(
+    let node_app_repo: Arc<dyn conrogate_core::contract::storage::NodeApplicationRepo> = Arc::new(
+        conrogate_core::storage::repository::node_application_repo::NodeApplicationRepoImpl::new(
             (*main_db).clone(),
         ),
     );
-    let plugin_repo: Arc<dyn conrogate_contract::storage::InstalledPluginRepo> = Arc::new(
-        conrogate_storage::repository::installed_plugin_repo::InstalledPluginRepoImpl::new(
+    let plugin_repo: Arc<dyn conrogate_core::contract::storage::InstalledPluginRepo> = Arc::new(
+        conrogate_core::storage::repository::installed_plugin_repo::InstalledPluginRepoImpl::new(
             (*main_db).clone(),
         ),
     );
 
     // ── 4. 组装 ControlService ──
     // Redis 配置缓存（可选）
-    let config_cache: Option<Arc<dyn conrogate_contract::storage::ConfigCache>> = if !config
+    let config_cache: Option<Arc<dyn conrogate_core::contract::storage::ConfigCache>> = if !config
         .gate
         .refresh
         .config_cache_redis_url
         .is_empty()
     {
-        match conrogate_storage::config_cache::RedisConfigCache::new(
+        match conrogate_core::storage::config_cache::RedisConfigCache::new(
             &config.gate.refresh.config_cache_redis_url,
         ) {
             Ok(cache) => {

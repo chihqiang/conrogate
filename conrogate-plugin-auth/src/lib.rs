@@ -7,7 +7,7 @@
 //! - issuer/audience 校验 + 过期检查
 
 use async_trait::async_trait;
-use conrogate_contract::{
+use conrogate_core::contract::{
     plugin::{Plugin, PluginContext, PluginKind, PluginOutcome},
     protocol::ProtocolId,
     ConrogateError,
@@ -507,10 +507,10 @@ impl Plugin for AuthPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use conrogate_contract::plugin::{
+    use conrogate_core::contract::plugin::{
         HttpContext, PluginContext, PluginLogger, PluginMetrics, PluginOutcome, PluginServices,
     };
-    use conrogate_contract::protocol::ProtocolId;
+    use conrogate_core::contract::protocol::ProtocolId;
     use http::Method;
     use jsonwebtoken::{encode, EncodingKey, Header};
 
