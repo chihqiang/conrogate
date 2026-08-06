@@ -6,7 +6,7 @@
 
 Conrogate 采用「控制面 + 数据面」双平面架构，提供三种部署形态：
 
-```
+```text
                     ┌─────────────────────────────────────────────┐
                     │              控制面 (Control Plane)          │
                     │  conrogate-control  /  conrogate 合并进程      │
@@ -80,7 +80,7 @@ Conrogate 采用「控制面 + 数据面」双平面架构，提供三种部署�
 
 数据面按优先级选择配置来源（`server.rs` / `bootstrap.rs`）：
 
-```
+```text
 1. Redis ConfigCache 快照   （单次读取即完整三件套：routes+upstreams+bindings）
         │ 失败降级
 2. 直连 DB 轮询             （list_enabled + list_all + list_by_route）
@@ -97,7 +97,7 @@ Conrogate 采用「控制面 + 数据面」双平面架构，提供三种部署�
 
 ### 4.1 合并模式（进程内通道）
 
-```
+```text
 gate 请求处理
    └─ TelemetryReportImpl ──mpsc(100_000)──► MetricAggregator ──► metric_repo 落库
    └─ TelemetryReportImpl ──mpsc(100_000)──► event-consumer ──► event_repo 落库

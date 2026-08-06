@@ -32,7 +32,7 @@
 
 所有**受保护路由**需要在请求头中携带：
 
-```
+```text
 Authorization: Bearer <operator>:<secret>:<role>
 ```
 
@@ -61,6 +61,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 **请求参数：** 无
 
 **响应 `data`：**
+
 ```json
 { "status": "ok" }
 ```
@@ -72,6 +73,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 存活探针（`/health` 的别名）。
 
 **响应 `data`：**
+
 ```json
 { "status": "ok" }
 ```
@@ -85,11 +87,13 @@ Authorization: Bearer <operator>:<secret>:<role>
 **请求参数：** 无
 
 **响应（就绪）：** HTTP `200`
+
 ```json
 { "code": 0, "msg": "success", "data": { "status": "ok" }, "trace_id": "..." }
 ```
 
 **响应（未就绪）：** HTTP `503`
+
 ```json
 {
   "code": 50001,
@@ -121,6 +125,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 | `page_size` | `u32`  | 否       | `20`   | 每页条数                     |
 
 **响应 `data`：**
+
 ```json
 {
   "list": [ <RouteDto> ],
@@ -268,6 +273,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 **查询参数：** `page`、`page_size`（与 `/routes` 相同）
 
 **响应 `data`：**
+
 ```json
 {
   "list": [ <UpstreamDto> ],
@@ -387,183 +393,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 
 ---
 
-## 6. 路由插件绑定
-
-### `GET /routes/:id/plugins`
-
-查询指定路由的所有插件绑定列表。
-
-**路径参数：** `id: u64`（路由 ID）
-
-**响应 `data`：**
-```json
-[
-  {
-    "id": 1,
-    "route_id": 10,
-    "plugin_name": "auth",
-    "config": { "secret": "***" },
-    "order": 10,
-    "blocking": true,
-    "enabled": true
-  }
-]
-```
-
-**`PluginBindingDto` 字段说明：**
-
-| 字段          | 类型                | 说明                                                     |
-|---------------|---------------------|----------------------------------------------------------|
-| `id`          | `u64`               | 绑定记录唯一标识                                          |
-| `route_id`    | `u64`               | 所属路由 ID                                               |
-| `plugin_name` | `String`            | 已注册插件的名称                                          |
-| `config`      | `serde_json::Value` | 插件专属配置 JSON（结构由插件自身定义）                    |
-| `order`       | `i32`               | 执行顺序，值越小越先执行                                  |
-| `blocking`    | `bool`              | `true` 表示插件执行失败时终止请求                         |
-| `enabled`     | `bool`              | `false` 表示绑定存在但被跳过                              |
-
----
-
-### `POST /routes/:id/plugins`
-
-为路由绑定插件。
-
-**权限要求：** `operator` 或 `admin`
-
-**请求体（`BindPluginDto`）：**
-
-| 字段          | 类型                | 是否必填 | 默认值   | 说明                       |
-|---------------|---------------------|----------|----------|----------------------------|
-| `plugin_name` | `String`            | 是       | —        | 已注册插件的名称            |
-| `config`      | `serde_json::Value` | 是       | —        | 插件配置 JSON              |
-| `order`       | `i32/null`          | 否       | `10`     | 执行顺序                    |
-| `blocking`    | `bool/null`         | 否       | `false`  | 插件失败时是否终止请求      |
-| `enabled`     | `bool/null`         | 否       | `true`   | 绑定是否立即生效            |
-
-**响应 `data`：** 新创建的 `PluginBindingDto`。
-
-**错误码：** `10005`（冲突——绑定已存在）、`20003`（插件配置非法）、`20004`（插件未找到）
-
----
-
-### `PUT /routes/:id/plugins/:plugin_name`
-
-更新已绑定插件的配置。
-
-**权限要求：** `operator` 或 `admin`
-
-**路径参数：**
-
-| 参数          | 类型     | 说明           |
-|---------------|----------|----------------|
-| `id`          | `u64`    | 路由 ID        |
-| `plugin_name` | `String` | 已绑定插件名   |
-
-**请求体（`UpdatePluginBindingDto`）：**
-
-| 字段       | 类型                | 是否必填 | 说明               |
-|------------|---------------------|----------|--------------------|
-| `config`   | `serde_json::Value` | 否       | 新插件配置          |
-| `order`    | `i32/null`          | 否       | 新执行顺序          |
-| `blocking` | `bool/null`         | 否       | 新阻断标志          |
-| `enabled`  | `bool/null`         | 否       | 新启用状态          |
-
-**响应 `data`：** 更新后的 `PluginBindingDto`。
-
----
-
-### `DELETE /routes/:id/plugins/:plugin_name`
-
-从路由解绑（移除）插件。
-
-**权限要求：** `operator` 或 `admin`
-
-**响应 `data`：** `null`
-
----
-
-## 7. 插件管理
-
-### `GET /plugins`
-
-查询所有已安装插件。
-
-**权限要求：** 所有角色（含未配置 Token 时的匿名访问）
-
-**查询参数：**
-
-| 参数     | 类型     | 是否必填 | 说明                                                 |
-|----------|----------|----------|------------------------------------------------------|
-| `status` | `String` | 否       | 按状态过滤：`installed` / `active` / `disabled` / `uninstalled` |
-
-**响应 `data`：**
-```json
-[
-  {
-    "name": "cors",
-    "version": "0.1.0",
-    "api_version": 1,
-    "kind": "native",
-    "status": "active",
-    "package_hash": null,
-    "manifest": {},
-    "installed_at": "2026-01-15T10:30:00Z",
-    "activated_at": "2026-01-15T10:30:05Z"
-  }
-]
-```
-
-**`InstalledPluginDto` 字段说明：**
-
-| 字段           | 类型                 | 说明                                               |
-|----------------|----------------------|----------------------------------------------------|
-| `name`         | `String`             | 插件全局唯一名称                                    |
-| `version`      | `String`             | 语义化版本号                                        |
-| `api_version`  | `u32`                | 插件 API 版本号（兼容性标识）                       |
-| `kind`         | `PluginKind`         | `"native"`（编译内置）/ `"wasm"`（扩展插件）        |
-| `status`       | `PluginStatus`       | `installed` / `active` / `disabled` / `uninstalled` |
-| `package_hash` | `String/null`        | 插件包完整性哈希（WASM 插件使用）                   |
-| `manifest`     | `serde_json::Value`  | 插件清单元数据                                      |
-| `installed_at` | `DateTime<Utc>`      | 安装时间                                            |
-| `activated_at` | `DateTime<Utc>/null` | 首次激活时间                                        |
-
----
-
-### `POST /plugins/:name/activate`
-
-激活已停用的插件（状态从 `disabled` 变为 `active`）。
-
-**权限要求：** 仅 `admin`
-
-**路径参数：** `name: String`
-
-**响应 `data`：** `null`
-
-**错误码：** `20004`（插件未找到）、`10003`（权限不足——非 admin）
-
----
-
-### `POST /plugins/:name/disable`
-
-停用已激活的插件（保持安装状态，停止执行）。
-
-**权限要求：** 仅 `admin`
-
-**响应 `data`：** `null`
-
----
-
-### `DELETE /plugins/:name`
-
-完全卸载插件。
-
-**权限要求：** 仅 `admin`
-
-**响应 `data`：** `null`
-
----
-
-## 8. 配置版本管理
+## 6. 配置版本管理
 
 ### `POST /configs/publish`
 
@@ -579,6 +409,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 | `remark`       | `String` | 否       | —      | 备注（如 "release v2.1"）                          |
 
 **响应 `data`：**
+
 ```json
 {
   "version": 3,
@@ -641,6 +472,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 | `to`   | `u64` | 是       | 目标版本号        |
 
 **响应 `data`：**
+
 ```json
 {
   "added":    ["upstream #5", "route #12"],
@@ -653,7 +485,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 
 ---
 
-## 9. 指标与洞察分析
+## 7. 指标与洞察分析
 
 ### `GET /metrics`
 
@@ -702,6 +534,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 | `range_min` | `u32` | 否       | `5`    | 时间范围（分钟）        |
 
 **响应 `data`：**
+
 ```json
 {
   "total_qps": 1234.5,
@@ -731,6 +564,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 **查询参数：** `range_min: u32`（必填，默认 `5`）
 
 **响应 `data`：**
+
 ```json
 {
   "series": [
@@ -751,6 +585,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 **查询参数：** `range_min: u32`
 
 **响应 `data`：**
+
 ```json
 {
   "avg_ms": 45.2,
@@ -776,6 +611,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 **查询参数：** `range_min: u32`
 
 **响应 `data`：**
+
 ```json
 {
   "2xx": 150000,
@@ -794,6 +630,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 **查询参数：** `range_min: u32`
 
 **响应 `data`：**
+
 ```json
 {
   "top_routes": [
@@ -807,7 +644,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 
 ---
 
-## 10. 事件查询
+## 8. 事件查询
 
 ### `GET /insights/events`
 
@@ -837,7 +674,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 
 ---
 
-## 11. 审计日志
+## 9. 审计日志
 
 ### `GET /audit-logs`
 
@@ -869,7 +706,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 
 ---
 
-## 12. 节点管理
+## 10. 节点管理
 
 ### `GET /nodes`
 
@@ -890,7 +727,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 
 ---
 
-## 13. 数据上报（数据面 → 控制面）
+## 11. 数据上报（数据面 → 控制面）
 
 以下接口由 `conrogate-gate` 数据面实例调用，用于上报遥测数据。属于**受保护路由**（需要共享鉴权令牌）。
 
@@ -945,7 +782,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 
 ---
 
-## 14. OpenAPI 规范
+## 12. OpenAPI 规范
 
 ### `GET /openapi.json`
 

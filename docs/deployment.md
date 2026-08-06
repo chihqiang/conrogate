@@ -155,7 +155,7 @@ CONROGATE_CONTROL_AUTH_TOKEN=admin:dev-token:admin \
 
 启动日志确认两个端口同时监听：
 
-```
+```text
 gate_port = 8080
 control_port = 9000
 "starting conrogate (merged mode)"
@@ -189,7 +189,7 @@ CONROGATE_CONTROL_AUTH_TOKEN=''            # 空字符串 = 关闭鉴权（开�
 
 ### 架构拓扑
 
-```
+```text
                      ┌──────────────────────────────────────┐
                      │         MySQL / PostgreSQL            │
                      │      (主库读写 / 可选只读从库)         │

@@ -91,34 +91,13 @@ curl -s -X POST "$BASE/routes" -H "$AUTH" -H 'Content-Type: application/json' -d
 
 ### 3.3 绑定插件（可选）
 
-```bash
-# 查看已安装插件
-curl -s "$BASE/plugins" -H "$AUTH"
+路由绑定插件（JWT 鉴权 / CORS 跨域 / 访问日志）的原理、配置与用法见对应插件文档：
 
-# 绑定 CORS 插件到路由
-curl -s -X POST "$BASE/routes/$ROUTE_ID/plugins" -H "$AUTH" -H 'Content-Type: application/json' -d '{
-  "plugin_name": "cors",
-  "config": {
-    "allow_origins": ["*"],
-    "allow_methods": ["GET", "POST", "PUT", "DELETE"],
-    "allow_headers": [],
-    "expose_headers": [],
-    "allow_credentials": false,
-    "max_age_seconds": 86400
-  },
-  "order": 1,
-  "blocking": false,
-  "enabled": true
-}'
-```
+- `../conrogate-plugin-auth/README.md` — 鉴权插件 `auth`
+- `../conrogate-plugin-cors/README.md` — 跨域插件 `cors`
+- `../conrogate-plugin-log/README.md` — 日志插件 `log`
 
-内置插件速查：
-
-| 插件 | `plugin_name` | 关键配置字段 |
-|------|---------------|--------------|
-| 访问日志 | `log` | `log_body`、`log_headers`、`skip_paths` |
-| 跨域 | `cors` | `allow_origins`、`allow_methods`、`allow_headers`、`allow_credentials` |
-| JWT 鉴权 | `auth` | `algorithm`（HS256/RS256）、`secret`、`require_token`；RS256 用 `rsa_pem`/`jwks_url` |
+绑定后需发布配置（见 3.4）才生效。
 
 ### 3.4 发布配置版本
 
@@ -168,28 +147,7 @@ curl -s "$BASE/configs/diff?from=1&to=2" -H "$AUTH"
 curl -s -X POST "$BASE/configs/versions/1/rollback" -H "$AUTH"
 ```
 
-## 6. 插件管理
-
-```bash
-# 查看已安装插件及状态
-curl -s "$BASE/plugins" -H "$AUTH"
-
-# 启用 / 停用插件（Admin 专属）
-curl -s -X POST "$BASE/plugins/log/activate" -H "$AUTH"
-curl -s -X POST "$BASE/plugins/auth/disable" -H "$AUTH"
-
-# 更新路由上的插件绑定配置
-curl -s -X PUT "$BASE/routes/$ROUTE_ID/plugins/cors" -H "$AUTH" -H 'Content-Type: application/json' \
-  -d '{"config": {"allow_origins": ["https://app.example.com"], "allow_methods": ["GET"], "allow_headers": [], "expose_headers": [], "allow_credentials": false, "max_age_seconds": 3600}}'
-
-# 解绑
-curl -s -X DELETE "$BASE/routes/$ROUTE_ID/plugins/cors" -H "$AUTH"
-
-# 卸载插件（Admin 专属）
-curl -s -X DELETE "$BASE/plugins/log" -H "$AUTH"
-```
-
-## 7. 观测与排查
+## 6. 观测与排查
 
 ```bash
 # 网关节点心跳状态（分离模式：数据面每 30s 上报，last_seen 持久化）
@@ -210,7 +168,7 @@ curl -s "$BASE/insights/events?event_type=error" -H "$AUTH"
 curl -s "$BASE/audit-logs?action=publish" -H "$AUTH"
 ```
 
-## 8. 运维注意
+## 7. 运维注意
 
 - **鉴权**：`CONROGATE_CONTROL_AUTH_TOKEN` 为空即无鉴权，严禁用于生产。token 串若不含 `:role` 段，角色回退为 `viewer`，写操作会被拒绝（错误码 `10003`）。
 - **Redis 模式故障降级**：Redis 写入失败会自动重试（3 次 × 200ms），仍失败则删除版本键使数据面降级直连 DB 轮询；日志中 `config cache invalidate failed` 表示降级已触发。
@@ -218,7 +176,7 @@ curl -s "$BASE/audit-logs?action=publish" -H "$AUTH"
 - **回滚语义**：回滚是生成新版本号并回写业务表，不会删除历史版本；如需二次回滚再对旧版本执行即可。
 - **限流/熔断**：集群模式需 `CONROGATE_GATE_RATE_LIMIT_MODE=cluster` / `CONROGATE_GATE_BREAKER_MODE`（或对应 Redis URL 已配置），否则按单机模式运行。
 
-## 9. 常见问题（FAQ）
+## 8. 常见问题（FAQ）
 
 | 现象 | 排查方向 |
 |------|----------|

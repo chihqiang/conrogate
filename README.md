@@ -59,10 +59,10 @@ curl http://localhost:8080/demo/hello     # 数据面转发
 
 ## 工作空间结构
 
-```
+```text
 conrogate/
 ├── docs/
-│   ├── api.md              # 控制面 REST API 完整文档（31 个端点）
+│   ├── api.md              # 控制面 REST API 完整文档（33 个端点）
 │   ├── env.md              # 环境变量参考（70+ 变量）
 │   ├── architecture.md     # 协调架构：配置下发、遥测上报、进程内调度
 │   ├── deployment.md       # 部署指南：本地 / 容器化 / 生产
@@ -164,7 +164,7 @@ CONROGATE_LOG_OUTPUT_FILE_ENABLED=false
 
 详细协调架构见 → [`docs/architecture.md`](docs/architecture.md)
 
-```
+```text
 控制面 (Control Plane :9000)
   REST API → 审计日志 → 配置版本发布 → Redis 快照推送
                                       ↓

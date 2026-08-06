@@ -21,7 +21,7 @@
 
 ### 常用 URL 示例
 
-```
+```text
 mysql://user:password@127.0.0.1:3306/conrogate
 postgres://user:password@127.0.0.1:5432/conrogate
 sqlite:///tmp/conrogate.sqlite
@@ -177,7 +177,7 @@ sqlite::memory:
 
 ## 控制面（Control）
 
-### 监听
+### 监听与鉴权
 
 | 变量 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
