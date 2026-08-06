@@ -42,13 +42,7 @@ async fn main() -> anyhow::Result<()> {
     let main_db = conrogate_core::storage::pool::create_main_pool(&config.db).await?;
     let main_db = Arc::new(main_db);
 
-    // ── 2. 自动迁移 ──
-    if config.node.auto_migrate {
-        tracing::info!("auto_migrate enabled, running migrations");
-        conrogate_core::storage::migration::run_migrations(&config.db).await?;
-    }
-
-    // ── 3. 初始化仓储 ──
+    // ── 2. 初始化仓储 ──
     let route_repo: Arc<dyn conrogate_core::contract::storage::RouteRepo> =
         Arc::new(conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()));
     let upstream_repo: Arc<dyn conrogate_core::contract::storage::UpstreamRepo> = Arc::new(
@@ -83,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
         ),
     );
 
-    // ── 4. 组装 ControlService ──
+    // ── 3. 组装 ControlService ──
     // Redis 配置缓存（可选）
     let config_cache: Option<Arc<dyn conrogate_core::contract::storage::ConfigCache>> = if !config
         .gate
@@ -122,7 +116,7 @@ async fn main() -> anyhow::Result<()> {
         .with_config_cache(config_cache),
     );
 
-    // ── 5. 组装 axum 路由 + 中间件 ──
+    // ── 4. 组装 axum 路由 + 中间件 ──
     let app_state = conrogate_control_svc::AppState {
         svc,
         api_prefix: config.control.listen.api_prefix.clone(),
@@ -133,7 +127,7 @@ async fn main() -> anyhow::Result<()> {
         &config.control.listen.api_prefix,
     );
 
-    // ── 6. 启动控制面监听 ──
+    // ── 5. 启动控制面监听 ──
     let addr = format!(
         "{}:{}",
         config.control.listen.host, config.control.listen.port

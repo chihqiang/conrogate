@@ -28,10 +28,8 @@ docker run -d --name conrogate-mysql \
 CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' \
   cargo run -p conrogate-migrate
 
-# 3. 合并模式启动（8080 数据面 + 9000 控制面）
+# 3. 合并模式启动（8080 数据面 + 9000 控制面；迁移与演示数据由 conrogate-migrate 完成）
 CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' \
-CONROGATE_NODE_AUTO_MIGRATE=false \
-CONROGATE_NODE_SEED_DEMO=true \
 CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
 CONROGATE_CONTROL_AUTH_TOKEN=admin:dev-token:admin \
   cargo run -p conrogate
@@ -191,7 +189,7 @@ cargo run -p conrogate-gate          # 分离模式：数据面（8080）
 
 ```bash
 docker build -t conrogate:latest .            # 构建镜像
-docker run -d --name conrogate -p 9000:9000 -p 8080:8080 -e CONROGATE_DB_URL=sqlite:///app/conrogate.db  -e CONROGATE_NODE_AUTO_MIGRATE=true conrogate:latest   # 运行（合并模式，自动迁移，SQLite）
+docker run -d --name conrogate -p 9000:9000 -p 8080:8080 -e CONROGATE_DB_URL=sqlite:///app/conrogate.db conrogate:latest   # 运行（合并模式，SQLite；迁移由 conrogate-migrate 执行）
 docker compose -f docker-compose.deps.yml up -d   # 起依赖（PG + Redis）
 docker logs -f conrogate                     # 查看日志
 docker rm -f conrogate                       # 停止并删除容器

@@ -1,7 +1,7 @@
 {
   "name": "conrogate-dashboard",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Conrogate 网关控制面 Web 管理台（独立部署，可选组件）",
   "type": "module",
   "scripts": {

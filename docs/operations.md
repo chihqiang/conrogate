@@ -51,7 +51,7 @@ AUTH="Authorization: Bearer $TOKEN"     # 请求头，用法：-H "$AUTH"
 
 ## 3. 快速上手：配置一条路由（标准流程）
 
-演示数据（`SEED_DEMO=true`）已含示例路由；以下是手动配置完整流程。
+演示数据（`cargo run -p conrogate-migrate -- --seed` 写入）已含示例路由；以下是手动配置完整流程。
 
 ### 3.1 创建上游
 

@@ -119,14 +119,12 @@ gate 每 30s 上报心跳 `POST /api/v1/reports/heartbeat`（gate_id + version +
 `conrogate/src/bootstrap.rs` 装配顺序：
 
 1. DB 连接池（main 读写 + read 只读）。
-2. `auto_migrate`：按方言加锁串行迁移（PG advisory lock / MySQL GET_LOCK / SQLite 单写）。
-3. `seed_demo`：写入 echo 上游 + 演示路由。
-4. 初始化 9 类仓储，加载初始配置到内存。
-5. 组装数据面组件链（BalancerRegistry → 健康检查 → 限流/熔断 → 插件 → 路由匹配 → 遥测）。
-6. **启动数据面**：`tokio::spawn` GatewayServer，通过 broadcast channel 接收停机信号。
-7. **启动控制面**：`tokio::spawn` axum 服务（共享同一批仓储 Arc）。
-8. **后台任务**：`TaskManager` 管理 config-hot-reload / metric-aggregator / event-consumer，逆序取消。
-9. **优雅停机**：main 收到 SIGINT → broadcast 通知 gate → 等待宽限期（long_conn_drain + 5s）→ TaskManager.shutdown(10s)。
+2. 初始化 9 类仓储，加载初始配置到内存。
+3. 组装数据面组件链（BalancerRegistry → 健康检查 → 限流/熔断 → 插件 → 路由匹配 → 遥测）。
+4. **启动数据面**：`tokio::spawn` GatewayServer，通过 broadcast channel 接收停机信号。
+5. **启动控制面**：`tokio::spawn` axum 服务（共享同一批仓储 Arc）。
+6. **后台任务**：`TaskManager` 管理 config-hot-reload / metric-aggregator / event-consumer，逆序取消。
+7. **优雅停机**：main 收到 SIGINT → broadcast 通知 gate → 等待宽限期（long_conn_drain + 5s）→ TaskManager.shutdown(10s)。
 
 关键同步原语：
 

@@ -8,3 +8,4 @@ pub mod entity;
 pub mod migration;
 pub mod pool;
 pub mod repository;
+pub mod seed;

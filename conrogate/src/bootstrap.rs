@@ -18,63 +18,7 @@ pub async fn run(
     let main_db = Arc::new(main_db);
     let read_db = Arc::new(read_db);
 
-    // ── 3. [auto_migrate] 自动迁移（按方言加锁串行化）──
-    if config.node.auto_migrate {
-        tracing::info!("auto_migrate enabled, running migrations");
-        // 防止多实例并发迁移：PG 用 advisory lock，MySQL 用 GET_LOCK，SQLite 单写者无需加锁
-        use sea_orm::{ConnectionTrait, DatabaseBackend};
-        let backend = main_db.get_database_backend();
-        let locked = match backend {
-            DatabaseBackend::Postgres => main_db
-                .execute_unprepared("SELECT pg_advisory_lock(20260101)")
-                .await
-                .is_ok(),
-            DatabaseBackend::MySql => {
-                // GET_LOCK 返回 1=获取成功 0=超时 NULL=错误
-                match main_db
-                    .query_one(sea_orm::Statement::from_sql_and_values(
-                        DatabaseBackend::MySql,
-                        "SELECT GET_LOCK('conrogate_migrate', 10) AS got_lock",
-                        [],
-                    ))
-                    .await
-                {
-                    Ok(Some(row)) => row
-                        .try_get("", "got_lock")
-                        .map(|v: Option<u8>| v == Some(1))
-                        .unwrap_or(false),
-                    _ => false,
-                }
-            }
-            _ => true, // SQLite：无 advisory lock，串行写由引擎自身保证
-        };
-        if !locked {
-            tracing::warn!("failed to acquire migration lock, proceeding anyway");
-        }
-        let result = conrogate_core::storage::migration::run_migrations(&config.db).await;
-        match backend {
-            DatabaseBackend::Postgres => {
-                let _ = main_db
-                    .execute_unprepared("SELECT pg_advisory_unlock(20260101)")
-                    .await;
-            }
-            DatabaseBackend::MySql => {
-                let _ = main_db
-                    .execute_unprepared("SELECT RELEASE_LOCK('conrogate_migrate')")
-                    .await;
-            }
-            _ => {}
-        }
-        result?;
-    }
-
-    // ── 4. [seed_demo] 演示数据 ──
-    if config.node.seed_demo {
-        tracing::info!("seed_demo enabled, writing demo data");
-        seed_demo_data(&main_db).await?;
-    }
-
-    // ── 5. 初始化仓储 ──
+    // ── 3. 初始化仓储 ──
     let route_repo =
         Arc::new(conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()));
     let upstream_repo = Arc::new(
@@ -128,31 +72,31 @@ pub async fn run(
         all_bindings.extend(rb);
     }
 
-    // ── 6. BalancerRegistry ──
+    // ── 4. BalancerRegistry ──
     let balancer_registry = conrogate_core::balancer::registry::create_default_registry();
 
-    // ── 7. PassiveHealthChecker ──
+    // ── 5. PassiveHealthChecker ──
     let health_checker = Arc::new(conrogate_gateway::health::PassiveHealthChecker::default());
 
-    // ── 8. StaticDiscovery ──
+    // ── 6. StaticDiscovery ──
     let discovery = Arc::new(conrogate_gateway::discovery::StaticDiscovery::new());
     discovery.load(upstreams.clone());
 
-    // ── 9. UpstreamSelector（集成被动健康检查）──
+    // ── 7. UpstreamSelector（集成被动健康检查）──
     let upstream_selector = Arc::new(
         conrogate_gateway::pool::UpstreamSelectorImpl::new(balancer_registry)
             .with_health_checker(health_checker.clone()),
     );
     upstream_selector.load_upstreams(upstreams.clone());
 
-    // ── 9a. ActiveHealthChecker（主动健康探测）──
+    // ── 7a. ActiveHealthChecker（主动健康探测）──
     let active_health_checker =
         Arc::new(conrogate_gateway::health_check::ActiveHealthChecker::default());
     active_health_checker
         .clone()
         .spawn_periodic_check(upstream_selector.shared_upstreams());
 
-    // ── 10. 限流器 / 熔断器 ──
+    // ── 8. 限流器 / 熔断器 ──
     let limiter = if let Some(ref cluster) = config.gate.rate_limit.cluster_store {
         tracing::info!(redis_url = %cluster.redis_url, "rate limiter: cluster mode (Redis)");
         Arc::new(
@@ -178,7 +122,7 @@ pub async fn run(
         breaker_config,
     ));
 
-    // ── 11. TrafficControl（使用配置中的 QPS 阈值 + 被动健康检查）──
+    // ── 9. TrafficControl（使用配置中的 QPS 阈值 + 被动健康检查）──
     let traffic = Arc::new(
         conrogate_gateway::filter::TrafficControlAdapter::with_governance_config(
             limiter,
@@ -189,7 +133,7 @@ pub async fn run(
         .with_health_checker(health_checker.clone()),
     );
 
-    // ── 12. PluginRegistry + 注册静态插件 ──
+    // ── 10. PluginRegistry + 注册静态插件 ──
     let plugin_registry = Arc::new(conrogate_core::plugin::registry::PluginRegistryImpl::new());
     let log_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
         Arc::new(conrogate_plugin_log::LogPlugin::new());
@@ -213,22 +157,22 @@ pub async fn run(
         }
     }
 
-    // ── 13. PluginPipeline ──
+    // ── 11. PluginPipeline ──
     let plugin_executor = Arc::new(conrogate_core::plugin::pipeline::PluginPipelineImpl::new());
 
-    // ── 14. RouteMatcher ──
+    // ── 12. RouteMatcher ──
     let route_matcher = Arc::new(conrogate_gateway::route::RouteMatcher::new());
     let body_required = plugin_registry.body_required_plugin_names();
     route_matcher.load_with_bindings(routes, all_bindings, &body_required);
 
-    // ── 15. TelemetryReport ──
+    // ── 13. TelemetryReport ──
     let (metric_tx, metric_rx) = mpsc::channel(100_000);
     let (event_tx, event_rx) = mpsc::channel(100_000);
     let telemetry = Arc::new(conrogate_gateway::telemetry::TelemetryReportImpl::new(
         metric_tx, event_tx,
     ));
 
-    // ── 16. ServiceContext ──
+    // ── 14. ServiceContext ──
     let svc = Arc::new(conrogate_core::contract::gateway::ServiceContext {
         routes: route_matcher.clone(),
         balancer: upstream_selector.clone(),
@@ -238,7 +182,7 @@ pub async fn run(
         gate_id: config.gate.gate_id.clone(),
     });
 
-    // ── 17-18. 启动数据面（带优雅停机）──
+    // ── 15-16. 启动数据面（带优雅停机）──
     let gate_config = config.gate.clone();
     let mut gate_shutdown_rx = shutdown_tx.subscribe();
     let gate_route_matcher = route_matcher.clone();
@@ -267,7 +211,7 @@ pub async fn run(
         }
     });
 
-    // ── 19. 启动控制面 ──
+    // ── 17. 启动控制面 ──
     if config.control.listen.enabled {
         let _control_db = main_db.clone();
         let control_config = config.control.clone();
@@ -288,7 +232,7 @@ pub async fn run(
         });
     }
 
-    // ── 20a. 配置热加载后台任务 ──
+    // ── 18a. 配置热加载后台任务 ──
     let mut task_manager = conrogate_gateway::task_manager::TaskManager::new();
     let hot_reload_redis_url = config.gate.refresh.config_cache_redis_url.clone();
     let hot_reload_db = read_db.clone();
@@ -310,7 +254,7 @@ pub async fn run(
         .await;
     });
 
-    // ── 20. 后台任务（TaskManager 逆序取消）──
+    // ── 18. 后台任务（TaskManager 逆序取消）──
     let metric_repo_clone = metric_repo.clone();
     let telemetry_bucket_sec = config.gate.telemetry.bucket_sec.max(1);
     let telemetry_flush = config.gate.telemetry.batch_interval;
@@ -452,69 +396,6 @@ async fn start_control_plane(
     if let Err(e) = axum::serve(listener, router).await {
         tracing::error!(error = %e, "control plane error");
     }
-}
-
-/// 写入演示数据：1 个 echo 上游 + 1 个演示路由
-async fn seed_demo_data(main_db: &Arc<sea_orm::DatabaseConnection>) -> anyhow::Result<()> {
-    use conrogate_core::contract::balancer::BalancerAlgorithm;
-    use conrogate_core::contract::dto::*;
-    use conrogate_core::contract::protocol::{PathMatch, ProtocolId, RouteMatchConditions};
-    use conrogate_core::contract::storage::*;
-
-    let upstream_repo =
-        conrogate_core::storage::repository::upstream_repo::UpstreamRepoImpl::new((**main_db).clone());
-    let route_repo =
-        conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((**main_db).clone());
-
-    // 检查是否已有数据
-    let existing = ReadOnlyUpstreamRepo::list_all(&upstream_repo)
-        .await
-        .unwrap_or_default();
-    if !existing.is_empty() {
-        tracing::info!("demo data already exists, skipping seed");
-        return Ok(());
-    }
-
-    // 创建 echo 上游（指向内置 echo 服务 127.0.0.1:9090）
-    let upstream = upstream_repo
-        .create(CreateUpstreamDto {
-            name: "echo-upstream".into(),
-            algorithm: BalancerAlgorithm::RoundRobin,
-            retry_enabled: Some(false),
-            nodes: vec![CreateUpstreamNodeDto {
-                address: "127.0.0.1:9090".into(),
-                weight: Some(1),
-                enabled: Some(true),
-            }],
-        })
-        .await?;
-
-    // 创建演示路由
-    let _route = route_repo
-        .create(CreateRouteDto {
-            name: "demo-route".into(),
-            protocol: ProtocolId::Http,
-            match_conditions: RouteMatchConditions {
-                path: PathMatch::Prefix("/demo/".into()),
-                methods: None,
-                host: None,
-                headers: vec![],
-                query_params: vec![],
-            },
-            priority: Some(10),
-            upstream_id: Some(upstream.id),
-            host_header: None,
-            allow_retry_non_idempotent: Some(false),
-            ws_strip_sensitive_headers: Some(false),
-            enabled: Some(true),
-        })
-        .await?;
-
-    tracing::info!(
-        upstream_id = upstream.id,
-        "demo data seeded: echo-upstream + demo-route"
-    );
-    Ok(())
 }
 
 /// 配置热加载循环（复用 from_config_with_db 逻辑）

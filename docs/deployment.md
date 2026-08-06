@@ -95,8 +95,6 @@ cargo build --release -p conrogate -p conrogate-gate -p conrogate-control -p con
 
 ```bash
 CONROGATE_DB_PASSWORD=conrogate_dev   # 未被代码使用（URL 已包含密码）
-CONROGATE_NODE_AUTO_MIGRATE=false
-CONROGATE_NODE_SEED_DEMO=true
 CONROGATE_CONTROL_AUTH_TOKEN=admin:dev-token:admin
 ```
 
@@ -117,13 +115,17 @@ CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' \
 | MySQL | `SELECT GET_LOCK('conrogate_migrate', 10)` |
 | SQLite | 引擎自身串行写保证，无 advisory lock |
 
-### 自动迁移
+### 演示数据
 
-合并模式与控制面二进制支持 `auto_migrate` 开关，启动时自动执行迁移：
+`conrogate-migrate` 默认仅执行迁移；需要演示数据时显式加 `--seed`（写入 1 个上游 + 1 条演示路由）。上游名称与地址可通过 `--seed-name` / `--seed-address` 自定义（默认 `echo-upstream` / `127.0.0.1:9090`）：
 
 ```bash
-export CONROGATE_NODE_AUTO_MIGRATE=true   # 启动时自动迁移（生产环境建议 false）
+CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' \
+  cargo run -p conrogate-migrate -- --seed
+# 自定义上游：cargo run -p conrogate-migrate -- --seed --seed-name <name> --seed-address <host:port>
 ```
+
+> 服务二进制（conrogate / conrogate-control / conrogate-gate）启动时**不**执行迁移、**不**写演示数据，数据库由 `conrogate-migrate` 统一维护。
 
 ### 数据库表清单
 
@@ -146,8 +148,6 @@ export CONROGATE_NODE_AUTO_MIGRATE=true   # 启动时自动迁移（生产环境
 
 ```bash
 CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' \
-CONROGATE_NODE_AUTO_MIGRATE=false \
-CONROGATE_NODE_SEED_DEMO=true \
 CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
 CONROGATE_CONTROL_AUTH_TOKEN=admin:dev-token:admin \
 ./target/release/conrogate
@@ -340,7 +340,6 @@ docker run --rm \
 |------|--------|------|
 | `CONROGATE_CONTROL_AUTH_TOKEN` | 逗号分隔的 `operator:secret:role`（如 `admin:secret-1:admin,ops:secret-2:operator`） | 鉴权 token；需按角色分段才具备对应写权限，纯随机串仅限 `viewer` |
 | `CONROGATE_GATE_CONFIG_CACHE_REDIS_URL` | Redis URL | 配置缓存 + Pub/Sub 推送 |
-| `CONROGATE_NODE_AUTO_MIGRATE` | `false` | 生产环境由迁移工具独立执行 |
 | `CONROGATE_GATE_RATE_LIMIT_ENABLED` | `true` | 启用限流保护 |
 | `CONROGATE_GATE_BREAKER_ENABLED` | `true` | 启用熔断保护 |
 | `CONROGATE_DB_READ_URL` | 只读库 URL | 读写分离，数据面只读连接不占用主库连接池 |

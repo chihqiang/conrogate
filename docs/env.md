@@ -168,13 +168,6 @@ sqlite::memory:
 |------|------|--------|------|
 | `CONROGATE_GATE_OUTBOUND_TLS_SKIP_VERIFY` | `bool` | `false` | 跳过上游证书校验（仅非生产环境） |
 
-## 节点（Node）
-
-| 变量 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `CONROGATE_NODE_AUTO_MIGRATE` | `bool` | `false` | 启动时自动执行数据库迁移 |
-| `CONROGATE_NODE_SEED_DEMO` | `bool` | `false` | 启动时写入演示数据 |
-
 ## 控制面（Control）
 
 ### 监听与鉴权

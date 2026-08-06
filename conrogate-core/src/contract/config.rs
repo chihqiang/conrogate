@@ -10,7 +10,6 @@ use std::time::Duration;
 pub struct Config {
     pub common: CommonConfig,
     pub gate: GateConfig,
-    pub node: NodeConfig,
     pub control: ControlConfig,
     pub db: DbConfig,
     pub log: LogConfig,
@@ -277,12 +276,6 @@ impl Default for TelemetryConfig {
             bucket_sec: 10,
         }
     }
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct NodeConfig {
-    pub auto_migrate: bool,
-    pub seed_demo: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -740,10 +733,6 @@ impl Config {
                 },
                 gate_id: env_str("CONROGATE_GATE_ID", &def.gate.gate_id),
             },
-            node: NodeConfig {
-                auto_migrate: env_bool("CONROGATE_NODE_AUTO_MIGRATE", def.node.auto_migrate),
-                seed_demo: env_bool("CONROGATE_NODE_SEED_DEMO", def.node.seed_demo),
-            },
             control: ControlConfig {
                 listen: ControlListenConfig {
                     enabled: env_bool(
@@ -870,7 +859,6 @@ impl Default for Config {
                 outbound_tls: OutboundTlsConfig::default(),
                 gate_id: default_gate_id(),
             },
-            node: NodeConfig::default(),
             control: ControlConfig {
                 listen: ControlListenConfig::default(),
                 auth: AuthConfig::default(),

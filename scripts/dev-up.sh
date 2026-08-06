@@ -17,12 +17,10 @@ until docker exec conrogate-redis redis-cli ping > /dev/null 2>&1; do
 done
 echo "redis ready"
 
-# ── 执行数据库迁移 ──
+# ── 执行数据库迁移 + 写入演示数据 ──
 export CONROGATE_DB_PASSWORD=conrogate_dev
 cargo run -p conrogate-migrate
 
 # ── 启动合并模式（数据面 8080 + 控制面 9000）──
-export CONROGATE_NODE_AUTO_MIGRATE=false
-export CONROGATE_NODE_SEED_DEMO=true
 export CONROGATE_CONTROL_AUTH_TOKEN=admin:dev-token:admin
 cargo run -p conrogate
