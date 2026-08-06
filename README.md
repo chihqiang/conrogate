@@ -43,6 +43,7 @@ curl http://localhost:8080/demo/hello     # 数据面转发
 ```
 
 > 也可以使用一键脚本启动：`./scripts/dev-up.sh`（自动拉起 PG + Redis → 迁移 → 合并模式启动）。
+> 接入示例：`./scripts/test-httpbin-svc.sh`（把 httpbin.org 注册为上游并转发验证，`--cleanup` 清理）。
 
 ## 三种部署模式
 
@@ -63,7 +64,7 @@ conrogate/
 │   ├── env.md              # 环境变量参考（70+ 变量）
 │   ├── architecture.md     # 协调架构：配置下发、遥测上报、进程内调度
 │   ├── deployment.md       # 部署指南：本地 / 容器化 / 生产
-│   └── operations.md       # 操作指南：启动后的配置 / 发布 / 观测 / 回滚
+│   ├── operations.md       # 操作指南：启动后的配置 / 发布 / 观测 / 回滚
 ├── conrogate-core/         # 核心层：契约 + 负载均衡 / 插件框架 / 协议适配 / 持久化 / 流量治理
 ├── conrogate-gateway/      # 网关核心：路由/代理/遥测/健康检查/配置热载
 ├── conrogate-control-svc/  # 控制面服务：REST API + 鉴权 + 审计 + 版本管理

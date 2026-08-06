@@ -622,7 +622,9 @@ impl HttpProtocolHandler {
             }
             // 设置上游 Host 头（与 HTTP 转发路径一致：host_header 或节点地址），
             // 供 HyperServiceBridge 在 WS 转发前重写请求 Host
-            let host_value = route.host_header.as_deref().unwrap_or(&node.address);
+            let host_value = route.host_header.clone().unwrap_or_else(|| {
+                crate::protocol::proxy::upstream_host(&node).into()
+            });
             if let Ok(v) = host_value.parse() {
                 resp.headers_mut().insert("X-WS-Host-Header", v);
             }
@@ -684,7 +686,11 @@ impl HttpProtocolHandler {
         if let Ok(v) = request_id.parse() {
             out_headers.insert("x-request-id", v);
         }
-        let host_value = route.host_header.as_deref().unwrap_or(&node.address);
+        let host_value: String = route
+            .host_header
+            .as_deref()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| crate::protocol::proxy::upstream_host(node));
         if let Ok(v) = host_value.parse() {
             out_headers.insert(http::header::HOST, v);
         }

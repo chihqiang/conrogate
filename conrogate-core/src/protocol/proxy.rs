@@ -38,6 +38,18 @@ pub fn upstream_scheme(node: &UpstreamNodeDto) -> &'static str {
     }
 }
 
+/// 上游 Host 头默认值：取节点地址的 authority（去掉 scheme）。
+/// 如 `https://httpbin.org:443` → `httpbin.org:443`；无显式 scheme 时原样返回。
+pub fn upstream_host(node: &UpstreamNodeDto) -> String {
+    let addr = upstream_addr(node);
+    if let Ok(uri) = addr.parse::<http::Uri>() {
+        if let Some(auth) = uri.authority() {
+            return auth.as_str().to_string();
+        }
+    }
+    node.address.clone()
+}
+
 /// 代理转发结果（缓冲模式：响应体已 collect 进内存）
 pub struct ProxyResult {
     pub status: http::StatusCode,

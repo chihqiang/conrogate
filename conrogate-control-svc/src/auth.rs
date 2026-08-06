@@ -85,8 +85,12 @@ fn unauthorized_response() -> Response {
 
 /// Bearer Token 认证中间件
 pub async fn auth_middleware(State(state): State<AuthState>, req: Request, next: Next) -> Response {
-    // 如果未配置 token，跳过认证
+    // 如果未配置 token，跳过认证（视为最高权限，所有操作放行）
     if state.tokens.is_empty() {
+        let (mut parts, body) = req.into_parts();
+        parts.extensions.insert(Role::Admin);
+        parts.extensions.insert("anonymous".to_string());
+        let req = Request::from_parts(parts, body);
         return next.run(req).await;
     }
 
