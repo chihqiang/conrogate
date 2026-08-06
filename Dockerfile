@@ -19,6 +19,17 @@ COPY conrogate-gate/Cargo.toml conrogate-gate/
 COPY conrogate-control/Cargo.toml conrogate-control/
 COPY conrogate/Cargo.toml conrogate/
 
+# 创建空桩源文件，使 cargo 能解析工作空间（仅用于 fetch 依赖，真实源码随后覆盖）
+RUN for dir in conrogate-core conrogate-gateway conrogate-control-svc conrogate-plugin-log \
+    conrogate-plugin-cors conrogate-plugin-auth conrogate-migrate conrogate-gate \
+    conrogate-control conrogate; do mkdir -p "$dir/src"; done && \
+    touch \
+      conrogate-core/src/lib.rs conrogate-gateway/src/lib.rs \
+      conrogate-control-svc/src/lib.rs conrogate-plugin-log/src/lib.rs \
+      conrogate-plugin-cors/src/lib.rs conrogate-plugin-auth/src/lib.rs \
+      conrogate-migrate/src/main.rs conrogate-gate/src/main.rs \
+      conrogate-control/src/main.rs conrogate/src/main.rs
+
 # 按 Cargo.lock 预拉依赖源码（仅依赖变化时重建此层）
 RUN cargo fetch
 
@@ -51,5 +62,8 @@ COPY --from=builder /build/target/release/conrogate-migrate /app/
 # 暴露端口
 EXPOSE 8080 9000
 
-# 默认合并模式
-ENTRYPOINT ["/app/conrogate"]
+# /app 进 PATH，便于 docker run <image> conrogate-gate 等切换二进制
+ENV PATH="/app:$PATH"
+
+# 默认合并模式；CMD 可被 docker run <image> <binary> 覆盖
+CMD ["/app/conrogate"]

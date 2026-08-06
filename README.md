@@ -187,6 +187,24 @@ cargo run -p conrogate-control       # 分离模式：控制面（9000）
 cargo run -p conrogate-gate          # 分离模式：数据面（8080）
 ```
 
+### Docker
+
+```bash
+docker build -t conrogate:latest .            # 构建镜像
+docker run -d --name conrogate -p 9000:9000 -p 8080:8080 -e CONROGATE_DB_URL=sqlite:///app/conrogate.db  -e CONROGATE_NODE_AUTO_MIGRATE=true conrogate:latest   # 运行（合并模式，自动迁移，SQLite）
+docker compose -f docker-compose.deps.yml up -d   # 起依赖（PG + Redis）
+docker logs -f conrogate                     # 查看日志
+docker rm -f conrogate                       # 停止并删除容器
+```
+
+容器内切换二进制（默认合并模式，CMD 可覆盖）：
+
+```bash
+docker run --rm conrogate:latest conrogate-migrate --env-file .env.prod   # 迁移
+docker run --rm conrogate:latest conrogate-gate --env-file .env.prod      # 分离：数据面
+docker run --rm conrogate:latest conrogate-control --env-file .env.prod   # 分离：控制面
+```
+
 ## License
 
 Apache-2.0
