@@ -5,6 +5,7 @@
  */
 import { computed, onMounted, ref } from 'vue'
 import { routeApi } from '@/api/routes'
+import { pluginApi } from '@/api/plugins'
 import { upstreamApi } from '@/api/upstreams'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
@@ -28,7 +29,9 @@ import {
 } from '@/types/enums'
 import type {
   CreateRoutePayload,
+  InstalledPluginDto,
   PathMatchUnion,
+  PluginBindingDto,
   RouteDto,
   RouteMatchConditions,
   UpdateRoutePayload,
@@ -55,6 +58,38 @@ const saving = ref(false)
 /** 删除确认 */
 const deleting = ref<RouteDto | null>(null)
 const deletingLoading = ref(false)
+
+/** 插件绑定弹窗状态 */
+const bindingRoute = ref<RouteDto | null>(null)
+const bindings = ref<PluginBindingDto[]>([])
+const bindingsLoading = ref(false)
+const installedPlugins = ref<InstalledPluginDto[]>([])
+
+/** 绑定 / 编辑子弹窗 */
+const bindFormOpen = ref(false)
+const editingBindingName = ref<string | null>(null)
+const bindSaving = ref(false)
+
+/** 解绑确认 */
+const unbinding = ref<PluginBindingDto | null>(null)
+const unbindLoading = ref(false)
+
+interface BindingForm {
+  pluginName: string
+  configText: string
+  order: number
+  blocking: boolean
+  enabled: boolean
+}
+
+/** 官方插件默认配置模板（与后端插件 Default 对齐） */
+const configTemplates: Record<string, string> = {
+  log: '{\n  "log_body": false,\n  "log_headers": false,\n  "skip_paths": ["/healthz", "/readyz"]\n}',
+  cors: '{\n  "allow_origins": ["*"],\n  "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],\n  "allow_headers": ["Content-Type", "Authorization"],\n  "expose_headers": [],\n  "allow_credentials": false,\n  "max_age_seconds": 3600\n}',
+  auth: '{\n  "algorithm": "HS256",\n  "secret": "",\n  "require_token": true\n}',
+}
+
+const bindingForm = ref<BindingForm>({ pluginName: '', configText: '{}', order: 0, blocking: false, enabled: true })
 
 // 上游 id -> 名称 映射，用于表格显示
 const upstreamNames = computed<Record<number, string>>(() =>
@@ -134,7 +169,16 @@ const columns: TableColumn[] = [
   { key: 'priority', label: '优先级', width: '70px' },
   { key: 'enabled', label: '状态', width: '80px' },
   { key: 'created_at', label: '创建时间', width: '150px', formatter: (v) => fmtTime(String(v)) },
-  { key: 'actions', label: '操作', width: '200px', align: 'right' },
+  { key: 'actions', label: '操作', width: '260px', align: 'right' },
+]
+
+/** 插件绑定表格列 */
+const bindingColumns: TableColumn[] = [
+  { key: 'plugin_name', label: '插件', width: '120px' },
+  { key: 'order', label: '顺序', width: '60px' },
+  { key: 'flags', label: '标志' },
+  { key: 'config', label: '配置' },
+  { key: 'actions', label: '操作', width: '140px', align: 'right' },
 ]
 
 // ── 数据加载 ──
@@ -280,6 +324,148 @@ async function confirmDelete(): Promise<void> {
   }
 }
 
+// ── 插件绑定 ──
+
+/** 打开某路由的插件绑定管理弹窗 */
+async function openBindings(row: RouteDto): Promise<void> {
+  bindingRoute.value = row
+  bindingsLoading.value = true
+  try {
+    bindings.value = await pluginApi.bindings(row.id)
+  } catch (e) {
+    toast.error((e as Error).message)
+  } finally {
+    bindingsLoading.value = false
+  }
+  if (installedPlugins.value.length === 0) {
+    try {
+      installedPlugins.value = await pluginApi.list()
+    } catch {
+      // 插件列表加载失败不影响绑定查看
+    }
+  }
+}
+
+function closeBindings(): void {
+  bindingRoute.value = null
+  bindings.value = []
+}
+
+/** 配置文本 → JSON 对象；空串为 null，非法 JSON 抛错 */
+function parseConfig(text: string): Record<string, unknown> | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  try {
+    const v = JSON.parse(trimmed) as unknown
+    if (v === null) return null
+    if (typeof v !== 'object' || Array.isArray(v)) throw new Error('配置必须是 JSON 对象')
+    return v as Record<string, unknown>
+  } catch (e) {
+    throw new Error(`插件配置不合法：${(e as Error).message}`)
+  }
+}
+
+function emptyBindingForm(): BindingForm {
+  return { pluginName: '', configText: '{}', order: 0, blocking: false, enabled: true }
+}
+
+function openBindForm(): void {
+  editingBindingName.value = null
+  bindingForm.value = emptyBindingForm()
+  bindFormOpen.value = true
+}
+
+function openEditBinding(binding: PluginBindingDto): void {
+  editingBindingName.value = binding.plugin_name
+  bindingForm.value = {
+    pluginName: binding.plugin_name,
+    configText: JSON.stringify(binding.config ?? {}, null, 2),
+    order: binding.order,
+    blocking: binding.blocking,
+    enabled: binding.enabled,
+  }
+  bindFormOpen.value = true
+}
+
+/** 新建绑定时切换插件 → 填入对应配置模板 */
+function onBindingPluginChange(name: string): void {
+  if (editingBindingName.value === null) {
+    bindingForm.value.configText = configTemplates[name] ?? '{}'
+  }
+}
+
+async function loadBindings(): Promise<void> {
+  const routeId = bindingRoute.value?.id
+  if (!routeId) return
+  bindingsLoading.value = true
+  try {
+    bindings.value = await pluginApi.bindings(routeId)
+  } catch (e) {
+    toast.error((e as Error).message)
+  } finally {
+    bindingsLoading.value = false
+  }
+}
+
+async function saveBinding(): Promise<void> {
+  const routeId = bindingRoute.value?.id
+  if (!routeId) return
+  if (!bindingForm.value.pluginName) {
+    toast.error('请选择插件')
+    return
+  }
+  let config: Record<string, unknown> | null
+  try {
+    config = parseConfig(bindingForm.value.configText)
+  } catch (e) {
+    toast.error((e as Error).message)
+    return
+  }
+  bindSaving.value = true
+  try {
+    if (editingBindingName.value === null) {
+      await pluginApi.bind(routeId, {
+        plugin_name: bindingForm.value.pluginName,
+        config,
+        order: bindingForm.value.order,
+        blocking: bindingForm.value.blocking,
+        enabled: bindingForm.value.enabled,
+      })
+      toast.success('插件绑定成功')
+    } else {
+      await pluginApi.updateBinding(routeId, editingBindingName.value, {
+        config,
+        order: bindingForm.value.order,
+        blocking: bindingForm.value.blocking,
+        enabled: bindingForm.value.enabled,
+      })
+      toast.success('插件绑定已更新')
+    }
+    bindFormOpen.value = false
+    await loadBindings()
+  } catch (e) {
+    toast.error((e as Error).message)
+  } finally {
+    bindSaving.value = false
+  }
+}
+
+async function confirmUnbind(): Promise<void> {
+  const routeId = bindingRoute.value?.id
+  if (!routeId || !unbinding.value) return
+  unbindLoading.value = true
+  try {
+    await pluginApi.unbind(routeId, unbinding.value.plugin_name)
+    toast.success(`已解绑插件「${unbinding.value.plugin_name}」`)
+    unbinding.value = null
+    await loadBindings()
+  } catch (e) {
+    toast.error((e as Error).message)
+  } finally {
+    unbindLoading.value = false
+  }
+}
+
 // ── 挂载 ──
 
 onMounted(() => {
@@ -314,6 +500,9 @@ onMounted(() => {
         <div class="flex items-center justify-end gap-1">
           <AppButton v-if="auth.canWrite" variant="ghost" size="sm" @click="toggleEnabled(row as RouteDto)">
             {{ (row as RouteDto).enabled ? '停用' : '启用' }}
+          </AppButton>
+          <AppButton v-if="auth.canWrite" variant="ghost" size="sm" @click="openBindings(row as RouteDto)">
+            插件
           </AppButton>
           <AppButton v-if="auth.canWrite" variant="secondary" size="sm" @click="openEdit(row as RouteDto)">
             编辑
@@ -404,6 +593,108 @@ onMounted(() => {
     <template #footer>
       <AppButton variant="secondary" @click="deleting = null">取消</AppButton>
       <AppButton variant="danger" :loading="deletingLoading" @click="confirmDelete">删除</AppButton>
+    </template>
+  </AppModal>
+
+  <!-- 插件绑定管理 -->
+  <AppModal
+    :open="bindingRoute !== null"
+    :title="`插件绑定 · ${bindingRoute?.name ?? ''}`"
+    width="max-w-3xl"
+    @close="closeBindings"
+  >
+    <AppTable :columns="bindingColumns" :rows="bindings" :loading="bindingsLoading">
+      <template #cell-flags="{ row }">
+        <div class="flex gap-1">
+          <AppBadge :tone="(row as PluginBindingDto).enabled ? 'green' : 'gray'">
+            {{ (row as PluginBindingDto).enabled ? '启用' : '停用' }}
+          </AppBadge>
+          <AppBadge :tone="(row as PluginBindingDto).blocking ? 'yellow' : 'blue'">
+            {{ (row as PluginBindingDto).blocking ? '阻断' : '放行' }}
+          </AppBadge>
+        </div>
+      </template>
+      <template #cell-config="{ row }">
+        <code class="block max-w-xs truncate font-mono text-xs text-slate-500">
+          {{ JSON.stringify((row as PluginBindingDto).config ?? null) }}
+        </code>
+      </template>
+      <template #cell-actions="{ row }">
+        <div class="flex items-center justify-end gap-1">
+          <AppButton v-if="auth.canWrite" variant="ghost" size="sm" @click="openEditBinding(row as PluginBindingDto)">
+            编辑
+          </AppButton>
+          <AppButton v-if="auth.canWrite" variant="danger" size="sm" @click="unbinding = row as PluginBindingDto">
+            解绑
+          </AppButton>
+        </div>
+      </template>
+      <template #empty>
+        <AppEmpty text="该路由尚未绑定插件，点击右下角「绑定插件」添加" />
+      </template>
+    </AppTable>
+
+    <template #footer>
+      <AppButton variant="secondary" @click="closeBindings">关闭</AppButton>
+      <AppButton v-if="auth.canWrite" @click="openBindForm">绑定插件</AppButton>
+    </template>
+  </AppModal>
+
+  <!-- 绑定 / 编辑插件 -->
+  <AppModal
+    :open="bindFormOpen"
+    :title="editingBindingName === null ? '绑定插件' : `编辑插件绑定 · ${editingBindingName}`"
+    width="max-w-xl"
+    @close="bindFormOpen = false"
+  >
+    <form class="space-y-4" @submit.prevent="saveBinding">
+      <AppSelect
+        v-model="bindingForm.pluginName"
+        label="插件"
+        :disabled="editingBindingName !== null"
+        :options="installedPlugins.map((p) => ({ value: p.name, label: `${p.name}（${p.status}）` }))"
+        placeholder="请选择插件"
+        @change="onBindingPluginChange(bindingForm.pluginName)"
+      />
+
+      <div class="grid grid-cols-3 gap-4">
+        <AppInput v-model.number="bindingForm.order" label="执行顺序" type="number" />
+        <label class="flex items-end pb-2 text-sm text-slate-600">
+          <input v-model="bindingForm.blocking" type="checkbox" class="accent-indigo-600" />
+          阻断失败
+        </label>
+        <label class="flex items-end pb-2 text-sm text-slate-600">
+          <input v-model="bindingForm.enabled" type="checkbox" class="accent-indigo-600" />
+          启用
+        </label>
+      </div>
+
+      <div>
+        <span class="mb-1 block text-sm font-medium text-slate-700">插件配置（JSON）</span>
+        <textarea
+          v-model="bindingForm.configText"
+          rows="6"
+          spellcheck="false"
+          class="w-full rounded-md border border-slate-300 bg-slate-50 p-2.5 font-mono text-xs outline-none transition focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          placeholder="{}"
+        />
+      </div>
+    </form>
+
+    <template #footer>
+      <AppButton variant="secondary" @click="bindFormOpen = false">取消</AppButton>
+      <AppButton :loading="bindSaving" @click="saveBinding">保存</AppButton>
+    </template>
+  </AppModal>
+
+  <!-- 解绑确认 -->
+  <AppModal :open="unbinding !== null" title="解绑插件" @close="unbinding = null">
+    <p class="text-sm text-slate-600">
+      确定从该路由解绑插件 <span class="font-medium text-slate-800">{{ unbinding?.plugin_name }}</span> 吗？
+    </p>
+    <template #footer>
+      <AppButton variant="secondary" @click="unbinding = null">取消</AppButton>
+      <AppButton variant="danger" :loading="unbindLoading" @click="confirmUnbind">解绑</AppButton>
     </template>
   </AppModal>
 </template>

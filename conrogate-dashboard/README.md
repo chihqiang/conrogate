@@ -6,6 +6,8 @@ Conrogate 网关控制面 Web 管理台（独立部署的可选前端组件）�
 
 - **路由管理**：分页列表、新建/编辑（路径匹配、HTTP 方法、上游选择、Host 头）、启用切换、删除
 - **上游管理**：分页列表、节点动态编辑、负载均衡算法下拉、删除确认
+- **插件管理**：已安装插件列表（log/cors/auth）、启用/停用/卸载（Admin 专属）、状态筛选
+- **路由插件绑定**：路由「插件」入口 → 查看/绑定/编辑/解绑插件，JSON 配置带官方插件默认模板
 - **配置版本**：发布新版本（快照）、版本历史、回滚、任意两版本差异对比
 - **指标洞察**：QPS 时序、延迟百分位、状态码分布、热门路由 TOP10（ECharts，支持时间范围与自动刷新）
 - **节点**：数据面节点在线状态（心跳判定）与配置版本应用情况
@@ -49,10 +51,10 @@ npm run preview
 
 ```
 src/
-├── api/        # 控制面 REST 客户端（routes/upstreams/configs/metrics/nodes/events）
+├── api/        # 控制面 REST 客户端（routes/upstreams/plugins/configs/metrics/nodes/events）
 ├── types/      # 类型与后端 serde 枚举（protocol=web_socket 等）
 ├── stores/     # Pinia：auth（token/角色/权限）、toast
 ├── router/     # Vue Router（守卫 + redirect 回跳）
 ├── components/ # 通用 UI（Button/Input/Select/Badge/Card/Modal/Table/Pagination/Empty/Toast）+ layout
-└── views/      # 页面视图（Login/Routes/Upstreams/Configs/Metrics/Nodes/Audit）
+└── views/      # 页面视图（Login/Routes/Upstreams/Plugins/Configs/Metrics/Nodes/Audit）
 ```

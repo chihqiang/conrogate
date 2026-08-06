@@ -9,6 +9,7 @@ const navItems = [
   { name: 'configs', label: '配置版本', to: { name: 'configs' } },
   { name: 'metrics', label: '指标洞察', to: { name: 'metrics' } },
   { name: 'nodes', label: '节点管理', to: { name: 'nodes' } },
+  { name: 'plugins', label: '插件管理', to: { name: 'plugins' } },
   { name: 'audit', label: '审计日志', to: { name: 'audit' } },
 ] as const
 </script>

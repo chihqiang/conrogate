@@ -43,6 +43,8 @@ pub struct CreateRouteDto {
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateRouteDto {
+    /// PATCH 时从路径取值覆盖，body 可省略；PUT 时必须携带
+    #[serde(default)]
     pub id: u64,
     pub name: Option<String>,
     pub match_conditions: Option<RouteMatchConditions>,
@@ -94,6 +96,8 @@ pub struct CreateUpstreamNodeDto {
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct UpdateUpstreamDto {
+    /// PATCH 时从路径取值覆盖，body 可省略；PUT 时必须携带
+    #[serde(default)]
     pub id: u64,
     pub name: Option<String>,
     pub algorithm: Option<BalancerAlgorithm>,
