@@ -43,7 +43,8 @@ curl http://localhost:8080/demo/hello     # 数据面转发
 ```
 
 > 也可以使用一键脚本启动：`./scripts/dev-up.sh`（自动拉起 PG + Redis → 迁移 → 合并模式启动）。
-> 接入示例：`./scripts/test-httpbin-svc.sh`（把 httpbin.org 注册为上游并转发验证，`--cleanup` 清理）。
+> 接入示例：`./scripts/test-httpbin-svc.sh`（把 httpbin.org 注册为上游并转发验证）。
+> WebSocket 隧道测试：`./scripts/test-ws-svc.sh`（`scripts/ws.php` 用 Swoole 起本地 WS echo 上游，注册后经网关回显校验，`--cleanup` 清理）。
 
 ## 三种部署模式
 

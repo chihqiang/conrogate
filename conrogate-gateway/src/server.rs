@@ -845,7 +845,8 @@ where
     builder
         .http2()
         .max_header_list_size(max_header_bytes as u32);
-    builder.serve_connection(io, svc).await
+    // 支持 HTTP Upgrade（WebSocket）：auto builder 的 serve_connection 不支持升级
+    builder.serve_connection_with_upgrades(io, svc).await
 }
 
 /// TLS 连接：按 ALPN 协商结果选择 HTTP/2（h2）或 HTTP/1.1
