@@ -209,14 +209,13 @@ impl GatewayServer {
 
         let protocols = ProtocolHandlerRegistry::new();
         protocols.register(Arc::new(
-            HttpProtocolHandler::with_registry(svc.clone(), plugin_registry.clone(), timeout)
+            HttpProtocolHandler::with_timeout(svc.clone(), timeout)
                 .with_outbound_tls(config.gate.outbound_tls.skip_verify)
                 .with_trusted_proxies(config.gate.listen.trusted_proxies.clone())
                 .with_max_retries(config.gate.retry.max_attempts),
         ));
-        protocols.register(Arc::new(TcpTunnelProtocolHandler::with_registry(
+        protocols.register(Arc::new(TcpTunnelProtocolHandler::with_config(
             svc.clone(),
-            plugin_registry.clone(),
             timeout,
             conn_qps,
             bandwidth_kbps,
@@ -301,14 +300,13 @@ impl GatewayServer {
 
         let protocols = ProtocolHandlerRegistry::new();
         protocols.register(Arc::new(
-            HttpProtocolHandler::with_registry(svc.clone(), plugin_registry.clone(), timeout)
+            HttpProtocolHandler::with_timeout(svc.clone(), timeout)
                 .with_outbound_tls(config.gate.outbound_tls.skip_verify)
                 .with_trusted_proxies(config.gate.listen.trusted_proxies.clone())
                 .with_max_retries(config.gate.retry.max_attempts),
         ));
-        protocols.register(Arc::new(TcpTunnelProtocolHandler::with_registry(
+        protocols.register(Arc::new(TcpTunnelProtocolHandler::with_config(
             svc.clone(),
-            plugin_registry.clone(),
             timeout,
             conn_qps,
             bandwidth_kbps,
@@ -433,22 +431,18 @@ impl GatewayServer {
         }
 
         let body_required = server.plugin_registry.body_required_plugin_names();
-        // 初始加载：预解析路由插件链并缓存到 PluginPipelineImpl
-        let mut init_chains: std::collections::HashMap<
-            u64,
-            Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>>,
-        > = std::collections::HashMap::new();
-        for binding in &all_bindings {
-            if !binding.enabled {
-                continue;
+        // 初始加载：构建每绑定独立配置实例的插件链并缓存到 PluginPipelineImpl
+        let init_chains = match conrogate_core::plugin::loader::build_chains(
+            &server.plugin_registry,
+            &all_bindings,
+        ) {
+            Ok(chains) => chains,
+            Err(e) => {
+                // 绑定 config 经控制面校验，此处失败属异常；fail-open 继续启动
+                tracing::error!(error = %e, "initial plugin chain build failed, plugins disabled");
+                std::collections::HashMap::new()
             }
-            if let Some(plugin) = server.plugin_registry.get(&binding.plugin_name) {
-                init_chains
-                    .entry(binding.route_id)
-                    .or_default()
-                    .push(plugin);
-            }
-        }
+        };
         server.plugin_executor.set_route_chains(init_chains);
         server
             .route_matcher
@@ -506,24 +500,19 @@ impl GatewayServer {
                     load_config_snapshot(config_cache.as_deref(), &db).await
                 {
                     let body_req = registry.body_required_plugin_names();
-                    // 热加载：更新路由插件链（set_route_chains）
-                    // 按 route_id 分组绑定，解析插件实例，原子替换插件链缓存
-                    let mut chains: std::collections::HashMap<
-                        u64,
-                        Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>>,
-                    > = std::collections::HashMap::new();
-                    for binding in &bindings {
-                        if !binding.enabled {
-                            continue;
+                    // 热加载：构建每绑定独立配置实例的插件链，原子替换插件链缓存。
+                    // 任一绑定实例化失败则跳过本次重载，保持当前生效配置（fail-open）。
+                    match conrogate_core::plugin::loader::build_chains(&registry, &bindings) {
+                        Ok(chains) => {
+                            plugin_executor.set_route_chains(chains);
+                            matcher.load_with_bindings(r, bindings, &body_req);
+                            selector.load_upstreams(u);
+                            tracing::debug!("config hot-reloaded");
                         }
-                        if let Some(plugin) = registry.get(&binding.plugin_name) {
-                            chains.entry(binding.route_id).or_default().push(plugin);
+                        Err(e) => {
+                            tracing::error!(error = %e, "plugin chain build failed, skip reload");
                         }
                     }
-                    plugin_executor.set_route_chains(chains);
-                    matcher.load_with_bindings(r, bindings, &body_req);
-                    selector.load_upstreams(u);
-                    tracing::debug!("config hot-reloaded");
                 }
             }
         });
@@ -752,23 +741,17 @@ impl GatewayServer {
         bindings: Vec<conrogate_core::contract::dto::PluginBindingDto>,
     ) {
         let body_required = self.plugin_registry.body_required_plugin_names();
-        // 按 route_id 分组绑定，解析插件实例，原子替换插件链缓存
-        let mut chains: std::collections::HashMap<
-            u64,
-            Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>>,
-        > = std::collections::HashMap::new();
-        for binding in &bindings {
-            if !binding.enabled {
-                continue;
-            }
-            if let Some(plugin) = self.plugin_registry.get(&binding.plugin_name) {
-                chains.entry(binding.route_id).or_default().push(plugin);
-            }
+        // 按 route_id 分组绑定，构建每绑定独立配置实例的插件链，原子替换插件链缓存。
+        // 任一绑定实例化失败则保持当前配置不动（fail-open）。
+        if let Ok(chains) = conrogate_core::plugin::loader::build_chains(
+            &self.plugin_registry,
+            &bindings,
+        ) {
+            self.plugin_executor.set_route_chains(chains);
+            self.route_matcher
+                .load_with_bindings(routes, bindings, &body_required);
+            tracing::info!("routes reloaded with bindings");
         }
-        self.plugin_executor.set_route_chains(chains);
-        self.route_matcher
-            .load_with_bindings(routes, bindings, &body_required);
-        tracing::info!("routes reloaded with bindings");
     }
 
     /// 热加载上游

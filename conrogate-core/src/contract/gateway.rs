@@ -60,6 +60,9 @@ pub trait TelemetryReport: Send + Sync {
 
 #[async_trait]
 pub trait PluginExecutor: Send + Sync {
+    /// 获取路由当前生效的插件链（配置热加载后原子替换；每绑定独立实例）
+    fn route_plugins(&self, route_id: u64) -> Vec<Arc<dyn Plugin>>;
+
     async fn execute_before_request(
         &self,
         ctx: &mut PluginContext,

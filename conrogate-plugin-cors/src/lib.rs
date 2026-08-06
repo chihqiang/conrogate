@@ -100,6 +100,15 @@ impl Plugin for CorsPlugin {
             .map_err(|e| ConrogateError::PluginConfigInvalid(e.to_string()))
     }
 
+    fn configured(&self, config: &Value) -> Result<std::sync::Arc<dyn Plugin>, ConrogateError> {
+        if config.is_null() {
+            return Ok(std::sync::Arc::new(CorsPlugin::new()));
+        }
+        let cfg: CorsPluginConfig = serde_json::from_value(config.clone())
+            .map_err(|e| ConrogateError::PluginConfigInvalid(e.to_string()))?;
+        Ok(std::sync::Arc::new(CorsPlugin { config: cfg }))
+    }
+
     async fn before_request(
         &self,
         ctx: &mut PluginContext,

@@ -12,8 +12,6 @@ use tokio::net::TcpStream;
 /// TCP 隧道协议处理器
 pub struct TcpTunnelProtocolHandler {
     svc: Arc<ServiceContext>,
-    /// 插件注册表（解析路由绑定的插件链；None = 插件被禁用）
-    plugin_registry: Option<Arc<crate::plugin::registry::PluginRegistryImpl>>,
     timeout: Duration,
     /// 连接建立速率上限（0 = 不限制）
     conn_qps: u32,
@@ -25,7 +23,6 @@ impl TcpTunnelProtocolHandler {
     pub fn new(svc: Arc<ServiceContext>) -> Self {
         Self {
             svc,
-            plugin_registry: None,
             timeout: Duration::from_secs(30),
             conn_qps: 0,
             bandwidth_kbps: 0,
@@ -41,47 +38,15 @@ impl TcpTunnelProtocolHandler {
     ) -> Self {
         Self {
             svc,
-            plugin_registry: None,
             timeout,
             conn_qps,
             bandwidth_kbps,
         }
     }
 
-    /// 使用插件注册表 + 配置创建（隧道插件链可执行 on_connect/on_disconnect）
-    pub fn with_registry(
-        svc: Arc<ServiceContext>,
-        plugin_registry: Arc<crate::plugin::registry::PluginRegistryImpl>,
-        timeout: Duration,
-        conn_qps: u32,
-        bandwidth_kbps: u32,
-    ) -> Self {
-        Self {
-            svc,
-            plugin_registry: Some(plugin_registry),
-            timeout,
-            conn_qps,
-            bandwidth_kbps,
-        }
-    }
-
-    /// 解析路由绑定的插件链 → Arc<dyn Plugin> 列表
-    fn resolve_plugins(
-        &self,
-        bindings: &[crate::contract::dto::PluginBindingDto],
-    ) -> Vec<Arc<dyn crate::contract::plugin::Plugin>> {
-        let mut plugins = Vec::new();
-        if let Some(ref registry) = self.plugin_registry {
-            for binding in bindings {
-                if !binding.enabled {
-                    continue;
-                }
-                if let Some(plugin) = registry.get(&binding.plugin_name) {
-                    plugins.push(plugin);
-                }
-            }
-        }
-        plugins
+    /// 获取路由当前生效的插件链（每绑定独立配置实例）
+    fn resolve_plugins(&self, route_id: u64) -> Vec<Arc<dyn crate::contract::plugin::Plugin>> {
+        self.svc.plugins.route_plugins(route_id)
     }
 
     /// 上报隧道建立前失败指标（限流/熔断/插件拒绝等）：
@@ -157,7 +122,7 @@ impl TcpTunnelProtocolHandler {
         let plugin_outcome = self
             .svc
             .plugins
-            .execute_on_connect(&mut plugin_ctx, &self.resolve_plugins(&route.plugin_chain))
+            .execute_on_connect(&mut plugin_ctx, &self.resolve_plugins(route.id))
             .await?;
 
         if let PluginOutcome::Terminate(code, _) = plugin_outcome {
@@ -261,7 +226,7 @@ impl TcpTunnelProtocolHandler {
         let _ = self
             .svc
             .plugins
-            .execute_on_disconnect(&mut plugin_ctx, &self.resolve_plugins(&route.plugin_chain))
+            .execute_on_disconnect(&mut plugin_ctx, &self.resolve_plugins(route.id))
             .await;
 
         result.map(|_| ())
@@ -290,9 +255,9 @@ mod tests {
     use super::*;
     use crate::contract::dto::{MetricRow, PluginBindingDto, RouteSnapshot, UpstreamNodeDto};
     use crate::contract::gateway::{
-        PluginExecutor, RouteLookup, TelemetryReport, TrafficControl, UpstreamSelector,
+        RouteLookup, TelemetryReport, TrafficControl, UpstreamSelector,
     };
-    use crate::contract::plugin::{Plugin, PluginKind, PluginResponse};
+    use crate::contract::plugin::{Plugin, PluginKind};
     use crate::plugin::registry::PluginRegistryImpl;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -377,49 +342,6 @@ mod tests {
         async fn record_event(&self, _event: crate::contract::dto::EventRow) {}
     }
 
-    struct StubPlugins;
-    #[async_trait::async_trait]
-    impl PluginExecutor for StubPlugins {
-        async fn execute_before_request(
-            &self,
-            _ctx: &mut PluginContext,
-            _plugins: &[Arc<dyn Plugin>],
-        ) -> Result<PluginOutcome, ConrogateError> {
-            Ok(PluginOutcome::Continue)
-        }
-        async fn execute_after_response(
-            &self,
-            _ctx: &mut PluginContext,
-            _resp: &mut PluginResponse,
-            _plugins: &[Arc<dyn Plugin>],
-        ) -> Result<(), ConrogateError> {
-            Ok(())
-        }
-        async fn execute_on_connect(
-            &self,
-            _ctx: &mut PluginContext,
-            plugins: &[Arc<dyn Plugin>],
-        ) -> Result<PluginOutcome, ConrogateError> {
-            for p in plugins {
-                let outcome = p.on_connect(_ctx).await?;
-                if let PluginOutcome::Terminate(code, _) = outcome {
-                    return Ok(PluginOutcome::Terminate(code, serde_json::Value::Null));
-                }
-            }
-            Ok(PluginOutcome::Continue)
-        }
-        async fn execute_on_disconnect(
-            &self,
-            _ctx: &mut PluginContext,
-            plugins: &[Arc<dyn Plugin>],
-        ) -> Result<(), ConrogateError> {
-            for p in plugins {
-                p.on_disconnect(_ctx).await?;
-            }
-            Ok(())
-        }
-    }
-
     /// 记录 on_connect/on_disconnect 调用次数的隧道插件
     struct TunnelGuardPlugin {
         connects: Arc<AtomicUsize>,
@@ -441,6 +363,15 @@ mod tests {
         }
         fn validate_config(&self, _config: &serde_json::Value) -> Result<(), ConrogateError> {
             Ok(())
+        }
+        fn configured(
+            &self,
+            _config: &serde_json::Value,
+        ) -> Result<std::sync::Arc<dyn Plugin>, ConrogateError> {
+            Ok(std::sync::Arc::new(TunnelGuardPlugin {
+                connects: self.connects.clone(),
+                disconnects: self.disconnects.clone(),
+            }))
         }
         async fn before_request(
             &self,
@@ -475,6 +406,7 @@ mod tests {
             .await;
 
         let metrics = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let executor = Arc::new(crate::plugin::pipeline::PluginPipelineImpl::new());
         let svc = Arc::new(ServiceContext {
             routes: Arc::new(StubTcpRoutes),
             balancer: Arc::new(StubSelector),
@@ -482,12 +414,24 @@ mod tests {
             telemetry: Arc::new(StubTelemetry {
                 metrics: metrics.clone(),
             }),
-            plugins: Arc::new(StubPlugins),
+            plugins: executor.clone(),
             gate_id: "test-gate".into(),
         });
 
+        let binding = PluginBindingDto {
+            id: 1,
+            route_id: 1,
+            plugin_name: "tunnel-guard".into(),
+            config: serde_json::Value::Null,
+            order: 0,
+            blocking: true,
+            enabled: true,
+        };
+        let chains = crate::plugin::loader::build_chains(&registry, &[binding]).unwrap();
+        executor.set_route_chains(chains);
+
         let handler =
-            TcpTunnelProtocolHandler::with_registry(svc, registry, Duration::from_secs(2), 0, 0);
+            TcpTunnelProtocolHandler::with_config(svc, Duration::from_secs(2), 0, 0);
 
         // 入站连接（实际转发目标 127.0.0.1:1 无监听，将在转发阶段失败）
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

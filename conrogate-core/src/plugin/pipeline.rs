@@ -49,6 +49,10 @@ impl Default for PluginPipelineImpl {
 
 #[async_trait::async_trait]
 impl crate::contract::gateway::PluginExecutor for PluginPipelineImpl {
+    fn route_plugins(&self, route_id: u64) -> Vec<Arc<dyn Plugin>> {
+        self.get_route_chain(route_id)
+    }
+
     async fn execute_before_request(
         &self,
         ctx: &mut PluginContext,

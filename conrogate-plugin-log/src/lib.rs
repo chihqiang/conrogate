@@ -77,6 +77,15 @@ impl Plugin for LogPlugin {
         Ok(())
     }
 
+    fn configured(&self, config: &Value) -> Result<std::sync::Arc<dyn Plugin>, ConrogateError> {
+        if config.is_null() {
+            return Ok(std::sync::Arc::new(LogPlugin::new()));
+        }
+        let cfg: LogPluginConfig = serde_json::from_value(config.clone())
+            .map_err(|e| ConrogateError::PluginConfigInvalid(e.to_string()))?;
+        Ok(std::sync::Arc::new(LogPlugin { config: cfg }))
+    }
+
     async fn before_request(
         &self,
         ctx: &mut PluginContext,

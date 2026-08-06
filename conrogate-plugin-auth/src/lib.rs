@@ -140,6 +140,31 @@ impl AuthPlugin {
         matches!(alg.to_uppercase().as_str(), "HS256" | "HS384" | "HS512")
     }
 
+    /// 校验 AuthPluginConfig（validate_config 与 configured 共用）
+    fn validate(cfg: &AuthPluginConfig) -> Result<(), ConrogateError> {
+        // 检查算法合法性
+        let _alg = Self::parse_algorithm(&cfg.algorithm)?;
+
+        if Self::is_hmac(&cfg.algorithm) {
+            // HMAC 算法需要 secret
+            if cfg.require_token && cfg.secret.is_empty() {
+                return Err(ConrogateError::PluginConfigInvalid(
+                    "auth plugin: secret is required when require_token=true and algorithm=HS256"
+                        .into(),
+                ));
+            }
+        } else {
+            // RSA 算法需要 rsa_pem 或 jwks_url
+            if cfg.require_token && cfg.rsa_pem.is_none() && cfg.jwks_url.is_none() {
+                return Err(ConrogateError::PluginConfigInvalid(
+                    "auth plugin: rsa_pem or jwks_url is required when require_token=true and algorithm=RS256"
+                        .into(),
+                ));
+            }
+        }
+        Ok(())
+    }
+
     /// 获取验证用的 DecodingKey 和 Algorithm
     async fn resolve_key(
         &self,
@@ -367,28 +392,17 @@ impl Plugin for AuthPlugin {
         }
         let cfg: AuthPluginConfig = serde_json::from_value(config.clone())
             .map_err(|e| ConrogateError::PluginConfigInvalid(e.to_string()))?;
+        Self::validate(&cfg)
+    }
 
-        // 检查算法合法性
-        let _alg = Self::parse_algorithm(&cfg.algorithm)?;
-
-        if Self::is_hmac(&cfg.algorithm) {
-            // HMAC 算法需要 secret
-            if cfg.require_token && cfg.secret.is_empty() {
-                return Err(ConrogateError::PluginConfigInvalid(
-                    "auth plugin: secret is required when require_token=true and algorithm=HS256"
-                        .into(),
-                ));
-            }
-        } else {
-            // RSA 算法需要 rsa_pem 或 jwks_url
-            if cfg.require_token && cfg.rsa_pem.is_none() && cfg.jwks_url.is_none() {
-                return Err(ConrogateError::PluginConfigInvalid(
-                    "auth plugin: rsa_pem or jwks_url is required when require_token=true and algorithm=RS256"
-                        .into(),
-                ));
-            }
+    fn configured(&self, config: &Value) -> Result<Arc<dyn Plugin>, ConrogateError> {
+        if config.is_null() {
+            return Ok(Arc::new(AuthPlugin::new()));
         }
-        Ok(())
+        let cfg: AuthPluginConfig = serde_json::from_value(config.clone())
+            .map_err(|e| ConrogateError::PluginConfigInvalid(e.to_string()))?;
+        Self::validate(&cfg)?;
+        Ok(Arc::new(AuthPlugin::with_config(cfg)))
     }
 
     async fn init(&self, config: &Value) -> Result<(), ConrogateError> {

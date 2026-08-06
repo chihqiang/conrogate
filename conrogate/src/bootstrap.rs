@@ -593,23 +593,19 @@ async fn config_hot_reload_loop(
         // 则跳过本次重载，保持当前生效配置（原子替换，不半套刷入）。
         if let Some((r, u, bindings)) = load_config_snapshot(config_cache.as_deref(), &db).await {
             let body_req = registry.body_required_plugin_names();
-            // 热加载：更新路由插件链
-            let mut chains: std::collections::HashMap<
-                u64,
-                Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>>,
-            > = std::collections::HashMap::new();
-            for binding in &bindings {
-                if !binding.enabled {
-                    continue;
+            // 热加载：构建每绑定独立配置实例的插件链，原子替换插件链缓存。
+            // 任一绑定实例化失败则跳过本次重载，保持当前生效配置（fail-open）。
+            match conrogate_core::plugin::loader::build_chains(&registry, &bindings) {
+                Ok(chains) => {
+                    plugin_executor.set_route_chains(chains);
+                    matcher.load_with_bindings(r, bindings, &body_req);
+                    selector.load_upstreams(u);
+                    tracing::debug!("config hot-reloaded");
                 }
-                if let Some(plugin) = registry.get(&binding.plugin_name) {
-                    chains.entry(binding.route_id).or_default().push(plugin);
+                Err(e) => {
+                    tracing::error!(error = %e, "plugin chain build failed, skip reload");
                 }
             }
-            plugin_executor.set_route_chains(chains);
-            matcher.load_with_bindings(r, bindings, &body_req);
-            selector.load_upstreams(u);
-            tracing::debug!("config hot-reloaded");
         }
     }
 }

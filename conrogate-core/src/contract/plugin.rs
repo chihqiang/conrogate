@@ -143,6 +143,10 @@ pub trait Plugin: Send + Sync {
         Ok(())
     }
 
+    /// 按绑定级 config 构建独立插件实例（每个绑定独立实例，配置隔离）。
+    /// 绑定时 validate_config 已校验过，此处负责运行期实例化并应用绑定配置。
+    fn configured(&self, config: &Value) -> Result<Arc<dyn Plugin>, ConrogateError>;
+
     // ── HTTP 系协议钩子 ──
 
     /// 请求转发前执行（HTTP / WebSocket 升级前阶段）

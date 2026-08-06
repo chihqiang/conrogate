@@ -37,8 +37,6 @@ pub fn strip_sensitive_headers(headers: &mut HeaderMap) {
 /// HTTP 协议处理器
 pub struct HttpProtocolHandler {
     svc: Arc<ServiceContext>,
-    /// 插件注册表（解析路由绑定 → 插件实例）
-    plugin_registry: Option<Arc<crate::plugin::registry::PluginRegistryImpl>>,
     /// hyper 客户端（连接池复用，统一使用 BoxBody 体类型；支持 http/https 出站）
     client: HttpClient,
     /// 转发超时
@@ -82,7 +80,6 @@ impl HttpProtocolHandler {
         let client = Self::build_client(false);
         Self {
             svc,
-            plugin_registry: None,
             client,
             timeout: Duration::from_secs(30),
             trusted_proxies: Vec::new(),
@@ -96,25 +93,6 @@ impl HttpProtocolHandler {
         let client = Self::build_client(false);
         Self {
             svc,
-            plugin_registry: None,
-            client,
-            timeout,
-            trusted_proxies: Vec::new(),
-            rate_limit_qps: 100,
-            max_retries: 3,
-        }
-    }
-
-    /// 使用插件注册表 + 超时创建
-    pub fn with_registry(
-        svc: Arc<ServiceContext>,
-        plugin_registry: Arc<crate::plugin::registry::PluginRegistryImpl>,
-        timeout: Duration,
-    ) -> Self {
-        let client = Self::build_client(false);
-        Self {
-            svc,
-            plugin_registry: Some(plugin_registry),
             client,
             timeout,
             trusted_proxies: Vec::new(),
@@ -192,22 +170,8 @@ impl HttpProtocolHandler {
     }
 
     /// 解析路由绑定的插件链 → Arc<dyn Plugin> 列表
-    fn resolve_plugins(
-        &self,
-        bindings: &[crate::contract::dto::PluginBindingDto],
-    ) -> Vec<Arc<dyn crate::contract::plugin::Plugin>> {
-        let mut plugins = Vec::new();
-        if let Some(ref registry) = self.plugin_registry {
-            for binding in bindings {
-                if !binding.enabled {
-                    continue;
-                }
-                if let Some(plugin) = registry.get(&binding.plugin_name) {
-                    plugins.push(plugin);
-                }
-            }
-        }
-        plugins
+    fn resolve_plugins(&self, route_id: u64) -> Vec<Arc<dyn crate::contract::plugin::Plugin>> {
+        self.svc.plugins.route_plugins(route_id)
     }
 
     /// 处理 HTTP 请求 — 完整转发链路（缓冲模式：body 已载入内存）
@@ -536,8 +500,8 @@ impl HttpProtocolHandler {
             services: plugin_services(&self.svc),
         };
 
-        // 4. 执行插件 before_request（解析路由绑定 → 插件实例）
-        let plugins = self.resolve_plugins(&route.plugin_chain);
+        // 4. 执行插件 before_request（从管线缓存取路由插件链，每绑定独立配置实例）
+        let plugins = self.resolve_plugins(route.id);
         let plugin_outcome = self
             .svc
             .plugins
@@ -1050,6 +1014,10 @@ mod tests {
     struct StubPlugins;
     #[async_trait::async_trait]
     impl PluginExecutor for StubPlugins {
+        fn route_plugins(&self, _route_id: u64) -> Vec<Arc<dyn Plugin>> {
+            Vec::new()
+        }
+
         async fn execute_before_request(
             &self,
             _ctx: &mut PluginContext,
