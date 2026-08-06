@@ -1,0 +1,7 @@
+/* Tailwind CSS v4：通过 @import 引入（替代旧版 tailwind.config.js） */
+@import "tailwindcss";
+
+/* 全局滚动条 / 选中态微调 */
+html {
+  @apply bg-slate-100 text-slate-800 antialiased;
+}
