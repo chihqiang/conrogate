@@ -1,10 +1,10 @@
 //! TCP 隧道协议处理器：原始字节流路由 + 转发。
 
-use crate::protocol::handler::{plugin_services, ProtocolHandler};
 use crate::contract::gateway::ServiceContext;
 use crate::contract::plugin::{PluginContext, PluginOutcome};
 use crate::contract::protocol::{ProtocolId, RouteMatchInfo};
 use crate::contract::ConrogateError;
+use crate::protocol::handler::{plugin_services, ProtocolHandler};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -185,7 +185,8 @@ impl TcpTunnelProtocolHandler {
             None
         };
         let result =
-            crate::protocol::proxy::forward_tcp(&node, inbound, self.timeout, max_bytes_per_sec).await;
+            crate::protocol::proxy::forward_tcp(&node, inbound, self.timeout, max_bytes_per_sec)
+                .await;
 
         // 7. 记录结果
         let success = result.is_ok();
@@ -430,8 +431,7 @@ mod tests {
         let chains = crate::plugin::loader::build_chains(&registry, &[binding]).unwrap();
         executor.set_route_chains(chains);
 
-        let handler =
-            TcpTunnelProtocolHandler::with_config(svc, Duration::from_secs(2), 0, 0);
+        let handler = TcpTunnelProtocolHandler::with_config(svc, Duration::from_secs(2), 0, 0);
 
         // 入站连接（实际转发目标 127.0.0.1:1 无监听，将在转发阶段失败）
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

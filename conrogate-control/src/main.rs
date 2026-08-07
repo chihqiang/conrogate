@@ -43,10 +43,13 @@ async fn main() -> anyhow::Result<()> {
     let main_db = Arc::new(main_db);
 
     // ── 2. 初始化仓储 ──
-    let route_repo: Arc<dyn conrogate_core::contract::storage::RouteRepo> =
-        Arc::new(conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()));
+    let route_repo: Arc<dyn conrogate_core::contract::storage::RouteRepo> = Arc::new(
+        conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()),
+    );
     let upstream_repo: Arc<dyn conrogate_core::contract::storage::UpstreamRepo> = Arc::new(
-        conrogate_core::storage::repository::upstream_repo::UpstreamRepoImpl::new((*main_db).clone()),
+        conrogate_core::storage::repository::upstream_repo::UpstreamRepoImpl::new(
+            (*main_db).clone(),
+        ),
     );
     let binding_repo: Arc<dyn conrogate_core::contract::storage::PluginBindingRepo> = Arc::new(
         conrogate_core::storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
@@ -61,10 +64,13 @@ async fn main() -> anyhow::Result<()> {
     let metric_repo: Arc<dyn conrogate_core::contract::storage::MetricRepo> = Arc::new(
         conrogate_core::storage::repository::metric_repo::MetricRepoImpl::new((*main_db).clone()),
     );
-    let event_repo: Arc<dyn conrogate_core::contract::storage::EventRepo> =
-        Arc::new(conrogate_core::storage::repository::event_repo::EventRepoImpl::new((*main_db).clone()));
+    let event_repo: Arc<dyn conrogate_core::contract::storage::EventRepo> = Arc::new(
+        conrogate_core::storage::repository::event_repo::EventRepoImpl::new((*main_db).clone()),
+    );
     let audit_repo: Arc<dyn conrogate_core::contract::storage::AuditLogRepo> = Arc::new(
-        conrogate_core::storage::repository::audit_log_repo::AuditLogRepoImpl::new((*main_db).clone()),
+        conrogate_core::storage::repository::audit_log_repo::AuditLogRepoImpl::new(
+            (*main_db).clone(),
+        ),
     );
     let node_app_repo: Arc<dyn conrogate_core::contract::storage::NodeApplicationRepo> = Arc::new(
         conrogate_core::storage::repository::node_application_repo::NodeApplicationRepoImpl::new(

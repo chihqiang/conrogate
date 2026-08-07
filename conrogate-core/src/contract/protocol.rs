@@ -35,7 +35,9 @@ impl std::str::FromStr for ProtocolId {
             "http" => Ok(Self::Http),
             "websocket" => Ok(Self::WebSocket),
             "tcp_tunnel" | "tcp" => Ok(Self::TcpTunnel),
-            _ => Err(crate::contract::ConrogateError::ProtocolNotSupported(s.to_string())),
+            _ => Err(crate::contract::ConrogateError::ProtocolNotSupported(
+                s.to_string(),
+            )),
         }
     }
 }

@@ -6,8 +6,8 @@
 //! `conrogate-gateway` / `conrogate-control-svc` / 官方插件
 //! `conrogate-plugin-{log,cors,auth}` 等 crate 合并而成。
 
-pub mod contract;
 pub mod balancer;
+pub mod contract;
 pub mod control;
 pub mod gateway;
 pub mod logging;

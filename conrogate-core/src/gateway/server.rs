@@ -1,16 +1,15 @@
 //! 网关服务入口：启动 HTTP/TCP 监听 + 组装 ServiceContext。
 
-use crate::gateway::filter::ConfigReloader;
-use crate::gateway::pool::UpstreamSelectorImpl;
-use crate::gateway::route::RouteMatcher;
-use crate::gateway::telemetry::{MetricAggregator, TelemetryReportImpl};
-use bytes::Bytes;
 use crate::balancer::registry::create_default_registry;
 use crate::contract::config::Config;
 use crate::contract::gateway::ServiceContext;
 use crate::contract::protocol::{ProtocolId, RouteMatchInfo};
 use crate::contract::storage::EventRepo;
 use crate::contract::ConrogateError;
+use crate::gateway::filter::ConfigReloader;
+use crate::gateway::pool::UpstreamSelectorImpl;
+use crate::gateway::route::RouteMatcher;
+use crate::gateway::telemetry::{MetricAggregator, TelemetryReportImpl};
 use crate::plugin::pipeline::PluginPipelineImpl;
 use crate::plugin::registry::PluginRegistryImpl;
 use crate::protocol::proxy::ReqBody;
@@ -19,6 +18,7 @@ use crate::protocol::{
 };
 use crate::traffic::breaker::{BreakerConfig, BreakerFactoryImpl};
 use crate::traffic::limiter::TokenBucketLimiter;
+use bytes::Bytes;
 use http::{Request, Response};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
@@ -358,9 +358,9 @@ impl GatewayServer {
         let metric_repo = Arc::new(
             crate::storage::repository::metric_repo::MetricRepoImpl::new((*read_db).clone()),
         );
-        let event_repo = Arc::new(
-            crate::storage::repository::event_repo::EventRepoImpl::new((*read_db).clone()),
-        );
+        let event_repo = Arc::new(crate::storage::repository::event_repo::EventRepoImpl::new(
+            (*read_db).clone(),
+        ));
         tokio::spawn(async move {
             let mut aggregator = MetricAggregator::new(channels.metric_rx, telemetry_bucket_sec)
                 .with_metric_repo(metric_repo);
@@ -747,10 +747,7 @@ impl GatewayServer {
         let body_required = self.plugin_registry.body_required_plugin_names();
         // 按 route_id 分组绑定，构建每绑定独立配置实例的插件链，原子替换插件链缓存。
         // 任一绑定实例化失败则保持当前配置不动（fail-open）。
-        if let Ok(chains) = crate::plugin::loader::build_chains(
-            &self.plugin_registry,
-            &bindings,
-        ) {
+        if let Ok(chains) = crate::plugin::loader::build_chains(&self.plugin_registry, &bindings) {
             self.plugin_executor.set_route_chains(chains);
             self.route_matcher
                 .load_with_bindings(routes, bindings, &body_required);

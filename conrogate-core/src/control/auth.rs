@@ -130,9 +130,8 @@ mod tests {
 
     #[test]
     fn auth_state_splits_multiple_tokens() {
-        let state = AuthState::from_configured(
-            "alice:ak:s:admin, bob:bk:s:operator , carol:ck:s:viewer",
-        );
+        let state =
+            AuthState::from_configured("alice:ak:s:admin, bob:bk:s:operator , carol:ck:s:viewer");
         assert_eq!(
             state.tokens,
             vec![
@@ -146,8 +145,16 @@ mod tests {
     #[test]
     fn auth_state_single_token_backward_compatible() {
         // 单 token 与纯密钥（不带冒号）均兼容
-        assert_eq!(AuthState::from_configured("admin:dev-token:admin").tokens.len(), 1);
-        assert_eq!(AuthState::from_configured("your-secret-token").tokens.len(), 1);
+        assert_eq!(
+            AuthState::from_configured("admin:dev-token:admin")
+                .tokens
+                .len(),
+            1
+        );
+        assert_eq!(
+            AuthState::from_configured("your-secret-token").tokens.len(),
+            1
+        );
         // 空串 → 无鉴权模式
         assert!(AuthState::from_configured("").tokens.is_empty());
         assert!(AuthState::from_configured(" , ").tokens.is_empty());

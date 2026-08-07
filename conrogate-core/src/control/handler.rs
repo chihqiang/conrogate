@@ -4,12 +4,12 @@
 
 use super::response;
 use super::service::ControlService;
+use crate::contract::dto::*;
+use crate::contract::ConrogateError;
 use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Response};
 use axum::Extension;
 use axum::Json;
-use crate::contract::dto::*;
-use crate::contract::ConrogateError;
 use std::sync::Arc;
 
 use super::auth::Role;

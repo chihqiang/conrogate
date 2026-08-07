@@ -81,10 +81,7 @@ impl HttpConfigLoader {
         let page_size: u32 = 200;
         loop {
             let json = self
-                .get_json(&format!(
-                    "/routes?page={}&page_size={}",
-                    page, page_size
-                ))
+                .get_json(&format!("/routes?page={}&page_size={}", page, page_size))
                 .await?;
             let data = json
                 .get("data")
@@ -113,10 +110,7 @@ impl HttpConfigLoader {
         let page_size: u32 = 200;
         loop {
             let json = self
-                .get_json(&format!(
-                    "/upstreams?page={}&page_size={}",
-                    page, page_size
-                ))
+                .get_json(&format!("/upstreams?page={}&page_size={}", page, page_size))
                 .await?;
             let data = json
                 .get("data")

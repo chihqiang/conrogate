@@ -19,10 +19,13 @@ pub async fn run(
     let read_db = Arc::new(read_db);
 
     // ── 3. 初始化仓储 ──
-    let route_repo =
-        Arc::new(conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()));
+    let route_repo = Arc::new(
+        conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()),
+    );
     let upstream_repo = Arc::new(
-        conrogate_core::storage::repository::upstream_repo::UpstreamRepoImpl::new((*main_db).clone()),
+        conrogate_core::storage::repository::upstream_repo::UpstreamRepoImpl::new(
+            (*main_db).clone(),
+        ),
     );
     let binding_repo = Arc::new(
         conrogate_core::storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
@@ -37,10 +40,13 @@ pub async fn run(
     let metric_repo = Arc::new(
         conrogate_core::storage::repository::metric_repo::MetricRepoImpl::new((*main_db).clone()),
     );
-    let event_repo =
-        Arc::new(conrogate_core::storage::repository::event_repo::EventRepoImpl::new((*main_db).clone()));
+    let event_repo = Arc::new(
+        conrogate_core::storage::repository::event_repo::EventRepoImpl::new((*main_db).clone()),
+    );
     let audit_repo = Arc::new(
-        conrogate_core::storage::repository::audit_log_repo::AuditLogRepoImpl::new((*main_db).clone()),
+        conrogate_core::storage::repository::audit_log_repo::AuditLogRepoImpl::new(
+            (*main_db).clone(),
+        ),
     );
     let node_app_repo = Arc::new(
         conrogate_core::storage::repository::node_application_repo::NodeApplicationRepoImpl::new(
@@ -57,9 +63,10 @@ pub async fn run(
     let routes = conrogate_core::contract::storage::ReadOnlyRouteRepo::list_enabled(&*route_repo)
         .await
         .unwrap_or_default();
-    let upstreams = conrogate_core::contract::storage::ReadOnlyUpstreamRepo::list_all(&*upstream_repo)
-        .await
-        .unwrap_or_default();
+    let upstreams =
+        conrogate_core::contract::storage::ReadOnlyUpstreamRepo::list_all(&*upstream_repo)
+            .await
+            .unwrap_or_default();
     // 加载插件绑定（用于 requires_body 静态判定）
     let mut all_bindings = Vec::new();
     for route in &routes {
@@ -100,7 +107,8 @@ pub async fn run(
     let limiter = if let Some(ref cluster) = config.gate.rate_limit.cluster_store {
         tracing::info!(redis_url = %cluster.redis_url, "rate limiter: cluster mode (Redis)");
         Arc::new(
-            conrogate_core::traffic::limiter::TokenBucketLimiter::new().with_redis(&cluster.redis_url),
+            conrogate_core::traffic::limiter::TokenBucketLimiter::new()
+                .with_redis(&cluster.redis_url),
         )
     } else {
         Arc::new(conrogate_core::traffic::limiter::TokenBucketLimiter::new())
@@ -145,8 +153,8 @@ pub async fn run(
     plugin_registry.register(cors_plugin.clone()).await;
     plugin_registry.register(auth_plugin.clone()).await;
     // 调用插件 init() 生命周期钩子
-    for p in
-        [&*log_plugin, &*cors_plugin, &*auth_plugin] as [&dyn conrogate_core::contract::plugin::Plugin; 3]
+    for p in [&*log_plugin, &*cors_plugin, &*auth_plugin]
+        as [&dyn conrogate_core::contract::plugin::Plugin; 3]
     {
         if let Err(e) = p.init(&serde_json::Value::Null).await {
             if p.is_blocking() {
@@ -168,9 +176,8 @@ pub async fn run(
     // ── 13. TelemetryReport ──
     let (metric_tx, metric_rx) = mpsc::channel(100_000);
     let (event_tx, event_rx) = mpsc::channel(100_000);
-    let telemetry = Arc::new(conrogate_core::gateway::telemetry::TelemetryReportImpl::new(
-        metric_tx, event_tx,
-    ));
+    let telemetry =
+        Arc::new(conrogate_core::gateway::telemetry::TelemetryReportImpl::new(metric_tx, event_tx));
 
     // ── 14. ServiceContext ──
     let svc = Arc::new(conrogate_core::contract::gateway::ServiceContext {
@@ -259,9 +266,11 @@ pub async fn run(
     let telemetry_bucket_sec = config.gate.telemetry.bucket_sec.max(1);
     let telemetry_flush = config.gate.telemetry.batch_interval;
     task_manager.spawn("metric-aggregator", async move {
-        let mut aggregator =
-            conrogate_core::gateway::telemetry::MetricAggregator::new(metric_rx, telemetry_bucket_sec)
-                .with_metric_repo(metric_repo_clone);
+        let mut aggregator = conrogate_core::gateway::telemetry::MetricAggregator::new(
+            metric_rx,
+            telemetry_bucket_sec,
+        )
+        .with_metric_repo(metric_repo_clone);
         aggregator.run(telemetry_flush).await;
     });
 
@@ -338,22 +347,21 @@ async fn start_control_plane(
     redis_url: String,
 ) {
     // Redis 配置缓存（可选）
-    let config_cache: Option<Arc<dyn conrogate_core::contract::storage::ConfigCache>> = if !redis_url
-        .is_empty()
-    {
-        match conrogate_core::storage::config_cache::RedisConfigCache::new(&redis_url) {
-            Ok(cache) => {
-                tracing::info!(redis_url = %redis_url, "control plane: Redis config cache enabled");
-                Some(Arc::new(cache))
+    let config_cache: Option<Arc<dyn conrogate_core::contract::storage::ConfigCache>> =
+        if !redis_url.is_empty() {
+            match conrogate_core::storage::config_cache::RedisConfigCache::new(&redis_url) {
+                Ok(cache) => {
+                    tracing::info!(redis_url = %redis_url, "control plane: Redis config cache enabled");
+                    Some(Arc::new(cache))
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "control plane: Redis config cache init failed");
+                    None
+                }
             }
-            Err(e) => {
-                tracing::warn!(error = %e, "control plane: Redis config cache init failed");
-                None
-            }
-        }
-    } else {
-        None
-    };
+        } else {
+            None
+        };
 
     let svc = Arc::new(
         conrogate_core::control::ControlService::new(
@@ -413,22 +421,21 @@ async fn config_hot_reload_loop(
     poll_interval: std::time::Duration,
 ) {
     // 尝试创建 Redis 配置缓存
-    let config_cache: Option<Arc<dyn conrogate_core::contract::storage::ConfigCache>> = if !redis_url
-        .is_empty()
-    {
-        match conrogate_core::storage::config_cache::RedisConfigCache::new(&redis_url) {
-            Ok(cache) => {
-                tracing::info!("data plane: Redis config cache enabled for hot-reload");
-                Some(Arc::new(cache))
+    let config_cache: Option<Arc<dyn conrogate_core::contract::storage::ConfigCache>> =
+        if !redis_url.is_empty() {
+            match conrogate_core::storage::config_cache::RedisConfigCache::new(&redis_url) {
+                Ok(cache) => {
+                    tracing::info!("data plane: Redis config cache enabled for hot-reload");
+                    Some(Arc::new(cache))
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Redis config cache init failed, using poll-only mode");
+                    None
+                }
             }
-            Err(e) => {
-                tracing::warn!(error = %e, "Redis config cache init failed, using poll-only mode");
-                None
-            }
-        }
-    } else {
-        None
-    };
+        } else {
+            None
+        };
 
     // 尝试订阅 Redis Pub/Sub 配置变更通知
     let mut sub_rx: Option<tokio::sync::watch::Receiver<u64>> = None;
@@ -524,7 +531,8 @@ async fn load_config_from_db(
 )> {
     use conrogate_core::contract::storage::*;
 
-    let route_repo = conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((**db).clone());
+    let route_repo =
+        conrogate_core::storage::repository::route_repo::RouteRepoImpl::new((**db).clone());
     let upstream_repo =
         conrogate_core::storage::repository::upstream_repo::UpstreamRepoImpl::new((**db).clone());
     let binding_repo =

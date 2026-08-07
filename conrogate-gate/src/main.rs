@@ -140,11 +140,8 @@ async fn run_without_db(config: conrogate_core::contract::config::Config) -> any
     let control_api_prefix = config.gate.refresh.control_api_prefix.clone();
     let poll_interval = config.gate.refresh.config_poll_interval;
     let server = Arc::new(
-        conrogate_core::gateway::server::GatewayServer::from_config(
-            config,
-            official_plugins(),
-        )
-        .await,
+        conrogate_core::gateway::server::GatewayServer::from_config(config, official_plugins())
+            .await,
     );
 
     async fn reload_from_http(
@@ -174,8 +171,11 @@ async fn run_without_db(config: conrogate_core::contract::config::Config) -> any
     }
 
     if !control_url.is_empty() {
-        let loader =
-            http_config_loader::HttpConfigLoader::new(&control_url, &control_api_prefix, &control_token);
+        let loader = http_config_loader::HttpConfigLoader::new(
+            &control_url,
+            &control_api_prefix,
+            &control_token,
+        );
         reload_from_http(&server, &loader).await;
 
         let poll_server = server.clone();

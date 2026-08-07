@@ -3,10 +3,10 @@
 //! 扩展新协议时实现 `ProtocolHandler` Trait 并注册到 `ProtocolHandlerRegistry`，
 //! 网关侧按 `ProtocolId` 查找对应 handler 分发处理，无需修改网关核心。
 
-use bytes::Bytes;
 use crate::contract::dto::RouteSnapshot;
 use crate::contract::protocol::ProtocolId;
 use crate::contract::ConrogateError;
+use bytes::Bytes;
 use http::{Request, Response};
 use hyper::body::Incoming;
 use std::collections::HashMap;

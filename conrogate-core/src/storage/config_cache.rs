@@ -44,7 +44,8 @@ impl ConfigCache for DbConfigCache {
     }
 
     async fn get_snapshot(&self) -> Result<Option<ConfigSnapshot>, ConrogateError> {
-        let route_repo = crate::storage::repository::route_repo::RouteRepoImpl::new((*self.db).clone());
+        let route_repo =
+            crate::storage::repository::route_repo::RouteRepoImpl::new((*self.db).clone());
         let upstream_repo =
             crate::storage::repository::upstream_repo::UpstreamRepoImpl::new((*self.db).clone());
 
@@ -53,9 +54,10 @@ impl ConfigCache for DbConfigCache {
 
         let mut bindings = Vec::new();
         for route in &routes {
-            let binding_repo = crate::storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
-                (*self.db).clone(),
-            );
+            let binding_repo =
+                crate::storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
+                    (*self.db).clone(),
+                );
             let route_bindings =
                 ReadOnlyPluginBindingRepo::list_by_route(&binding_repo, route.id).await?;
             bindings.extend(route_bindings);
@@ -226,9 +228,8 @@ impl ConfigCache for RedisConfigCache {
             }
         }
 
-        Err(last_err.unwrap_or_else(|| {
-            ConrogateError::Internal("redis config cache write failed".into())
-        }))
+        Err(last_err
+            .unwrap_or_else(|| ConrogateError::Internal("redis config cache write failed".into())))
     }
 
     async fn invalidate(&self) -> Result<(), ConrogateError> {

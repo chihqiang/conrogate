@@ -155,9 +155,11 @@ CONROGATE_LOG_OUTPUT_FILE_ENABLED=false
 ## 开发
 
 ```bash
+
 cargo check --workspace              # 编译检查
 cargo test --workspace               # 运行测试
 cargo clippy --workspace             # 代码质量
+cargo fmt --all                      # 统一代码风格
 cargo run -p conrogate-migrate       # 手动执行数据库迁移
 cargo run -p conrogate               # 合并模式（数据面 8080 + 控制面 9000）
 cargo run -p conrogate-control       # 分离模式：控制面（9000）

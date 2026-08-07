@@ -68,7 +68,9 @@ where
     C: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin,
 {
     // 1. 连接上游（带超时 + DNS 缓存）
-    let addrs = crate::protocol::dns::global_resolver().resolve(upstream_addr).await?;
+    let addrs = crate::protocol::dns::global_resolver()
+        .resolve(upstream_addr)
+        .await?;
     let upstream = tokio::time::timeout(connect_timeout, TcpStream::connect(&addrs[..]))
         .await
         .map_err(|_| "upstream connect timeout")??;

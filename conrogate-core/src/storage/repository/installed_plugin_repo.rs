@@ -1,11 +1,11 @@
 //! 已安装插件仓储实现。
 
-use crate::storage::convert;
-use crate::storage::entity::installed_plugins::{self, Entity as PluginEntity};
 use crate::contract::dto::InstalledPluginDto;
 use crate::contract::plugin::PluginStatus;
 use crate::contract::storage::InstalledPluginRepo;
 use crate::contract::ConrogateError;
+use crate::storage::convert;
+use crate::storage::entity::installed_plugins::{self, Entity as PluginEntity};
 use sea_orm::sea_query::Expr;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,

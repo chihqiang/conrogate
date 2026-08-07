@@ -1,15 +1,13 @@
 //! HTTP 协议处理器：完整转发链路（缓冲 / 流式两种模式）。
 
+use crate::contract::dto::{RouteSnapshot, UpstreamNodeDto};
+use crate::contract::gateway::ServiceContext;
+use crate::contract::plugin::{HttpContext, Plugin, PluginContext, PluginOutcome, PluginResponse};
+use crate::contract::protocol::{ProtocolId, RouteMatchInfo};
+use crate::contract::ConrogateError;
 use crate::protocol::handler::{plugin_services, ProtocolHandler};
 use crate::protocol::proxy::{body_from_bytes, body_from_incoming, HttpClient, ReqBody};
 use bytes::Bytes;
-use crate::contract::dto::{RouteSnapshot, UpstreamNodeDto};
-use crate::contract::gateway::ServiceContext;
-use crate::contract::plugin::{
-    HttpContext, Plugin, PluginContext, PluginOutcome, PluginResponse,
-};
-use crate::contract::protocol::{ProtocolId, RouteMatchInfo};
-use crate::contract::ConrogateError;
 use http::{HeaderMap, Method, Request, Response, StatusCode, Uri};
 use hyper_util::client::legacy::Client;
 use std::sync::Arc;
@@ -284,9 +282,13 @@ impl HttpProtocolHandler {
                         })?;
                     *retry_req.headers_mut() = saved_headers.clone();
 
-                    proxy_result =
-                        crate::protocol::proxy::forward_http(&self.client, &node, retry_req, self.timeout)
-                            .await;
+                    proxy_result = crate::protocol::proxy::forward_http(
+                        &self.client,
+                        &node,
+                        retry_req,
+                        self.timeout,
+                    )
+                    .await;
 
                     match &proxy_result {
                         Ok(r) => {
@@ -586,9 +588,10 @@ impl HttpProtocolHandler {
             }
             // 设置上游 Host 头（与 HTTP 转发路径一致：host_header 或节点地址），
             // 供 HyperServiceBridge 在 WS 转发前重写请求 Host
-            let host_value = route.host_header.clone().unwrap_or_else(|| {
-                crate::protocol::proxy::upstream_host(&node).into()
-            });
+            let host_value = route
+                .host_header
+                .clone()
+                .unwrap_or_else(|| crate::protocol::proxy::upstream_host(&node).into());
             if let Ok(v) = host_value.parse() {
                 resp.headers_mut().insert("X-WS-Host-Header", v);
             }
@@ -622,9 +625,13 @@ impl HttpProtocolHandler {
             .path_and_query()
             .map(|p| p.as_str().to_string())
             .unwrap_or_else(|| "/".to_string());
-        format!("{}{}", crate::protocol::proxy::upstream_addr(node), path_and_query)
-            .parse()
-            .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("uri parse: {e}")))
+        format!(
+            "{}{}",
+            crate::protocol::proxy::upstream_addr(node),
+            path_and_query
+        )
+        .parse()
+        .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("uri parse: {e}")))
     }
 
     /// 过滤敏感头 + 注入网关头（trace/request id、真实 IP、proto、Host）

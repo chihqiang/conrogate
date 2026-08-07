@@ -25,8 +25,7 @@ pub async fn seed_demo_data(
 
     let upstream_repo =
         crate::storage::repository::upstream_repo::UpstreamRepoImpl::new(main_db.clone());
-    let route_repo =
-        crate::storage::repository::route_repo::RouteRepoImpl::new(main_db.clone());
+    let route_repo = crate::storage::repository::route_repo::RouteRepoImpl::new(main_db.clone());
 
     // 检查是否已有数据
     let existing = ReadOnlyUpstreamRepo::list_all(&upstream_repo).await?;

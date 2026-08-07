@@ -180,10 +180,7 @@ impl MetricAggregator {
     }
 
     /// 设置落库仓储
-    pub fn with_metric_repo(
-        mut self,
-        repo: Arc<dyn crate::contract::storage::MetricRepo>,
-    ) -> Self {
+    pub fn with_metric_repo(mut self, repo: Arc<dyn crate::contract::storage::MetricRepo>) -> Self {
         self.metric_repo = Some(repo);
         self
     }

@@ -16,7 +16,10 @@ impl PluginLoader {
     }
 
     /// 根据绑定配置构建有序插件链
-    pub fn build_chain(&self, bindings: &[PluginBindingDto]) -> Result<Vec<Arc<dyn Plugin>>, ConrogateError> {
+    pub fn build_chain(
+        &self,
+        bindings: &[PluginBindingDto],
+    ) -> Result<Vec<Arc<dyn Plugin>>, ConrogateError> {
         let mut sorted: Vec<&PluginBindingDto> = bindings.iter().filter(|b| b.enabled).collect();
         sorted.sort_by_key(|b| b.order);
 

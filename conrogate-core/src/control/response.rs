@@ -1,8 +1,8 @@
 //! 统一响应结构：所有 API 返回 {"code", "msg", "data", "trace_id"}
 
+use crate::contract::ConrogateError;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use crate::contract::ConrogateError;
 use serde::Serialize;
 
 /// 统一响应包装
