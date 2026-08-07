@@ -70,7 +70,7 @@ sea-orm-migration = { version = "1.1", features = [
 
 # ── 日志链路 ──
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter", "chrono"] }
 tracing-appender = { version = "0.2" }
 
 # ── 密码学 ──

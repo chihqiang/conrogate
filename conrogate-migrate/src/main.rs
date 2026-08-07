@@ -39,20 +39,14 @@ async fn main() -> anyhow::Result<()> {
         let _ = dotenvy::dotenv();
     }
 
-    // 初始化日志（尊重 RUST_LOG，未设置时默认 INFO，避免静默）
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::builder()
-                .with_default_directive(tracing::level_filters::LevelFilter::INFO.into())
-                .from_env_lossy(),
-        )
-        .init();
-
-    tracing::info!("starting conrogate-migrate");
-
     // 加载配置
     let config = conrogate_core::contract::config::Config::from_env()
         .map_err(|e| anyhow::anyhow!("config load failed: {e}"))?;
+
+    // 初始化日志（复用统一入口：尊重 RUST_LOG 与 CONROGATE_LOG_* 配置，未设置时默认 INFO）
+    conrogate_core::logging::init(&config.log);
+
+    tracing::info!("starting conrogate-migrate");
 
     // 1. 执行迁移
     conrogate_core::storage::migration::run_migrations(&config.db).await?;

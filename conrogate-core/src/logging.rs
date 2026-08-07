@@ -2,6 +2,7 @@
 
 use crate::contract::config::LogConfig;
 use std::path::Path;
+use tracing_subscriber::fmt::time::ChronoLocal;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::Layer;
@@ -15,11 +16,13 @@ pub fn init(log_config: &LogConfig) {
     let console_layer: Box<dyn Layer<_> + Send + Sync> = if log_config.console {
         if log_config.format.eq_ignore_ascii_case("json") {
             tracing_subscriber::fmt::layer()
+                .with_timer(ChronoLocal::rfc_3339())
                 .json()
                 .with_writer(std::io::stderr)
                 .boxed()
         } else {
             tracing_subscriber::fmt::layer()
+                .with_timer(ChronoLocal::rfc_3339())
                 .with_writer(std::io::stderr)
                 .boxed()
         }
@@ -47,6 +50,7 @@ pub fn init(log_config: &LogConfig) {
         );
 
         let file_layer = tracing_subscriber::fmt::layer()
+            .with_timer(ChronoLocal::rfc_3339())
             .json()
             .with_writer(file_appender)
             .boxed();
