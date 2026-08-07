@@ -25,13 +25,13 @@ pub struct Model {
     pub p90_ms: i32,
     #[sea_orm(column_name = "p99_ms")]
     pub p99_ms: i32,
-    #[sea_orm(column_name = "status_2xx")]
+    #[sea_orm(column_name = "status2xx")]
     pub status_2xx: i64,
-    #[sea_orm(column_name = "status_3xx")]
+    #[sea_orm(column_name = "status3xx")]
     pub status_3xx: i64,
-    #[sea_orm(column_name = "status_4xx")]
+    #[sea_orm(column_name = "status4xx")]
     pub status_4xx: i64,
-    #[sea_orm(column_name = "status_5xx")]
+    #[sea_orm(column_name = "status5xx")]
     pub status_5xx: i64,
     pub sessions: i64,
     #[sea_orm(column_name = "bytes_in")]
