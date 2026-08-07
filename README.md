@@ -167,20 +167,59 @@ cargo run -p conrogate-gate          # 分离模式：数据面（8080）
 ### Docker
 
 ```bash
-docker build -t conrogate:latest .            # 构建镜像
-docker run -d --name conrogate -p 9000:9000 -p 8080:8080 -e CONROGATE_DB_URL=sqlite:///app/conrogate.db conrogate:latest   # 运行（合并模式，SQLite；迁移由 conrogate-migrate 执行）
-docker compose -f docker-compose.deps.yml up -d   # 起依赖（PG + Redis）
-docker logs -f conrogate                     # 查看日志
-docker rm -f conrogate                       # 停止并删除容器
+docker build -t conrogate:latest .                 # 构建镜像
+docker compose -f docker-compose.deps.yml up -d    # 起依赖（PG + Redis）
 ```
 
-容器内切换二进制（默认合并模式，CMD 可覆盖）：
+**合并模式运行（SQLite + 数据卷持久化）：**
 
 ```bash
-docker run --rm conrogate:latest conrogate-migrate --env-file .env.prod   # 迁移
-docker run --rm conrogate:latest conrogate-gate --env-file .env.prod      # 分离：数据面
-docker run --rm conrogate:latest conrogate-control --env-file .env.prod   # 分离：控制面
+# ① 先迁移建表（数据落在命名卷 conrogate-data，挂载到 /data）
+docker run --rm \
+  -v conrogate-data:/data \
+  -e CONROGATE_DB_URL=sqlite:///data/conrogate.db \
+  conrogate:latest conrogate-migrate
+
+# ② 启动（8080 数据面 + 9000 控制面）
+docker run -d --name conrogate \
+  -v conrogate-data:/data \
+  -e CONROGATE_DB_URL=sqlite:///data/conrogate.db \
+  -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
+  -p 9000:9000 -p 8080:8080 \
+  conrogate:latest
+
+docker logs -f conrogate     # 查看日志（需 file 输出关闭，见上）
+docker rm -f conrogate       # 停止并删除容器（数据仍在 conrogate-data 卷）
 ```
+
+> SQLite 文件存于命名卷 `conrogate-data`，删除容器不丢数据；改用 MySQL/PostgreSQL 时去掉该卷并设置 `CONROGATE_DB_URL` 即可。
+
+**分离模式 / 迁移（CMD 可覆盖，环境变量用 `-e` 传入）：**
+
+```bash
+# 迁移（--seed 写入演示路由；SQLite 同样先迁移再启动）
+docker run --rm \
+  -e CONROGATE_DB_URL='mysql://conrogate:conrogatepass@host.docker.internal:3306/conrogate' \
+  conrogate:latest conrogate-migrate --seed
+
+# 分离：控制面（:9000）
+docker run -d --name conrogate-control \
+  -e CONROGATE_DB_URL='mysql://conrogate:conrogatepass@host.docker.internal:3306/conrogate' \
+  -e CONROGATE_CONTROL_AUTH_TOKEN=your-secret-token \
+  -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
+  -p 9000:9000 \
+  conrogate:latest conrogate-control
+
+# 分离：数据面（:8080，HTTP 从 control 拉取配置）
+docker run -d --name conrogate-gate \
+  -e CONROGATE_GATE_REFRESH_CONFIG_SOURCE=http \
+  -e CONROGATE_GATE_REFRESH_CONTROL_API_URL=http://control-host:9000 \
+  -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
+  -p 8080:8080 \
+  conrogate:latest conrogate-gate
+```
+
+> `--env-file` 是**容器内**路径：若使用 `.env.prod`，需挂载宿主文件，如 `-v "$PWD/.env.prod:/app/.env.prod:ro" conrogate:latest conrogate-gate --env-file /app/.env.prod`；否则直接用上面的 `-e` 传参。
 
 ## License
 

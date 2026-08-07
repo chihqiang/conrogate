@@ -69,7 +69,7 @@ docker compose -f docker-compose.deps.yml up -d
 ### 前提条件
 
 - Rust ≥ 1.85（edition 2024 支持）
-- OpenSSL 开发库（macOS：`brew install openssl`，Linux：`apt install libssl-dev`）
+- 无需系统 OpenSSL（全部依赖使用 rustls 纯 Rust 实现）
 - 支持的数据库客户端库已就绪（MySQL/PostgreSQL/SQLite 均通过 SeaORM 驱动内置）
 
 ### 构建四个二进制
@@ -270,17 +270,15 @@ Dockerfile 构建要点：
 
 | 阶段 | 基础镜像 | 说明 |
 |------|---------|------|
-| builder | `rust:1.88-bookworm` | 多阶段编译，含 OpenSSL dev |
-| runtime | `debian:bookworm-slim` | 最小运行时，ca-certificates + libssl3 |
+| builder | `rust:1.88-bookworm` | 多阶段编译：复制全部源码后一次性全量编译（无依赖分层缓存，保证产物为真实代码） |
+| runtime | `debian:bookworm-slim` | 最小运行时：ca-certificates + wget（仅用于健康检查）；纯 rustls 无需 OpenSSL |
 
-镜像内二进制：`conrogate`、`conrogate-gate`、`conrogate-control`、`conrogate-migrate` 均位于 `/app/`。
-
-运行用户：`conrogate`（非 root）。
+镜像内二进制：`conrogate`、`conrogate-gate`、`conrogate-control`、`conrogate-migrate` 均位于 `/app/`。默认以 root 运行。
 
 ### 容器内运行
 
 ```bash
-# 默认合并模式（ENTRYPOINT 已设置）
+# 默认合并模式（CMD 已设置，可用 docker run <image> <binary> 覆盖）
 docker run -d --name conrogate \
   -e CONROGATE_DB_URL='mysql://conrogate:conrogatepass@host.docker.internal:3306/conrogate' \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \

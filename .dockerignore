@@ -32,5 +32,8 @@ Thumbs.db
 docs/
 scripts/
 
+# 前端源码（不参与 Rust 镜像构建，避免 COPY . . 时触发层缓存失效）
+conrogate-dashboard/
+
 # Docker
 docker-compose.override.yml

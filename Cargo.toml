@@ -15,8 +15,8 @@ members = [
 version = "0.0.1"
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/conrogate/conrogate"
-authors = ["Conrogate Team"]
+repository = "https://github.com/chihqiang/conrogate"
+authors = ["chihqiang"]
 
 [workspace.dependencies]
 # ── 异步运行时 ──
@@ -102,3 +102,4 @@ conrogate-core = { path = "conrogate-core" }
 [profile.release]
 lto = "thin"
 codegen-units = 1
+strip = true
