@@ -73,7 +73,11 @@ impl IpBlacklistRepo for IpBlacklistRepoImpl {
         })
     }
 
-    async fn upsert(&self, dto: &CreateIpBlacklistDto) -> Result<IpBlacklistDto, ConrogateError> {
+    async fn upsert(
+        &self,
+        dto: &CreateIpBlacklistDto,
+        operator: Option<&str>,
+    ) -> Result<IpBlacklistDto, ConrogateError> {
         let now = chrono::Utc::now();
         let expires_at = dto
             .expires_in_seconds
@@ -101,7 +105,7 @@ impl IpBlacklistRepo for IpBlacklistRepoImpl {
             ip_or_cidr: Set(dto.ip_or_cidr.clone()),
             reason: Set(dto.reason.clone()),
             expires_at: Set(expires_at),
-            created_by: Set(None),
+            created_by: Set(operator.map(ToString::to_string)),
             created_at: Set(now),
             ..Default::default()
         };

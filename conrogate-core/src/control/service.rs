@@ -638,14 +638,17 @@ impl ControlService {
         }
         let entry = self
             .ip_blacklist_repo
-            .upsert(&CreateIpBlacklistDto {
-                ip_or_cidr,
-                reason: dto
-                    .reason
-                    .map(|r| r.trim().to_string())
-                    .filter(|r| !r.is_empty()),
-                expires_in_seconds: dto.expires_in_seconds,
-            })
+            .upsert(
+                &CreateIpBlacklistDto {
+                    ip_or_cidr,
+                    reason: dto
+                        .reason
+                        .map(|r| r.trim().to_string())
+                        .filter(|r| !r.is_empty()),
+                    expires_in_seconds: dto.expires_in_seconds,
+                },
+                operator,
+            )
             .await?;
         self.audit
             .log(

@@ -200,7 +200,11 @@ pub trait IpBlacklistRepo: Send + Sync {
         page_size: u32,
     ) -> Result<PaginatedResult<IpBlacklistDto>, ConrogateError>;
     /// 拉黑：ip_or_cidr 已存在时幂等更新（刷新原因/过期时间）
-    async fn upsert(&self, dto: &CreateIpBlacklistDto) -> Result<IpBlacklistDto, ConrogateError>;
+    async fn upsert(
+        &self,
+        dto: &CreateIpBlacklistDto,
+        operator: Option<&str>,
+    ) -> Result<IpBlacklistDto, ConrogateError>;
     /// 解除拉黑；条目不存在时返回 NotFound
     async fn delete(&self, id: u64) -> Result<(), ConrogateError>;
 }
