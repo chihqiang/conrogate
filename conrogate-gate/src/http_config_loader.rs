@@ -1,6 +1,6 @@
 //! HTTP 配置加载器：分离模式下 gate 从 control HTTP API 拉取配置快照。
 
-use conrogate_core::contract::dto::{PluginBindingDto, RouteDto, UpstreamDto};
+use conrogate_core::contract::dto::{IpBlacklistDto, PluginBindingDto, RouteDto, UpstreamDto};
 use conrogate_core::contract::ConrogateError;
 use http_body_util::BodyExt;
 
@@ -157,6 +157,38 @@ impl HttpConfigLoader {
         for route in routes {
             let bindings = self.load_plugin_bindings(route.id).await?;
             all.extend(bindings);
+        }
+        Ok(all)
+    }
+
+    /// 拉取全量全局 IP 黑名单（自动翻页，独立于配置快照热载）
+    pub async fn load_blacklist(&self) -> Result<Vec<IpBlacklistDto>, ConrogateError> {
+        let mut all = Vec::new();
+        let mut page: u32 = 1;
+        let page_size: u32 = 200;
+        loop {
+            let json = self
+                .get_json(&format!(
+                    "/security/ip_blacklist?page={}&page_size={}",
+                    page, page_size
+                ))
+                .await?;
+            let data = json
+                .get("data")
+                .ok_or_else(|| ConrogateError::ConfigLoad("missing data field".into()))?;
+            let list = data
+                .get("list")
+                .or_else(|| data.as_array().map(|_| data))
+                .ok_or_else(|| ConrogateError::ConfigLoad("missing list field".into()))?;
+            let batch: Vec<IpBlacklistDto> = serde_json::from_value(list.clone()).map_err(|e| {
+                ConrogateError::ConfigLoad(format!("ip_blacklist deserialize failed: {e}"))
+            })?;
+            let total = data.get("total").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            all.extend(batch);
+            if all.len() >= total || all.is_empty() {
+                break;
+            }
+            page += 1;
         }
         Ok(all)
     }

@@ -305,6 +305,35 @@ pub struct InstalledPluginDto {
     pub activated_at: Option<DateTime<Utc>>,
 }
 
+// ── 全局 IP 黑名单 ──
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct IpBlacklistDto {
+    pub id: u64,
+    /// IP 或 CIDR 网段（IPv4/IPv6）
+    pub ip_or_cidr: String,
+    pub reason: Option<String>,
+    /// 过期时间（None=永久）
+    pub expires_at: Option<DateTime<Utc>>,
+    pub created_by: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateIpBlacklistDto {
+    /// IP 或 CIDR 网段（IPv4/IPv6）
+    pub ip_or_cidr: String,
+    pub reason: Option<String>,
+    /// 拉黑时长（秒）。不传则永久拉黑
+    pub expires_in_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
+pub struct IpBlacklistQuery {
+    /// ip_or_cidr 模糊匹配
+    pub keyword: Option<String>,
+}
+
 // ── 数据上报载荷 ──
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]

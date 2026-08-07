@@ -14,6 +14,7 @@ fn official_plugins() -> Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>> 
         Arc::new(conrogate_core::plugins::cors::CorsPlugin::new()),
         Arc::new(conrogate_core::plugins::auth::AuthPlugin::new()),
         Arc::new(conrogate_core::plugins::header_rewrite::HeaderRewritePlugin::new()),
+        Arc::new(conrogate_core::plugins::ip_allow_deny::IpAllowDenyPlugin::new()),
     ]
 }
 
@@ -167,6 +168,12 @@ async fn run_without_db(config: conrogate_core::contract::config::Config) -> any
             Err(e) => {
                 tracing::warn!(error = %e, "failed to reload config from HTTP, keeping current config");
             }
+        }
+
+        // 全局 IP 黑名单独立热载：拉取失败保持当前黑名单（fail-open）
+        match loader.load_blacklist().await {
+            Ok(list) => server.reload_blacklist(list),
+            Err(e) => tracing::warn!(error = %e, "failed to reload ip blacklist from HTTP"),
         }
     }
 

@@ -697,6 +697,53 @@ fn build_paths(api_prefix: &str) -> Paths {
                 .build(),
         );
 
+    // ── IP 黑名单 ──
+    b = b
+        .path(
+            "/security/ip_blacklist",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Post,
+                    op(
+                        "security",
+                        "添加黑名单",
+                        "create_ip_blacklist",
+                        vec![],
+                        Some(("CreateIpBlacklistDto", true)),
+                    ),
+                )
+                .operation(
+                    HttpMethod::Get,
+                    op(
+                        "security",
+                        "黑名单列表",
+                        "list_ip_blacklist",
+                        vec![
+                            query_param("keyword", "按 IP/CIDR/备注模糊搜索", string_schema()),
+                            query_param("page", "页码，默认 1", integer_schema()),
+                            query_param("page_size", "每页数量，默认 20", integer_schema()),
+                        ],
+                        None,
+                    ),
+                )
+                .build(),
+        )
+        .path(
+            "/security/ip_blacklist/{id}",
+            PathItemBuilder::new()
+                .operation(
+                    HttpMethod::Delete,
+                    op(
+                        "security",
+                        "删除黑名单",
+                        "delete_ip_blacklist",
+                        vec![id_param()],
+                        None,
+                    ),
+                )
+                .build(),
+        );
+
     let api = api_prefix.trim();
 
     // 重新挂载路径：公开路径保持根路径，受保护路径统一加 api_prefix
@@ -754,6 +801,10 @@ fn build_components() -> Components {
         .schema("MetricsBatch", MetricsBatch::schema())
         .schema("EventsBatch", EventsBatch::schema())
         .schema("Heartbeat", Heartbeat::schema())
+        // IP 黑名单
+        .schema("IpBlacklistDto", IpBlacklistDto::schema())
+        .schema("CreateIpBlacklistDto", CreateIpBlacklistDto::schema())
+        .schema("IpBlacklistQuery", IpBlacklistQuery::schema())
         // 契约基础类型
         .schema("ProtocolId", ProtocolId::schema())
         .schema("PathMatch", PathMatch::schema())
@@ -784,6 +835,7 @@ fn build_tags() -> Vec<Tag> {
         ("audit", "审计日志查询"),
         ("nodes", "节点应用列表"),
         ("report", "gate → control 数据上报"),
+        ("security", "IP 黑名单管理"),
     ];
     definitions
         .into_iter()
@@ -830,6 +882,7 @@ mod tests {
         assert!(components.schemas.contains_key("RouteDto"));
         assert!(components.schemas.contains_key("MetricsBatch"));
         assert!(components.schemas.contains_key("Heartbeat"));
+        assert!(components.schemas.contains_key("IpBlacklistDto"));
         // 公开路径保持在根路径
         assert!(doc.paths.paths.contains_key("/health"));
         // 受保护端点必须带前缀
@@ -838,6 +891,8 @@ mod tests {
             "/api/v1/routes/{id}",
             "/api/v1/reports/metrics",
             "/api/v1/insights/events",
+            "/api/v1/security/ip_blacklist",
+            "/api/v1/security/ip_blacklist/{id}",
         ] {
             assert!(doc.paths.paths.contains_key(p), "missing path {p}");
         }

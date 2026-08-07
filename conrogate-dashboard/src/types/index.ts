@@ -281,3 +281,25 @@ export interface NodeApplicationRow {
   last_seen: string
   updated_at: string
 }
+
+// ── 全局 IP 黑名单 ──
+
+/** 黑名单条目（查询返回） */
+export interface IpBlacklistDto {
+  id: number
+  /** IP 或 CIDR 网段（IPv4 / IPv6） */
+  ip_or_cidr: string
+  reason: string | null
+  /** 过期时间；null = 永久 */
+  expires_at: string | null
+  created_by: string | null
+  created_at: string
+}
+
+/** 拉黑请求体 */
+export interface CreateIpBlacklistPayload {
+  ip_or_cidr: string
+  reason?: string | null
+  /** 拉黑时长（秒）；缺省 = 永久 */
+  expires_in_seconds?: number | null
+}

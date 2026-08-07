@@ -8,7 +8,8 @@ Conrogate 轻量级微服务网关，内置配置中心，支持动态路由、�
 - **负载均衡**：轮询 / 加权轮询 / 最少连接 / 一致性哈希
 - **流量治理**：限流（令牌桶）+ 熔断 + 重试 + 超时
 - **协议支持**：HTTP/1.1 + HTTP/2 + WebSocket + TCP 隧道
-- **插件系统**：静态编译插件；内置 CORS / Auth / Header-Rewrite 插件
+- **插件系统**：静态编译插件；内置 CORS / Auth / Header-Rewrite / IP-Access-Control 插件
+- **安全防护**：全局 IP 黑名单（TTL 过期 + 热载）+ 绑定级 IP allow/deny 插件，HTTP/WS/TCP 三协议生效
 - **控制面**：REST API 管理路由 / 上游 / 插件 / 配置版本；OpenAPI 文档
 - **配置热载**：DB 轮询 / Redis Pub/Sub 推送 / HTTP 拉取，秒级生效
 - **部署灵活**：合并模式（单进程双端口）/ 分离模式（gate × N + control × 1~2）
@@ -125,6 +126,8 @@ CONROGATE_LOG_OUTPUT_FILE_ENABLED=false
 | `/api/v1/plugins/:name/activate` | POST | 启用插件 |
 | `/api/v1/plugins/:name/disable` | POST | 禁用插件 |
 | `/api/v1/plugins/:name` | DELETE | 卸载插件 |
+| `/api/v1/security/ip_blacklist` | GET/POST | 全局 IP 黑名单列表 / 拉黑（支持 CIDR + 过期时长） |
+| `/api/v1/security/ip_blacklist/:id` | DELETE | 解除拉黑 |
 
 **数据上报路由（gate → control，前缀 `/api/v1`）：**
 
@@ -139,7 +142,8 @@ CONROGATE_LOG_OUTPUT_FILE_ENABLED=false
 ## 架构
 
 详细协调架构见 → [`docs/architecture.md`](docs/architecture.md)
-插件（CORS / Auth / Header-Rewrite）使用说明见 → [`docs/plugins.md`](docs/plugins.md)
+插件（CORS / Auth / Header-Rewrite / IP-Access-Control）使用说明见 → [`docs/plugins.md`](docs/plugins.md)
+全局 IP 黑名单使用说明见 → [`docs/security.md`](docs/security.md)
 
 ```text
 控制面 (Control Plane :9000)

@@ -782,6 +782,64 @@ Authorization: Bearer <operator>:<secret>:<role>
 
 ---
 
+## 11.5 IP 黑名单管理
+
+> 全局 IP 黑名单：数据面在路由匹配前拦截，HTTP / WebSocket / TCP 隧道统一生效；命中返回 `403 {"code":10003,"msg":"forbidden: ip not allowed"}`。写操作需 `operator`+ 角色，读操作 `viewer`+；拉黑 / 解拉黑写入审计日志。
+
+### `GET /security/ip_blacklist`
+
+查询黑名单列表（分页 + 关键字模糊搜索）。
+
+**请求参数（Query）：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `page` | int | 否 | 页码，默认 1 |
+| `page_size` | int | 否 | 每页数量，默认 20 |
+| `keyword` | string | 否 | 按 IP / CIDR / 备注模糊搜索 |
+
+**响应 `data`：** `PaginatedResult<IpBlacklistDto>`
+
+```json
+{
+  "total": 1,
+  "page": 1,
+  "page_size": 20,
+  "items": [{
+    "id": 1,
+    "ip_or_cidr": "10.0.0.0/24",
+    "reason": "撞库",
+    "expires_at": "2026-08-08T10:00:00Z",
+    "created_by": "admin",
+    "created_at": "2026-08-08T00:00:00Z"
+  }]
+}
+```
+
+### `POST /security/ip_blacklist`
+
+拉黑（幂等：重复拉黑同一 IP/CIDR 刷新 `reason` / `expires_at`）。
+
+**请求体（`CreateIpBlacklistDto`）：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `ip_or_cidr` | string | 是 | IP 或 CIDR 网段（IPv4/IPv6，裸 IP 视作 /32 或 /128） |
+| `reason` | string | 否 | 拉黑原因 / 备注 |
+| `expires_in_seconds` | int | 否 | 拉黑时长（秒）；缺省 = 永久。传 `0` 拒绝 |
+
+**响应 `data`：** `IpBlacklistDto`（含 `expires_at`、`created_at`）
+
+### `DELETE /security/ip_blacklist/:id`
+
+解除拉黑。
+
+**路径参数：** `id`（黑名单条目 ID）
+
+**响应 `data`：** `null`；条目不存在返回 `10004`。
+
+---
+
 ## 12. OpenAPI 规范
 
 ### `GET /openapi.json`

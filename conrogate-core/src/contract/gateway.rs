@@ -96,6 +96,8 @@ pub struct ServiceContext {
     pub traffic: Arc<dyn TrafficControl>,
     pub telemetry: Arc<dyn TelemetryReport>,
     pub plugins: Arc<dyn PluginExecutor>,
+    /// 全局 IP 黑名单匹配器（HTTP/WS/TCP 隧道统一生效）
+    pub blacklist: Arc<crate::security::blacklist::BlacklistMatcher>,
     /// 网关实例标识：写入遥测指标，用于多网关部署时区分数据来源
     pub gate_id: String,
 }

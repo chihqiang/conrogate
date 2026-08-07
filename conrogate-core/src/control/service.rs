@@ -20,6 +20,7 @@ pub struct ControlService {
     pub audit_repo: Arc<dyn AuditLogRepo>,
     pub node_app_repo: Arc<dyn NodeApplicationRepo>,
     pub plugin_repo: Arc<dyn InstalledPluginRepo>,
+    pub ip_blacklist_repo: Arc<dyn IpBlacklistRepo>,
     pub audit: AuditService,
     /// 配置缓存（Redis 优先，可选）
     config_cache: Option<Arc<dyn ConfigCache>>,
@@ -37,6 +38,7 @@ impl ControlService {
         audit_repo: Arc<dyn AuditLogRepo>,
         node_app_repo: Arc<dyn NodeApplicationRepo>,
         plugin_repo: Arc<dyn InstalledPluginRepo>,
+        ip_blacklist_repo: Arc<dyn IpBlacklistRepo>,
     ) -> Self {
         let audit = AuditService::new(audit_repo.clone());
         Self {
@@ -49,6 +51,7 @@ impl ControlService {
             audit_repo,
             node_app_repo,
             plugin_repo,
+            ip_blacklist_repo,
             audit,
             config_cache: None,
         }
@@ -597,6 +600,80 @@ impl ControlService {
                 "plugin",
                 None,
                 serde_json::json!({"name": name}),
+                None,
+            )
+            .await;
+        Ok(())
+    }
+
+    // ── 全局 IP 黑名单 ──
+
+    pub async fn list_ip_blacklist(
+        &self,
+        filter: IpBlacklistQuery,
+        page: u32,
+        page_size: u32,
+    ) -> Result<PaginatedResult<IpBlacklistDto>, ConrogateError> {
+        self.ip_blacklist_repo
+            .list_paginated(&filter, page, page_size)
+            .await
+    }
+
+    /// 拉黑 IP/CIDR（合法网段校验 + 幂等 upsert）
+    pub async fn create_ip_blacklist(
+        &self,
+        dto: CreateIpBlacklistDto,
+        operator: Option<&str>,
+    ) -> Result<IpBlacklistDto, ConrogateError> {
+        let ip_or_cidr = dto.ip_or_cidr.trim().to_string();
+        if crate::security::blacklist::parse_ip_or_cidr(&ip_or_cidr).is_none() {
+            return Err(ConrogateError::BadRequest(format!(
+                "非法 IP 或 CIDR: {ip_or_cidr}"
+            )));
+        }
+        if dto.expires_in_seconds.is_some_and(|s| s == 0) {
+            return Err(ConrogateError::BadRequest(
+                "expires_in_seconds 必须大于 0".into(),
+            ));
+        }
+        let entry = self
+            .ip_blacklist_repo
+            .upsert(&CreateIpBlacklistDto {
+                ip_or_cidr,
+                reason: dto
+                    .reason
+                    .map(|r| r.trim().to_string())
+                    .filter(|r| !r.is_empty()),
+                expires_in_seconds: dto.expires_in_seconds,
+            })
+            .await?;
+        self.audit
+            .log(
+                operator,
+                "create",
+                "ip_blacklist",
+                Some(entry.id),
+                serde_json::to_value(&entry).unwrap_or_default(),
+                None,
+            )
+            .await;
+        Ok(entry)
+    }
+
+    /// 解除拉黑
+    pub async fn delete_ip_blacklist(
+        &self,
+        id: u64,
+        operator: Option<&str>,
+    ) -> Result<(), ConrogateError> {
+        self.ip_blacklist_repo.delete(id).await?;
+        self.audit
+            .log(
+                operator,
+                "delete",
+                "ip_blacklist",
+                Some(id),
+                serde_json::json!({"id": id}),
                 None,
             )
             .await;

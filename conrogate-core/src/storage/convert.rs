@@ -5,8 +5,8 @@ use crate::contract::dto::*;
 use crate::contract::plugin::{PluginKind, PluginStatus};
 use crate::contract::protocol::{ProtocolId, RouteMatchConditions};
 use crate::storage::entity::{
-    audit_logs, config_versions, gateway_events, installed_plugins, metric_aggregates,
-    node_applications, route_plugin_bindings, routes, upstream_nodes, upstreams,
+    audit_logs, config_versions, gateway_events, installed_plugins, ip_blacklist,
+    metric_aggregates, node_applications, route_plugin_bindings, routes, upstream_nodes, upstreams,
 };
 use sea_orm::Set;
 use serde_json;
@@ -337,6 +337,19 @@ pub fn audit_model_to_row(m: audit_logs::Model) -> Option<AuditLogRow> {
         resource_id: m.resource_id.map(|v| v as u64),
         detail: m.detail.unwrap_or(serde_json::Value::Null),
         trace_id: m.trace_id,
+    })
+}
+
+// ── ip_blacklist ──
+
+pub fn ip_blacklist_model_to_dto(m: ip_blacklist::Model) -> Option<IpBlacklistDto> {
+    Some(IpBlacklistDto {
+        id: m.id as u64,
+        ip_or_cidr: m.ip_or_cidr,
+        reason: m.reason,
+        expires_at: m.expires_at,
+        created_by: m.created_by,
+        created_at: m.created_at,
     })
 }
 

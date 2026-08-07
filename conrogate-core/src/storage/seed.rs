@@ -96,6 +96,10 @@ async fn seed_official_plugins(
             "header_rewrite",
             serde_json::json!({"name": "header_rewrite", "title": "头改写", "description": "请求 / 响应头改写"}),
         ),
+        (
+            "ip_allow_deny",
+            serde_json::json!({"name": "ip_allow_deny", "title": "IP 访问控制", "description": "绑定级 IP allow / deny 白黑名单"}),
+        ),
     ];
     for (name, manifest) in plugins {
         if plugin_repo.find_by_name(name).await?.is_some() {

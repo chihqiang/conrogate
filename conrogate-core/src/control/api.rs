@@ -82,6 +82,15 @@ pub fn build_router(state: AppState, auth_token: &str, api_prefix: &str) -> Rout
         .route("/audit-logs", get(handler::query_audit_logs))
         // ── 节点 ──
         .route("/nodes", get(handler::list_nodes))
+        // ── 全局 IP 黑名单 ──
+        .route(
+            "/security/ip_blacklist",
+            post(handler::create_ip_blacklist).get(handler::list_ip_blacklist),
+        )
+        .route(
+            "/security/ip_blacklist/:id",
+            axum::routing::delete(handler::delete_ip_blacklist),
+        )
         // ── 插件管理（Admin 专属写操作）──
         .route("/plugins", get(handler::list_plugins))
         .route("/plugins/:name/activate", post(handler::activate_plugin))

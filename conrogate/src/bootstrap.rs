@@ -149,14 +149,21 @@ pub async fn run(
         Arc::new(conrogate_core::plugins::auth::AuthPlugin::new());
     let header_rewrite_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
         Arc::new(conrogate_core::plugins::header_rewrite::HeaderRewritePlugin::new());
+    let ip_allow_deny_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
+        Arc::new(conrogate_core::plugins::ip_allow_deny::IpAllowDenyPlugin::new());
     plugin_registry.register(cors_plugin.clone()).await;
     plugin_registry.register(auth_plugin.clone()).await;
     plugin_registry
         .register(header_rewrite_plugin.clone())
         .await;
+    plugin_registry.register(ip_allow_deny_plugin.clone()).await;
     // 调用插件 init() 生命周期钩子
-    for p in [&*cors_plugin, &*auth_plugin, &*header_rewrite_plugin]
-        as [&dyn conrogate_core::contract::plugin::Plugin; 3]
+    for p in [
+        &*cors_plugin,
+        &*auth_plugin,
+        &*header_rewrite_plugin,
+        &*ip_allow_deny_plugin,
+    ] as [&dyn conrogate_core::contract::plugin::Plugin; 4]
     {
         if let Err(e) = p.init(&serde_json::Value::Null).await {
             if p.is_blocking() {
@@ -181,6 +188,18 @@ pub async fn run(
     let telemetry =
         Arc::new(conrogate_core::gateway::telemetry::TelemetryReportImpl::new(metric_tx, event_tx));
 
+    // ── 13a. 全局 IP 黑名单（初始从 DB 加载，热载循环内持续刷新）──
+    let blacklist = Arc::new(conrogate_core::security::blacklist::BlacklistMatcher::new());
+    let ip_blacklist_repo: Arc<dyn conrogate_core::contract::storage::IpBlacklistRepo> = Arc::new(
+        conrogate_core::storage::repository::ip_blacklist_repo::IpBlacklistRepoImpl::new(
+            (*read_db).clone(),
+        ),
+    );
+    match conrogate_core::contract::storage::IpBlacklistRepo::list_all(&*ip_blacklist_repo).await {
+        Ok(list) => blacklist.reload(list),
+        Err(e) => tracing::warn!(error = %e, "ip blacklist initial load failed"),
+    }
+
     // ── 14. ServiceContext ──
     let svc = Arc::new(conrogate_core::contract::gateway::ServiceContext {
         routes: route_matcher.clone(),
@@ -188,6 +207,7 @@ pub async fn run(
         traffic,
         telemetry,
         plugins: plugin_executor.clone(),
+        blacklist: blacklist.clone(),
         gate_id: config.gate.gate_id.clone(),
     });
 
@@ -235,6 +255,7 @@ pub async fn run(
             audit_repo: audit_repo.clone(),
             node_app_repo: node_app_repo.clone(),
             plugin_repo: plugin_repo.clone(),
+            ip_blacklist_repo: ip_blacklist_repo.clone(),
         };
         let _control_handle = tokio::spawn(async move {
             start_control_plane(control_config, repos, redis_url).await;
@@ -249,6 +270,7 @@ pub async fn run(
     let hot_reload_selector = upstream_selector.clone();
     let hot_reload_registry = plugin_registry.clone();
     let hot_reload_executor = plugin_executor.clone();
+    let hot_reload_blacklist = blacklist.clone();
     let hot_reload_poll = config.gate.refresh.config_poll_interval;
     task_manager.spawn("config-hot-reload", async move {
         config_hot_reload_loop(
@@ -257,6 +279,7 @@ pub async fn run(
             hot_reload_selector,
             hot_reload_registry,
             hot_reload_executor,
+            hot_reload_blacklist,
             hot_reload_redis_url,
             hot_reload_poll,
         )
@@ -340,6 +363,7 @@ struct ControlRepos {
     audit_repo: Arc<dyn conrogate_core::contract::storage::AuditLogRepo>,
     node_app_repo: Arc<dyn conrogate_core::contract::storage::NodeApplicationRepo>,
     plugin_repo: Arc<dyn conrogate_core::contract::storage::InstalledPluginRepo>,
+    ip_blacklist_repo: Arc<dyn conrogate_core::contract::storage::IpBlacklistRepo>,
 }
 
 /// 启动控制面 axum 服务
@@ -376,6 +400,7 @@ async fn start_control_plane(
             repos.audit_repo,
             repos.node_app_repo,
             repos.plugin_repo,
+            repos.ip_blacklist_repo,
         )
         .with_config_cache(config_cache),
     );
@@ -413,12 +438,14 @@ async fn start_control_plane(
 /// - 优先从 Redis ConfigCache 读取配置快照（含 Pub/Sub 推送通知）
 /// - Redis 不可用时降级为直连 DB 轮询
 /// - 原子更新 route_matcher / upstream_selector / plugin_executor
+#[allow(clippy::too_many_arguments)]
 async fn config_hot_reload_loop(
     db: Arc<sea_orm::DatabaseConnection>,
     matcher: Arc<conrogate_core::gateway::route::RouteMatcher>,
     selector: Arc<conrogate_core::gateway::pool::UpstreamSelectorImpl>,
     registry: Arc<conrogate_core::plugin::registry::PluginRegistryImpl>,
     plugin_executor: Arc<conrogate_core::plugin::pipeline::PluginPipelineImpl>,
+    blacklist: Arc<conrogate_core::security::blacklist::BlacklistMatcher>,
     redis_url: String,
     poll_interval: std::time::Duration,
 ) {
@@ -496,6 +523,17 @@ async fn config_hot_reload_loop(
                     tracing::error!(error = %e, "plugin chain build failed, skip reload");
                 }
             }
+        }
+
+        // 每次轮询同步全局 IP 黑名单（独立于配置快照，变更即时生效）
+        let ip_blacklist_repo =
+            conrogate_core::storage::repository::ip_blacklist_repo::IpBlacklistRepoImpl::new(
+                (*db).clone(),
+            );
+        match conrogate_core::contract::storage::IpBlacklistRepo::list_all(&ip_blacklist_repo).await
+        {
+            Ok(list) => blacklist.reload(list),
+            Err(e) => tracing::warn!(error = %e, "ip blacklist reload failed, keeping current"),
         }
     }
 }

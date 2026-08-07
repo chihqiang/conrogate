@@ -186,6 +186,25 @@ pub trait InstalledPluginRepo: Send + Sync {
     async fn soft_delete(&self, name: &str) -> Result<(), ConrogateError>;
 }
 
+// ── 全局 IP 黑名单仓储 ──
+
+#[async_trait]
+pub trait IpBlacklistRepo: Send + Sync {
+    /// 全量拉取（含已过期，由调用方过滤），供数据面热载使用
+    async fn list_all(&self) -> Result<Vec<IpBlacklistDto>, ConrogateError>;
+    /// 分页查询（keyword 可选，模糊匹配 ip_or_cidr）
+    async fn list_paginated(
+        &self,
+        filter: &IpBlacklistQuery,
+        page: u32,
+        page_size: u32,
+    ) -> Result<PaginatedResult<IpBlacklistDto>, ConrogateError>;
+    /// 拉黑：ip_or_cidr 已存在时幂等更新（刷新原因/过期时间）
+    async fn upsert(&self, dto: &CreateIpBlacklistDto) -> Result<IpBlacklistDto, ConrogateError>;
+    /// 解除拉黑；条目不存在时返回 NotFound
+    async fn delete(&self, id: u64) -> Result<(), ConrogateError>;
+}
+
 // ── 配置缓存中间件 ──
 
 #[async_trait]

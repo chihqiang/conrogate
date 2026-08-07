@@ -4,7 +4,7 @@ use crate::balancer::registry::create_default_registry;
 use crate::contract::config::Config;
 use crate::contract::gateway::ServiceContext;
 use crate::contract::protocol::{ProtocolId, RouteMatchInfo};
-use crate::contract::storage::EventRepo;
+use crate::contract::storage::{EventRepo, IpBlacklistRepo};
 use crate::contract::ConrogateError;
 use crate::gateway::filter::ConfigReloader;
 use crate::gateway::pool::UpstreamSelectorImpl;
@@ -41,12 +41,27 @@ pub struct GatewayServer {
     max_header_bytes: usize,
     idle_timeout: std::time::Duration,
     config_cache: Option<Arc<dyn crate::contract::storage::ConfigCache>>,
+    /// 全局 IP 黑名单匹配器（HTTP/WS/TCP 隧道统一生效，随配置热载刷新）
+    blacklist: Arc<crate::security::blacklist::BlacklistMatcher>,
 }
 
 /// 遥测通道（指标/事件接收端），由调用方决定消费方式（DB 落库或日志兜底）
 struct TelemetryChannels {
     metric_rx: mpsc::Receiver<crate::contract::dto::MetricRow>,
     event_rx: mpsc::Receiver<crate::contract::dto::EventRow>,
+}
+
+/// 从 DB 全量刷新全局 IP 黑名单（失败保持当前黑名单，fail-open 不阻断加载）
+async fn refresh_blacklist_from_db(
+    blacklist: &Arc<crate::security::blacklist::BlacklistMatcher>,
+    db: &Arc<crate::storage::pool::DbConn>,
+) {
+    let repo =
+        crate::storage::repository::ip_blacklist_repo::IpBlacklistRepoImpl::new((**db).clone());
+    match repo.list_all().await {
+        Ok(list) => blacklist.reload(list),
+        Err(e) => tracing::warn!(error = %e, "ip blacklist reload failed, keeping current"),
+    }
 }
 
 /// 原子读取配置快照：任一数据源读取失败返回 `None`（保持当前生效配置，
@@ -167,6 +182,9 @@ impl GatewayServer {
         // 插件执行器
         let plugin_executor = Arc::new(PluginPipelineImpl::new());
 
+        // 全局 IP 黑名单（初始为空，from_config_with_db 会加载 DB 快照并随热载刷新）
+        let blacklist = Arc::new(crate::security::blacklist::BlacklistMatcher::new());
+
         // 插件注册表 + 注册调用方传入的插件（网关核心不依赖具体插件 crate）
         let plugin_registry = Arc::new(PluginRegistryImpl::new());
         for plugin in &plugins {
@@ -189,6 +207,7 @@ impl GatewayServer {
             traffic,
             telemetry,
             plugins: plugin_executor.clone(),
+            blacklist: blacklist.clone(),
             gate_id: config.gate.gate_id.clone(),
         });
 
@@ -233,6 +252,7 @@ impl GatewayServer {
             max_header_bytes: config.gate.connection.max_header_bytes,
             idle_timeout: config.gate.connection.idle_timeout,
             config_cache: None,
+            blacklist,
         };
         (
             server,
@@ -327,6 +347,7 @@ impl GatewayServer {
             max_header_bytes: config.gate.connection.max_header_bytes,
             idle_timeout: config.gate.connection.idle_timeout,
             config_cache: None,
+            blacklist: svc.blacklist.clone(),
         }
     }
 
@@ -453,11 +474,15 @@ impl GatewayServer {
             .load_with_bindings(routes, all_bindings, &body_required);
         server.upstream_selector.load_upstreams(upstreams);
 
+        // 初始加载全局 IP 黑名单
+        refresh_blacklist_from_db(&server.blacklist, &read_db).await;
+
         // 启动配置热加载后台任务
         let matcher = server.route_matcher.clone();
         let selector = server.upstream_selector.clone();
         let registry = server.plugin_registry.clone();
         let plugin_executor = server.plugin_executor.clone();
+        let blacklist = server.blacklist.clone();
         let db = read_db.clone();
         let config_cache = server.config_cache.clone();
         let poll_dur = std::time::Duration::from_secs(poll_interval);
@@ -518,6 +543,9 @@ impl GatewayServer {
                         }
                     }
                 }
+
+                // 每次轮询同步全局 IP 黑名单（独立于配置快照，变更即时生效）
+                refresh_blacklist_from_db(&blacklist, &db).await;
             }
         });
 
@@ -764,6 +792,11 @@ impl GatewayServer {
     pub fn reload_upstreams(&self, upstreams: Vec<crate::contract::dto::UpstreamDto>) {
         self.upstream_selector.load_upstreams(upstreams);
         tracing::info!("upstreams reloaded");
+    }
+
+    /// 热载全局 IP 黑名单（HTTP 配置模式：从 control API 拉取后调用）
+    pub fn reload_blacklist(&self, dtos: Vec<crate::contract::dto::IpBlacklistDto>) {
+        self.blacklist.reload(dtos);
     }
 
     /// 获取插件注册表引用

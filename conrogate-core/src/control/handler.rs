@@ -604,6 +604,64 @@ pub async fn delete_plugin(
     }
 }
 
+// ── 全局 IP 黑名单 ──
+
+pub async fn list_ip_blacklist(
+    Extension(role): Extension<Role>,
+    State(state): State<AppState>,
+    Query(q): Query<PaginationQuery>,
+    Query(filter): Query<IpBlacklistQuery>,
+) -> Response {
+    if let Err(e) = require_role(&role, Role::Viewer) {
+        return response::err(e);
+    }
+    match state
+        .svc
+        .list_ip_blacklist(
+            filter,
+            q.page.unwrap_or(1),
+            q.page_size
+                .unwrap_or(crate::contract::constant::DEFAULT_PAGE_SIZE),
+        )
+        .await
+    {
+        Ok(data) => response::ok(data),
+        Err(e) => response::err(e),
+    }
+}
+
+/// 拉黑 IP/CIDR（Operator 及以上）
+pub async fn create_ip_blacklist(
+    Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
+    State(state): State<AppState>,
+    Json(dto): Json<CreateIpBlacklistDto>,
+) -> Response {
+    if let Err(e) = require_role(&role, Role::Operator) {
+        return response::err(e);
+    }
+    match state.svc.create_ip_blacklist(dto, Some(&operator)).await {
+        Ok(data) => response::ok(data),
+        Err(e) => response::err(e),
+    }
+}
+
+/// 解除拉黑（Operator 及以上）
+pub async fn delete_ip_blacklist(
+    Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
+    State(state): State<AppState>,
+    Path(id): Path<u64>,
+) -> Response {
+    if let Err(e) = require_role(&role, Role::Operator) {
+        return response::err(e);
+    }
+    match state.svc.delete_ip_blacklist(id, Some(&operator)).await {
+        Ok(_) => response::ok_empty(),
+        Err(e) => response::err(e),
+    }
+}
+
 // ── 健康检查 ──
 
 pub async fn health_check() -> Response {

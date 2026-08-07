@@ -84,6 +84,13 @@ impl TcpTunnelProtocolHandler {
         let match_info = RouteMatchInfo::from_tunnel(&listen_addr, sni.as_deref());
         let start_ts = std::time::Instant::now();
 
+        // 0. 全局 IP 黑名单：连接建立期按 socket IP 拦截
+        if self.svc.blacklist.is_blocked(&client_ip) {
+            tracing::info!(ip = %client_ip, "tcp tunnel rejected by global ip blacklist");
+            self.record_pre_tunnel_failure(None, true).await;
+            return Err(ConrogateError::Forbidden);
+        }
+
         // 1. 路由匹配
         let route = match self
             .svc
@@ -416,6 +423,7 @@ mod tests {
                 metrics: metrics.clone(),
             }),
             plugins: executor.clone(),
+            blacklist: Arc::new(crate::security::blacklist::BlacklistMatcher::new()),
             gate_id: "test-gate".into(),
         });
 

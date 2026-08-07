@@ -4,13 +4,14 @@
 
 ## 1. 插件总览
 
-当前内置三个官方插件：
+当前内置四个官方插件：
 
 | 插件名 | 模块路径 | 协议 | 阻断性 | 作用 |
 |--------|----------|------|--------|------|
 | `auth` | `conrogate-core/src/plugins/auth/` | HTTP、WebSocket | **阻断** | JWT Bearer Token 鉴权，校验失败返回 401 |
 | `cors` | `conrogate-core/src/plugins/cors/` | HTTP | 非阻断 | CORS 跨域响应头注入 + OPTIONS 预检处理 |
 | `header_rewrite` | `conrogate-core/src/plugins/header_rewrite/` | HTTP | 非阻断 | 请求 / 响应头改写（set / add / remove，支持占位符） |
+| `ip_allow_deny` | `conrogate-core/src/plugins/ip_allow_deny/` | HTTP、WebSocket、TCP | **阻断** | 绑定级 IP allow / deny 访问控制，拒绝返回 403 |
 
 - **阻断性**：阻断插件（`blocking = true`）可在请求阶段直接终止请求（如鉴权失败返回 401）；非阻断插件只记录 / 改响应头，永不拦截。
 - **每绑定独立实例**：插件配置按「路由绑定」隔离，同一插件绑定到不同路由可配置不同的密钥 / 白名单 / 跳过规则，互不干扰。
@@ -32,7 +33,7 @@
 
 | 字段 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
-| `plugin_name` | string | 是 | — | 插件名：`cors` / `auth` / `header_rewrite` |
+| `plugin_name` | string | 是 | — | 插件名：`cors` / `auth` / `header_rewrite` / `ip_allow_deny` |
 | `config` | object/null | 否 | `null` | 插件配置 JSON；`null` 表示使用默认配置 |
 | `order` | int | 否 | `0` | 执行顺序，升序执行（数值小先执行） |
 | `blocking` | bool | 否 | `false` | 是否为阻断插件（鉴权类建议 `true`） |
@@ -329,16 +330,81 @@ curl -i http://<网关>:8080/your/path
 
 ---
 
-## 5. 组合与最佳实践
+## 5. `ip_allow_deny` — IP 访问控制插件
+
+- **插件名**：`ip_allow_deny`
+- **协议**：HTTP、WebSocket（升级握手阶段）、TCP 隧道（连接建立阶段）
+- **阻断性**：`blocking = true`（拒绝时直接终止，返回 `403`）
+- **是否需要请求体**：否
+
+### 5.1 原理
+
+按路由绑定级配置，对客户端 IP（`ctx.client_ip`，已按可信代理链路解析出的**真实 IP**）做 allow / deny 访问控制：
+
+| 配置 | 语义 |
+|------|------|
+| `deny` 非空且命中 | 一律拒绝（**deny 优先**，即使同时命中 allow） |
+| `allow` 非空且未命中 | 拒绝 |
+| `allow` / `deny` 均为空 | 配置非法，绑定直接被拒 |
+| `allow` 为空（无白名单） | 仅按 deny 拦截 |
+
+拒绝时返回 HTTP `403`，响应体 `{"code":10003,"msg":"forbidden: ip not allowed"}`（与全局 IP 黑名单保持一致）。TCP 隧道在连接建立阶段（`on_connect`）即被拒绝。
+
+### 5.2 配置字段
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `allow` | string[] | `[]` | 仅允许的 IP / 网段列表；为空表示不启用白名单 |
+| `deny` | string[] | `[]` | 拒绝的 IP / 网段列表；为空表示不启用黑名单 |
+
+> 元素为 IP 或 CIDR 网段，支持 IPv4 / IPv6，裸 IP 视作 /32 或 /128。配置校验在绑定 API 即时执行：任一条目解析失败、或 allow/deny 同时为空都会拒绝绑定。
+
+### 5.3 绑定示例
+
+```bash
+curl -X POST http://<控制面>:9000/api/v1/routes/:route_id/plugins \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "plugin_name": "ip_allow_deny",
+    "config": {
+      "allow": ["10.0.0.0/8", "192.168.1.0/24"],
+      "deny": ["10.20.0.0/16"]
+    },
+    "order": 0,
+    "blocking": true,
+    "enabled": true
+  }'
+```
+
+### 5.4 验证
+
+```bash
+# 来自 10.20.0.5（命中 deny）→ 403
+curl -i -H "X-Forwarded-For: 10.20.0.5" http://<网关>:8080/your/path
+
+# 来自 10.1.0.5（allow 内、deny 外）→ 放行
+curl -i -H "X-Forwarded-For: 10.1.0.5" http://<网关>:8080/your/path
+```
+
+### 5.5 注意事项
+
+- 该插件与全局 IP 黑名单**互相独立**：全局黑名单在任何路由前先拦截，命中即 403；本插件提供**绑定级**（按路由）更细粒度的 allow/deny 控制。
+- 插件不读取请求体，路由保持流式转发路径。
+
+---
+
+## 6. 组合与最佳实践
 
 - **先鉴权后跨域**：同一路由同时绑定 `auth` 与 `cors` 时，建议 `auth.order` 小于 `cors.order`（auth 先执行），避免未鉴权请求先拿到 CORS 头。
+- **IP 管控优先**：`ip_allow_deny` 应绑定在插件链最前面（`order` 最小），先做 IP 准入再进入鉴权 / 头改写，避免对非授权 IP 浪费下游插件开销。
 - **CORS + 凭据**：前端需要携带 Cookie（`Authorization` 或 `credentials`）时，`allow_credentials=true` 且 `allow_origins` 必须为具体域名，不能是 `*`。
 - **WebSocket**：`auth` 在 WS 升级握手阶段完成鉴权，未通过不建立隧道；`cors` 不适用于 WS。
 - **配置留档**：绑定/更新插件后建议执行 `POST /api/v1/configs/publish` 发布配置版本，便于审计与回滚（`redis` 模式必须发布才生效）。
 - **排障**：绑定返回 `20003 插件配置非法` 时按 `msg` 修正 config；数据面未生效时确认发布 / 轮询间隔。
 
-## 6. 相关文档
+## 7. 相关文档
 
 - 配置绑定 API 细节 → `docs/api.md`
 - 配置版本发布 / 回滚 → `docs/operations.md`
+- 全局 IP 黑名单（基础设施层）→ `docs/security.md`
 - 插件体系代码入口 → `conrogate-core/src/contract/plugin.rs`（`Plugin` trait）与 `conrogate-core/src/plugin/loader.rs`（链构建）

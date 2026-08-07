@@ -172,6 +172,31 @@ impl HttpProtocolHandler {
         self.svc.plugins.route_plugins(route_id)
     }
 
+    /// 全局 IP 黑名单拦截响应体（统一错误码 10003）
+    fn blacklist_response_body() -> Bytes {
+        Bytes::from(
+            serde_json::json!({"code": 10003, "msg": "forbidden: ip not allowed"}).to_string(),
+        )
+    }
+
+    /// 黑名单拦截响应（缓冲模式）
+    fn blacklist_response_bytes() -> Response<Bytes> {
+        Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .header("Content-Type", "application/json")
+            .body(Self::blacklist_response_body())
+            .unwrap()
+    }
+
+    /// 黑名单拦截响应（流式模式）
+    fn blacklist_response_stream() -> Response<ReqBody> {
+        Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .header("Content-Type", "application/json")
+            .body(body_from_bytes(Self::blacklist_response_body()))
+            .unwrap()
+    }
+
     /// 处理 HTTP 请求 — 完整转发链路（缓冲模式：body 已载入内存）
     async fn handle(
         &self,
@@ -183,6 +208,12 @@ impl HttpProtocolHandler {
         let uri = parts.uri;
         let headers = parts.headers;
         let meta = self.build_request_meta(&method, &uri, &headers, client_ip);
+
+        // 全局 IP 黑名单：在路由匹配/插件执行前拦截（HTTP 与 WS 升级共用此路径）
+        if self.svc.blacklist.is_blocked(&meta.real_ip) {
+            tracing::info!(ip = %meta.real_ip, "request blocked by global ip blacklist");
+            return Ok(Self::blacklist_response_bytes());
+        }
 
         let route = self
             .svc
@@ -357,6 +388,12 @@ impl HttpProtocolHandler {
         let uri = parts.uri.clone();
         let headers = parts.headers.clone();
         let meta = self.build_request_meta(&method, &uri, &headers, client_ip);
+
+        // 全局 IP 黑名单：在路由匹配/插件执行前拦截（HTTP 与 WS 升级共用此路径）
+        if self.svc.blacklist.is_blocked(&meta.real_ip) {
+            tracing::info!(ip = %meta.real_ip, "request blocked by global ip blacklist");
+            return Ok(Self::blacklist_response_stream());
+        }
 
         match self
             .preflight(&meta, &method, &headers, None, route)
@@ -1124,6 +1161,7 @@ mod tests {
             traffic,
             telemetry: Arc::new(telemetry),
             plugins: Arc::new(StubPlugins),
+            blacklist: Arc::new(crate::security::blacklist::BlacklistMatcher::new()),
             gate_id: "test-gate".into(),
         });
         (

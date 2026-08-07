@@ -82,6 +82,11 @@ async fn main() -> anyhow::Result<()> {
             (*main_db).clone(),
         ),
     );
+    let ip_blacklist_repo: Arc<dyn conrogate_core::contract::storage::IpBlacklistRepo> = Arc::new(
+        conrogate_core::storage::repository::ip_blacklist_repo::IpBlacklistRepoImpl::new(
+            (*main_db).clone(),
+        ),
+    );
 
     // ── 3. 组装 ControlService ──
     // Redis 配置缓存（可选）
@@ -118,6 +123,7 @@ async fn main() -> anyhow::Result<()> {
             audit_repo,
             node_app_repo,
             plugin_repo,
+            ip_blacklist_repo,
         )
         .with_config_cache(config_cache),
     );

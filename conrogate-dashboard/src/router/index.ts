@@ -39,6 +39,7 @@ const router = createRouter({
         { path: 'plugins', name: 'plugins', component: () => import('@/views/PluginsView.vue'), meta: { title: '插件管理' } },
         { path: 'configs', name: 'configs', component: () => import('@/views/ConfigsView.vue'), meta: { title: '配置版本' } },
         { path: 'nodes', name: 'nodes', component: () => import('@/views/NodesView.vue'), meta: { title: '节点管理' } },
+        { path: 'security', name: 'security', component: () => import('@/views/SecurityView.vue'), meta: { title: '安全中心' } },
         { path: 'audit', name: 'audit', component: () => import('@/views/AuditView.vue'), meta: { title: '审计日志' } },
       ],
     },
