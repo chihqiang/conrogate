@@ -58,7 +58,7 @@ Conrogate 采用「控制面 + 数据面」双平面架构，提供三种部署�
 | 组件 | 位置 | 职责 |
 |------|------|------|
 | `conrogate-core` | 核心层 | 契约（Trait/DTO/Config）、负载均衡、插件框架、协议适配、持久化（Entity/迁移/仓储/配置缓存）、流量治理、控制面服务（`control/`）、网关核心（`gateway/`） |
-| `conrogate-core/src/plugins/{log,cors,auth}` | 官方内置插件 | 以 Rust 模块内建于核心 crate：访问日志 / CORS / JWT 鉴权（由二进制装配注入网关） |
+| `conrogate-core/src/plugins/{cors,auth,header_rewrite}` | 官方内置插件 | 以 Rust 模块内建于核心 crate：CORS / JWT 鉴权 / 头改写（由二进制装配注入网关） |
 | `conrogate-gate` | 数据面二进制 | 独立启动数据面（含心跳上报） |
 | `conrogate-control` | 控制面二进制 | 独立启动控制面 |
 | `conrogate` | 合并二进制 | Bootstrap 装配两平面 |

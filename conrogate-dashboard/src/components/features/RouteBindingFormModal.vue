@@ -44,9 +44,9 @@ function emptyForm(): BindingForm {
 
 /** 官方插件默认配置模板（与后端插件 Default 对齐） */
 const configTemplates: Record<string, string> = {
-  log: '{\n  "log_body": false,\n  "log_headers": false,\n  "skip_paths": ["/healthz", "/readyz"]\n}',
   cors: '{\n  "allow_origins": ["*"],\n  "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],\n  "allow_headers": ["Content-Type", "Authorization"],\n  "expose_headers": [],\n  "allow_credentials": false,\n  "max_age_seconds": 3600\n}',
   auth: '{\n  "algorithm": "HS256",\n  "secret": "",\n  "require_token": true\n}',
+  header_rewrite: '{\n  "request": {\n    "set": { "X-Real-IP": "$client_ip" },\n    "add": {},\n    "remove": []\n  },\n  "response": {\n    "set": { "X-Powered-By": "conrogate" },\n    "add": {},\n    "remove": []\n  }\n}',
 }
 
 const form = ref<BindingForm>(emptyForm())

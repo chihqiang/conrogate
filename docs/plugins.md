@@ -4,12 +4,13 @@
 
 ## 1. 插件总览
 
-当前内置两个官方插件：
+当前内置三个官方插件：
 
 | 插件名 | 模块路径 | 协议 | 阻断性 | 作用 |
 |--------|----------|------|--------|------|
 | `auth` | `conrogate-core/src/plugins/auth/` | HTTP、WebSocket | **阻断** | JWT Bearer Token 鉴权，校验失败返回 401 |
 | `cors` | `conrogate-core/src/plugins/cors/` | HTTP | 非阻断 | CORS 跨域响应头注入 + OPTIONS 预检处理 |
+| `header_rewrite` | `conrogate-core/src/plugins/header_rewrite/` | HTTP | 非阻断 | 请求 / 响应头改写（set / add / remove，支持占位符） |
 
 - **阻断性**：阻断插件（`blocking = true`）可在请求阶段直接终止请求（如鉴权失败返回 401）；非阻断插件只记录 / 改响应头，永不拦截。
 - **每绑定独立实例**：插件配置按「路由绑定」隔离，同一插件绑定到不同路由可配置不同的密钥 / 白名单 / 跳过规则，互不干扰。
@@ -31,7 +32,7 @@
 
 | 字段 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
-| `plugin_name` | string | 是 | — | 插件名：`cors` / `auth` |
+| `plugin_name` | string | 是 | — | 插件名：`cors` / `auth` / `header_rewrite` |
 | `config` | object/null | 否 | `null` | 插件配置 JSON；`null` 表示使用默认配置 |
 | `order` | int | 否 | `0` | 执行顺序，升序执行（数值小先执行） |
 | `blocking` | bool | 否 | `false` | 是否为阻断插件（鉴权类建议 `true`） |
@@ -247,7 +248,88 @@ curl -i http://<网关>:8080/your/path -H "Origin: https://app.example.com"
 
 ---
 
-## 4. 组合与最佳实践
+## 4. `header_rewrite` — 请求 / 响应头改写插件
+
+- **插件名**：`header_rewrite`
+- **协议**：HTTP
+- **阻断性**：`blocking = false`（只改写头，永不拦截请求）
+- **是否需要请求体**：否
+
+### 4.1 原理
+
+按路由绑定级配置，在请求转发前（`before_request`）改写请求头、在响应回包前（`after_response`）改写响应头，全程不拦截、不读取请求体。
+
+配置分 `request` / `response` 两段，每段支持三类操作：
+
+| 操作 | 语义 |
+|------|------|
+| `set` | 覆盖同名头的所有值；头不存在则新增 |
+| `add` | 追加一个值，不覆盖已有值（同名字头可共存） |
+| `remove` | 删除该头（存在即移除） |
+
+`set` / `add` 的值支持占位符，运行时替换为真实上下文：
+
+| 占位符 | 含义 |
+|--------|------|
+| `$client_ip` | 客户端 IP |
+| `$request_id` | 请求 ID |
+| `$trace_id` | 链路 trace ID |
+| `$route_id` | 命中的路由 ID |
+| `$method` | 请求方法（仅请求段有效，响应段为空串） |
+| `$path` | 请求路径（仅请求段有效，响应段为空串） |
+
+### 4.2 配置字段
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `request.set` | object | `{}` | 覆盖请求头，键为头名，值为新值 |
+| `request.add` | object | `{}` | 追加请求头值 |
+| `request.remove` | string[] | `[]` | 删除的请求头名列表 |
+| `response.set` | object | `{}` | 覆盖响应头 |
+| `response.add` | object | `{}` | 追加响应头值 |
+| `response.remove` | string[] | `[]` | 删除的响应头名列表 |
+
+> 头名必须为合法的 HTTP 头名；值不能包含 CR / LF 等控制字符（防响应头注入）。
+
+### 4.3 绑定示例
+
+```bash
+curl -X POST http://<控制面>:9000/api/v1/routes/:route_id/plugins \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "plugin_name": "header_rewrite",
+    "config": {
+      "request": {
+        "set": { "X-Real-IP": "$client_ip", "X-Gateway": "conrogate" },
+        "add": { "X-Custom": "value" },
+        "remove": ["X-Internal-Token"]
+      },
+      "response": {
+        "set": { "X-Powered-By": "conrogate" },
+        "remove": ["X-Debug"]
+      }
+    },
+    "order": 0,
+    "blocking": false,
+    "enabled": true
+  }'
+```
+
+### 4.4 验证
+
+```bash
+curl -i http://<网关>:8080/your/path
+# 响应头出现 X-Powered-By: conrogate，且不再有 X-Debug
+```
+
+### 4.5 注意事项
+
+- 插件不读取请求体，不影响流式转发路径。
+- `remove` 优先于 `set` / `add` 执行；未识别的占位符按原样透传。
+
+---
+
+## 5. 组合与最佳实践
 
 - **先鉴权后跨域**：同一路由同时绑定 `auth` 与 `cors` 时，建议 `auth.order` 小于 `cors.order`（auth 先执行），避免未鉴权请求先拿到 CORS 头。
 - **CORS + 凭据**：前端需要携带 Cookie（`Authorization` 或 `credentials`）时，`allow_credentials=true` 且 `allow_origins` 必须为具体域名，不能是 `*`。
@@ -255,7 +337,7 @@ curl -i http://<网关>:8080/your/path -H "Origin: https://app.example.com"
 - **配置留档**：绑定/更新插件后建议执行 `POST /api/v1/configs/publish` 发布配置版本，便于审计与回滚（`redis` 模式必须发布才生效）。
 - **排障**：绑定返回 `20003 插件配置非法` 时按 `msg` 修正 config；数据面未生效时确认发布 / 轮询间隔。
 
-## 5. 相关文档
+## 6. 相关文档
 
 - 配置绑定 API 细节 → `docs/api.md`
 - 配置版本发布 / 回滚 → `docs/operations.md`

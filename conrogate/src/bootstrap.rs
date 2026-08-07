@@ -147,10 +147,17 @@ pub async fn run(
         Arc::new(conrogate_core::plugins::cors::CorsPlugin::new());
     let auth_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
         Arc::new(conrogate_core::plugins::auth::AuthPlugin::new());
+    let header_rewrite_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
+        Arc::new(conrogate_core::plugins::header_rewrite::HeaderRewritePlugin::new());
     plugin_registry.register(cors_plugin.clone()).await;
     plugin_registry.register(auth_plugin.clone()).await;
+    plugin_registry
+        .register(header_rewrite_plugin.clone())
+        .await;
     // 调用插件 init() 生命周期钩子
-    for p in [&*cors_plugin, &*auth_plugin] as [&dyn conrogate_core::contract::plugin::Plugin; 2] {
+    for p in [&*cors_plugin, &*auth_plugin, &*header_rewrite_plugin]
+        as [&dyn conrogate_core::contract::plugin::Plugin; 3]
+    {
         if let Err(e) = p.init(&serde_json::Value::Null).await {
             if p.is_blocking() {
                 tracing::error!(plugin = p.name(), error = %e, "blocking plugin init failed, skipping registration");

@@ -1,4 +1,4 @@
-//! 官方内置插件：CORS 跨域、JWT 鉴权。
+//! 官方内置插件：CORS 跨域、JWT 鉴权、请求/响应头改写。
 //!
 //! 插件以 Rust 模块内建于核心 crate（不再作为独立包），
 //! 由二进制装配后通过 `crate::gateway::server::GatewayServer::from_config*`
@@ -6,3 +6,4 @@
 
 pub mod auth;
 pub mod cors;
+pub mod header_rewrite;

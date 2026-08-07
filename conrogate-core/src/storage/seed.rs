@@ -92,6 +92,10 @@ async fn seed_official_plugins(
             "auth",
             serde_json::json!({"name": "auth", "title": "鉴权", "description": "JWT Bearer Token 校验"}),
         ),
+        (
+            "header_rewrite",
+            serde_json::json!({"name": "header_rewrite", "title": "头改写", "description": "请求 / 响应头改写"}),
+        ),
     ];
     for (name, manifest) in plugins {
         if plugin_repo.find_by_name(name).await?.is_some() {
@@ -111,6 +115,6 @@ async fn seed_official_plugins(
             })
             .await?;
     }
-    tracing::info!("official plugins seeded: cors / auth");
+    tracing::info!("official plugins seeded");
     Ok(())
 }

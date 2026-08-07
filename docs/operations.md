@@ -91,10 +91,11 @@ curl -s -X POST "$BASE/routes" -H "$AUTH" -H 'Content-Type: application/json' -d
 
 ### 3.3 绑定插件（可选）
 
-路由绑定插件（JWT 鉴权 / CORS 跨域）的原理
+路由绑定插件（JWT 鉴权 / CORS 跨域 / 请求与响应头改写）的原理、配置与用法见 [`docs/plugins.md`](plugins.md)（内置模块文档，`cargo doc -p conrogate-core` 亦可查阅）：
 
 - `conrogate-core/src/plugins/auth/mod.rs` — 鉴权插件 `auth`
 - `conrogate-core/src/plugins/cors/mod.rs` — 跨域插件 `cors`
+- `conrogate-core/src/plugins/header_rewrite/mod.rs` — 头改写插件 `header_rewrite`
 
 `db` / `http` 模式下改表即生效（见 §2），无需发布；绑定后仍建议执行发布（见 3.4）生成不可变版本号用于留档、diff 与回滚，`redis` 模式必须发布才生效。
 

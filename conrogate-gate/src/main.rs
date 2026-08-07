@@ -13,6 +13,7 @@ fn official_plugins() -> Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>> 
     vec![
         Arc::new(conrogate_core::plugins::cors::CorsPlugin::new()),
         Arc::new(conrogate_core::plugins::auth::AuthPlugin::new()),
+        Arc::new(conrogate_core::plugins::header_rewrite::HeaderRewritePlugin::new()),
     ]
 }
 
