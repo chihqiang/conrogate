@@ -1,13 +1,13 @@
 //! 上游选择器：集成负载均衡 + 健康检查 + 服务发现。
 
-use conrogate_core::contract::balancer::{BalancerAlgorithm, BalancerRegistry};
-use conrogate_core::contract::dto::{RouteSnapshot, UpstreamDto, UpstreamNodeDto};
-use conrogate_core::contract::gateway::UpstreamSelector;
-use conrogate_core::contract::ConrogateError;
+use crate::contract::balancer::{BalancerAlgorithm, BalancerRegistry};
+use crate::contract::dto::{RouteSnapshot, UpstreamDto, UpstreamNodeDto};
+use crate::contract::gateway::UpstreamSelector;
+use crate::contract::ConrogateError;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use crate::health::PassiveHealthChecker;
+use crate::gateway::health::PassiveHealthChecker;
 
 /// 上游配置映射类型别名（避免 clippy type_complexity）
 pub type UpstreamMap = HashMap<u64, (BalancerAlgorithm, Vec<UpstreamNodeDto>)>;

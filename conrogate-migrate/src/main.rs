@@ -39,8 +39,14 @@ async fn main() -> anyhow::Result<()> {
         let _ = dotenvy::dotenv();
     }
 
-    // 初始化日志
-    tracing_subscriber::fmt::init();
+    // 初始化日志（尊重 RUST_LOG，未设置时默认 INFO，避免静默）
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::builder()
+                .with_default_directive(tracing::level_filters::LevelFilter::INFO.into())
+                .from_env_lossy(),
+        )
+        .init();
 
     tracing::info!("starting conrogate-migrate");
 

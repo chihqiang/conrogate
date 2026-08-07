@@ -1,6 +1,6 @@
 //! 主动健康检查器：定期 HTTP/TCP 探测上游节点。
 
-use conrogate_core::contract::dto::UpstreamNodeDto;
+use crate::contract::dto::UpstreamNodeDto;
 use std::collections::HashMap;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
@@ -167,7 +167,7 @@ impl ActiveHealthChecker {
     /// 启动定期检查后台任务
     pub fn spawn_periodic_check(
         self: std::sync::Arc<Self>,
-        upstreams: std::sync::Arc<RwLock<crate::pool::UpstreamMap>>,
+        upstreams: std::sync::Arc<RwLock<crate::gateway::pool::UpstreamMap>>,
     ) {
         let config = self.config.clone();
         let checker = self.clone();

@@ -456,10 +456,6 @@ dependencies = [
  "axum",
  "clap",
  "conrogate-core",
- "conrogate-gateway",
- "conrogate-plugin-auth",
- "conrogate-plugin-cors",
- "conrogate-plugin-log",
  "dotenvy",
  "sea-orm",
  "serde_json",
@@ -491,6 +487,7 @@ dependencies = [
  "base64",
  "bytes",
  "chrono",
+ "futures",
  "hex",
  "http",
  "http-body-util",
@@ -498,9 +495,12 @@ dependencies = [
  "hyper-rustls",
  "hyper-util",
  "ipnet",
+ "jsonwebtoken",
  "rand",
  "redis",
+ "regex",
  "rustls",
+ "rustls-pemfile",
  "sea-orm",
  "sea-orm-migration",
  "seahash",
@@ -510,6 +510,7 @@ dependencies = [
  "sha2",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-rustls",
  "tokio-util",
  "tower",
  "tower-http",
@@ -530,10 +531,6 @@ dependencies = [
  "chrono",
  "clap",
  "conrogate-core",
- "conrogate-gateway",
- "conrogate-plugin-auth",
- "conrogate-plugin-cors",
- "conrogate-plugin-log",
  "dotenvy",
  "http",
  "http-body-util",
@@ -542,33 +539,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "conrogate-gateway"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "bytes",
- "chrono",
- "conrogate-core",
- "conrogate-plugin-auth",
- "conrogate-plugin-cors",
- "conrogate-plugin-log",
- "futures",
- "http",
- "http-body-util",
- "hyper",
- "hyper-util",
- "regex",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "tokio",
- "tokio-rustls",
- "tokio-util",
- "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -582,51 +552,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "conrogate-plugin-auth"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "bytes",
- "chrono",
- "conrogate-core",
- "http",
- "http-body-util",
- "hyper",
- "hyper-rustls",
- "hyper-util",
- "jsonwebtoken",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "conrogate-plugin-cors"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "bytes",
- "conrogate-core",
- "http",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "conrogate-plugin-log"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "conrogate-core",
- "serde",
- "serde_json",
- "tracing",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 //! TLS 证书加载与 TlsAcceptor 构建。
 
-use conrogate_core::contract::config::TlsConfig;
+use crate::contract::config::TlsConfig;
 use std::io::Cursor;
 use std::sync::Arc;
 use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};

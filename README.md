@@ -55,27 +55,6 @@ curl http://localhost:8080/demo/hello     # 数据面转发
 
 详细部署指南见 → [`docs/deployment.md`](docs/deployment.md)
 
-## 工作空间结构
-
-```text
-conrogate/
-├── docs/
-│   ├── api.md              # 控制面 REST API 完整文档（33 个端点）
-│   ├── env.md              # 环境变量参考（70+ 变量）
-│   ├── architecture.md     # 协调架构：配置下发、遥测上报、进程内调度
-│   ├── deployment.md       # 部署指南：本地 / 容器化 / 生产
-│   ├── operations.md       # 操作指南：启动后的配置 / 发布 / 观测 / 回滚
-├── conrogate-core/         # 核心层：契约 + 负载均衡 / 插件框架 / 协议适配 / 持久化 / 流量治理 / 控制面（control/）
-├── conrogate-gateway/      # 网关核心：路由/代理/遥测/健康检查/配置热载
-├── conrogate-plugin-log/   # 官方插件：访问日志
-├── conrogate-plugin-cors/  # 官方插件：CORS 跨域
-├── conrogate-plugin-auth/  # 官方插件：JWT 鉴权
-├── conrogate-migrate/      # 迁移工具 CLI
-├── conrogate-gate/         # 数据面二进制（分离模式）
-├── conrogate-control/      # 控制面二进制（分离模式）
-└── conrogate/              # 合并模式二进制
-```
-
 ## 配置
 
 所有配置通过环境变量加载（支持 `.env` 文件）。环境模板：`.env.example`（本地测试，SQLite）/ `.env.prod.example`（生产，PostgreSQL/MySQL）。

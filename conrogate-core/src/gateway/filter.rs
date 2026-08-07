@@ -1,12 +1,12 @@
 //! 请求过滤器：限流拦截 + 熔断检查 + 配置刷新热载。
 
-use conrogate_core::contract::config::Config;
-use conrogate_core::contract::health::HealthChecker;
-use conrogate_core::contract::ConrogateError;
+use crate::contract::config::Config;
+use crate::contract::health::HealthChecker;
+use crate::contract::ConrogateError;
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use crate::health::PassiveHealthChecker;
+use crate::gateway::health::PassiveHealthChecker;
 
 /// 配置热载管理器
 pub struct ConfigReloader {
@@ -35,8 +35,8 @@ impl ConfigReloader {
 
 /// 流量治理适配器：整合限流 + 熔断 + 被动健康检查
 pub struct TrafficControlAdapter {
-    pub limiter: Arc<dyn conrogate_core::contract::traffic::Limiter>,
-    pub breaker_factory: Arc<dyn conrogate_core::contract::traffic::BreakerFactory>,
+    pub limiter: Arc<dyn crate::contract::traffic::Limiter>,
+    pub breaker_factory: Arc<dyn crate::contract::traffic::BreakerFactory>,
     /// 是否启用限流
     pub rate_limit_enabled: bool,
     /// 是否启用熔断
@@ -54,8 +54,8 @@ pub struct TrafficControlAdapter {
 impl TrafficControlAdapter {
     /// 使用默认 QPS 值创建（向后兼容，默认启用治理）
     pub fn new(
-        limiter: Arc<dyn conrogate_core::contract::traffic::Limiter>,
-        breaker_factory: Arc<dyn conrogate_core::contract::traffic::BreakerFactory>,
+        limiter: Arc<dyn crate::contract::traffic::Limiter>,
+        breaker_factory: Arc<dyn crate::contract::traffic::BreakerFactory>,
     ) -> Self {
         Self {
             limiter,
@@ -71,10 +71,10 @@ impl TrafficControlAdapter {
 
     /// 从限流 + 熔断配置创建（尊重 enabled 开关，QPS=0 表示不限）
     pub fn with_governance_config(
-        limiter: Arc<dyn conrogate_core::contract::traffic::Limiter>,
-        breaker_factory: Arc<dyn conrogate_core::contract::traffic::BreakerFactory>,
-        rate_limit: &conrogate_core::contract::config::RateLimitConfig,
-        breaker: &conrogate_core::contract::config::BreakerConfig,
+        limiter: Arc<dyn crate::contract::traffic::Limiter>,
+        breaker_factory: Arc<dyn crate::contract::traffic::BreakerFactory>,
+        rate_limit: &crate::contract::config::RateLimitConfig,
+        breaker: &crate::contract::config::BreakerConfig,
     ) -> Self {
         Self {
             limiter,
@@ -96,7 +96,7 @@ impl TrafficControlAdapter {
 }
 
 #[async_trait::async_trait]
-impl conrogate_core::contract::gateway::TrafficControl for TrafficControlAdapter {
+impl crate::contract::gateway::TrafficControl for TrafficControlAdapter {
     async fn check_rate_limit(&self, route_id: u64, client_ip: &str) -> Result<(), ConrogateError> {
         // 开关关闭：不限流
         if !self.rate_limit_enabled {
@@ -167,11 +167,11 @@ impl conrogate_core::contract::gateway::TrafficControl for TrafficControlAdapter
 #[cfg(test)]
 mod tests {
     use super::*;
-    use conrogate_core::contract::config::{BreakerConfig as ContractBreakerConfig, RateLimitConfig};
-    use conrogate_core::contract::gateway::TrafficControl;
-    use conrogate_core::contract::traffic::BreakerFactory;
-    use conrogate_core::traffic::breaker::{BreakerConfig, BreakerFactoryImpl};
-    use conrogate_core::traffic::limiter::FixedWindowLimiter;
+    use crate::contract::config::{BreakerConfig as ContractBreakerConfig, RateLimitConfig};
+    use crate::contract::gateway::TrafficControl;
+    use crate::contract::traffic::BreakerFactory;
+    use crate::traffic::breaker::{BreakerConfig, BreakerFactoryImpl};
+    use crate::traffic::limiter::FixedWindowLimiter;
     use std::time::Duration;
 
     fn rate_limit(enabled: bool, global_qps: u32) -> RateLimitConfig {
@@ -249,7 +249,7 @@ mod tests {
         assert!(breaker.allow().await.is_err());
         assert_eq!(
             breaker.state(),
-            conrogate_core::contract::traffic::BreakerState::Open
+            crate::contract::traffic::BreakerState::Open
         );
 
         // 熔断开关关闭 → 放行

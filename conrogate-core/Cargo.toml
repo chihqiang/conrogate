@@ -1,6 +1,6 @@
 [package]
 name = "conrogate-core"
-description = "Conrogate 核心层：负载均衡、插件框架、协议适配、持久化、流量治理"
+description = "Conrogate 核心层：负载均衡、插件框架、协议适配、持久化、流量治理、网关引擎、控制面服务"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,10 @@ license.workspace = true
 async-trait = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+futures = { workspace = true }
+regex = { workspace = true }
 rand = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -32,6 +36,7 @@ utoipa = { workspace = true }
 utoipa-axum = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+jsonwebtoken = { workspace = true }
 redis = { workspace = true }
 sea-orm = { workspace = true }
 sea-orm-migration = { workspace = true }

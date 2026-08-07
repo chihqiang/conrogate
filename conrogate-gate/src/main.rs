@@ -8,6 +8,15 @@ mod http_config_loader;
 use clap::Parser;
 use std::sync::Arc;
 
+/// 官方插件装配（由数据面二进制注入，网关核心不依赖具体插件 crate）
+fn official_plugins() -> Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>> {
+    vec![
+        Arc::new(conrogate_core::plugins::log::LogPlugin::new()),
+        Arc::new(conrogate_core::plugins::cors::CorsPlugin::new()),
+        Arc::new(conrogate_core::plugins::auth::AuthPlugin::new()),
+    ]
+}
+
 #[derive(Parser)]
 #[command(name = "conrogate-gate")]
 #[command(about = "Conrogate 数据面专用二进制")]
@@ -72,9 +81,12 @@ async fn run(config: conrogate_core::contract::config::Config) -> anyhow::Result
     };
 
     // ── 2. 使用 from_config_with_db 创建 GatewayServer（自动加载初始配置 + 启动热加载）──
-    let server =
-        conrogate_gateway::server::GatewayServer::from_config_with_db(config.clone(), read_db)
-            .await;
+    let server = conrogate_core::gateway::server::GatewayServer::from_config_with_db(
+        config.clone(),
+        read_db,
+        official_plugins(),
+    )
+    .await;
 
     // ── 4a. 节点心跳上报后台任务（分离模式）──
     let control_url = &config.gate.refresh.control_api_url;
@@ -127,10 +139,16 @@ async fn run_without_db(config: conrogate_core::contract::config::Config) -> any
     let control_token = config.gate.refresh.control_api_token.clone();
     let control_api_prefix = config.gate.refresh.control_api_prefix.clone();
     let poll_interval = config.gate.refresh.config_poll_interval;
-    let server = Arc::new(conrogate_gateway::server::GatewayServer::from_config(config).await);
+    let server = Arc::new(
+        conrogate_core::gateway::server::GatewayServer::from_config(
+            config,
+            official_plugins(),
+        )
+        .await,
+    );
 
     async fn reload_from_http(
-        server: &conrogate_gateway::server::GatewayServer,
+        server: &conrogate_core::gateway::server::GatewayServer,
         loader: &http_config_loader::HttpConfigLoader,
     ) {
         // 原子加载：路由/上游/插件绑定任一失败则整体放弃，保持当前配置，

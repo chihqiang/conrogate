@@ -1,8 +1,8 @@
 //! 静态服务发现：从内存 ConfigSnapshot 读取节点列表。
 
-use conrogate_core::contract::discovery::ServiceDiscovery;
-use conrogate_core::contract::dto::{UpstreamDto, UpstreamNodeDto};
-use conrogate_core::contract::ConrogateError;
+use crate::contract::discovery::ServiceDiscovery;
+use crate::contract::dto::{UpstreamDto, UpstreamNodeDto};
+use crate::contract::ConrogateError;
 use std::sync::RwLock;
 
 /// 静态服务发现：从内存中的上游配置解析节点

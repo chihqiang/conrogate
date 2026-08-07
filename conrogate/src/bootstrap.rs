@@ -76,22 +76,22 @@ pub async fn run(
     let balancer_registry = conrogate_core::balancer::registry::create_default_registry();
 
     // ── 5. PassiveHealthChecker ──
-    let health_checker = Arc::new(conrogate_gateway::health::PassiveHealthChecker::default());
+    let health_checker = Arc::new(conrogate_core::gateway::health::PassiveHealthChecker::default());
 
     // ── 6. StaticDiscovery ──
-    let discovery = Arc::new(conrogate_gateway::discovery::StaticDiscovery::new());
+    let discovery = Arc::new(conrogate_core::gateway::discovery::StaticDiscovery::new());
     discovery.load(upstreams.clone());
 
     // ── 7. UpstreamSelector（集成被动健康检查）──
     let upstream_selector = Arc::new(
-        conrogate_gateway::pool::UpstreamSelectorImpl::new(balancer_registry)
+        conrogate_core::gateway::pool::UpstreamSelectorImpl::new(balancer_registry)
             .with_health_checker(health_checker.clone()),
     );
     upstream_selector.load_upstreams(upstreams.clone());
 
     // ── 7a. ActiveHealthChecker（主动健康探测）──
     let active_health_checker =
-        Arc::new(conrogate_gateway::health_check::ActiveHealthChecker::default());
+        Arc::new(conrogate_core::gateway::health_check::ActiveHealthChecker::default());
     active_health_checker
         .clone()
         .spawn_periodic_check(upstream_selector.shared_upstreams());
@@ -124,7 +124,7 @@ pub async fn run(
 
     // ── 9. TrafficControl（使用配置中的 QPS 阈值 + 被动健康检查）──
     let traffic = Arc::new(
-        conrogate_gateway::filter::TrafficControlAdapter::with_governance_config(
+        conrogate_core::gateway::filter::TrafficControlAdapter::with_governance_config(
             limiter,
             breaker_factory,
             &config.gate.rate_limit,
@@ -136,11 +136,11 @@ pub async fn run(
     // ── 10. PluginRegistry + 注册静态插件 ──
     let plugin_registry = Arc::new(conrogate_core::plugin::registry::PluginRegistryImpl::new());
     let log_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
-        Arc::new(conrogate_plugin_log::LogPlugin::new());
+        Arc::new(conrogate_core::plugins::log::LogPlugin::new());
     let cors_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
-        Arc::new(conrogate_plugin_cors::CorsPlugin::new());
+        Arc::new(conrogate_core::plugins::cors::CorsPlugin::new());
     let auth_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
-        Arc::new(conrogate_plugin_auth::AuthPlugin::new());
+        Arc::new(conrogate_core::plugins::auth::AuthPlugin::new());
     plugin_registry.register(log_plugin.clone()).await;
     plugin_registry.register(cors_plugin.clone()).await;
     plugin_registry.register(auth_plugin.clone()).await;
@@ -161,14 +161,14 @@ pub async fn run(
     let plugin_executor = Arc::new(conrogate_core::plugin::pipeline::PluginPipelineImpl::new());
 
     // ── 12. RouteMatcher ──
-    let route_matcher = Arc::new(conrogate_gateway::route::RouteMatcher::new());
+    let route_matcher = Arc::new(conrogate_core::gateway::route::RouteMatcher::new());
     let body_required = plugin_registry.body_required_plugin_names();
     route_matcher.load_with_bindings(routes, all_bindings, &body_required);
 
     // ── 13. TelemetryReport ──
     let (metric_tx, metric_rx) = mpsc::channel(100_000);
     let (event_tx, event_rx) = mpsc::channel(100_000);
-    let telemetry = Arc::new(conrogate_gateway::telemetry::TelemetryReportImpl::new(
+    let telemetry = Arc::new(conrogate_core::gateway::telemetry::TelemetryReportImpl::new(
         metric_tx, event_tx,
     ));
 
@@ -190,7 +190,7 @@ pub async fn run(
     let gate_plugin_registry = plugin_registry.clone();
     let gate_plugin_executor = plugin_executor.clone();
     let gate_handle = tokio::spawn(async move {
-        let server = conrogate_gateway::server::GatewayServer::from_components(
+        let server = conrogate_core::gateway::server::GatewayServer::from_components(
             conrogate_core::contract::config::Config {
                 gate: gate_config.clone(),
                 ..conrogate_core::contract::config::Config::default()
@@ -233,7 +233,7 @@ pub async fn run(
     }
 
     // ── 18a. 配置热加载后台任务 ──
-    let mut task_manager = conrogate_gateway::task_manager::TaskManager::new();
+    let mut task_manager = conrogate_core::gateway::task_manager::TaskManager::new();
     let hot_reload_redis_url = config.gate.refresh.config_cache_redis_url.clone();
     let hot_reload_db = read_db.clone();
     let hot_reload_matcher = route_matcher.clone();
@@ -260,7 +260,7 @@ pub async fn run(
     let telemetry_flush = config.gate.telemetry.batch_interval;
     task_manager.spawn("metric-aggregator", async move {
         let mut aggregator =
-            conrogate_gateway::telemetry::MetricAggregator::new(metric_rx, telemetry_bucket_sec)
+            conrogate_core::gateway::telemetry::MetricAggregator::new(metric_rx, telemetry_bucket_sec)
                 .with_metric_repo(metric_repo_clone);
         aggregator.run(telemetry_flush).await;
     });
@@ -405,8 +405,8 @@ async fn start_control_plane(
 /// - 原子更新 route_matcher / upstream_selector / plugin_executor
 async fn config_hot_reload_loop(
     db: Arc<sea_orm::DatabaseConnection>,
-    matcher: Arc<conrogate_gateway::route::RouteMatcher>,
-    selector: Arc<conrogate_gateway::pool::UpstreamSelectorImpl>,
+    matcher: Arc<conrogate_core::gateway::route::RouteMatcher>,
+    selector: Arc<conrogate_core::gateway::pool::UpstreamSelectorImpl>,
     registry: Arc<conrogate_core::plugin::registry::PluginRegistryImpl>,
     plugin_executor: Arc<conrogate_core::plugin::pipeline::PluginPipelineImpl>,
     redis_url: String,

@@ -11,10 +11,6 @@ path = "src/main.rs"
 
 [dependencies]
 conrogate-core = { workspace = true }
-conrogate-gateway = { workspace = true }
-conrogate-plugin-log = { workspace = true }
-conrogate-plugin-cors = { workspace = true }
-conrogate-plugin-auth = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

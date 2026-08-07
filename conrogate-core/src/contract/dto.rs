@@ -200,7 +200,7 @@ impl MetricRow {
     /// 构建协议层单次请求/会话的原始样本。
     ///
     /// `total_requests` 恒为 1；`bucket_sec`/`qps` 为占位值，
-    /// 由 `MetricAggregator` 按自身桶配置聚合时重写（见 conrogate-gateway::telemetry）。
+    /// 由 `MetricAggregator` 按自身桶配置聚合时重写（见 `crate::gateway::telemetry`）。
     #[allow(clippy::too_many_arguments)]
     pub fn raw_sample(
         ts: DateTime<Utc>,

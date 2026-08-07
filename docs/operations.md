@@ -91,11 +91,11 @@ curl -s -X POST "$BASE/routes" -H "$AUTH" -H 'Content-Type: application/json' -d
 
 ### 3.3 绑定插件（可选）
 
-路由绑定插件（JWT 鉴权 / CORS 跨域 / 访问日志）的原理、配置与用法见对应插件文档：
+路由绑定插件（JWT 鉴权 / CORS 跨域 / 访问日志）的原理、配置与用法见对应插件文档（内置模块文档，`cargo doc -p conrogate-core` 可查）：
 
-- `../conrogate-plugin-auth/README.md` — 鉴权插件 `auth`
-- `../conrogate-plugin-cors/README.md` — 跨域插件 `cors`
-- `../conrogate-plugin-log/README.md` — 日志插件 `log`
+- `conrogate-core/src/plugins/auth/mod.rs` — 鉴权插件 `auth`
+- `conrogate-core/src/plugins/cors/mod.rs` — 跨域插件 `cors`
+- `conrogate-core/src/plugins/log/mod.rs` — 日志插件 `log`
 
 绑定后需发布配置（见 3.4）才生效。
 
