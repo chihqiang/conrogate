@@ -8,12 +8,13 @@ import { onMounted, ref } from 'vue'
 import { securityApi } from '@/api/security'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
+import BlacklistCreateModal from '@/components/features/BlacklistCreateModal.vue'
+import BlacklistRemoveModal from '@/components/features/BlacklistRemoveModal.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppEmpty from '@/components/ui/AppEmpty.vue'
 import AppInput from '@/components/ui/AppInput.vue'
-import AppModal from '@/components/ui/AppModal.vue'
 import AppPagination from '@/components/ui/AppPagination.vue'
 import AppTable, { type TableColumn } from '@/components/ui/AppTable.vue'
 import type { IpBlacklistDto } from '@/types'
@@ -32,15 +33,11 @@ const loading = ref(false)
 
 const keyword = ref('')
 
-/** 待删除条目确认 */
+/** 待解除条目确认 */
 const removing = ref<IpBlacklistDto | null>(null)
 
-// ── 新建表单 ──
+// ── 拉黑弹窗开关 ──
 const creating = ref(false)
-const formIp = ref('')
-const formReason = ref('')
-const formExpires = ref('')
-const submitting = ref(false)
 
 // ── 辅助函数 ──
 
@@ -64,12 +61,6 @@ function fmtExpires(row: IpBlacklistDto): string {
 
 function isExpired(row: IpBlacklistDto): boolean {
   return !!row.expires_at && Date.parse(row.expires_at) <= Date.now()
-}
-
-function fmtDuration(secs: number): string {
-  if (secs >= 86400) return `${Math.floor(secs / 86400)} 天`
-  if (secs >= 3600) return `${Math.floor(secs / 3600)} 小时`
-  return `${secs} 秒`
 }
 
 // ── 表格列 ──
@@ -116,66 +107,10 @@ function reset(): void {
 // ── 拉黑 ──
 
 function openCreate(): void {
-  formIp.value = ''
-  formReason.value = ''
-  formExpires.value = ''
   creating.value = true
 }
 
-/** 解析时长输入（秒）；空串返回 null */
-function parseExpires(raw: string): number | null {
-  if (!raw.trim()) return null
-  const n = Number(raw)
-  return Number.isFinite(n) ? n : NaN
-}
-
-async function submitCreate(): Promise<void> {
-  const ip = formIp.value.trim()
-  if (!ip) {
-    toast.error('请输入要拉黑的 IP 或 CIDR 网段')
-    return
-  }
-  const expires = parseExpires(formExpires.value)
-  if (expires !== null && Number.isNaN(expires)) {
-    toast.error('拉黑时长必须是数字（秒）')
-    return
-  }
-  if (expires !== null && expires <= 0) {
-    toast.error('拉黑时长必须大于 0 秒，不填则为永久拉黑')
-    return
-  }
-  submitting.value = true
-  try {
-    await securityApi.create({
-      ip_or_cidr: ip,
-      reason: formReason.value.trim() || null,
-      expires_in_seconds: expires,
-    })
-    toast.success(`已拉黑 ${ip}`)
-    creating.value = false
-    page.value = 1
-    await load()
-  } catch (e) {
-    toast.error((e as Error).message)
-  } finally {
-    submitting.value = false
-  }
-}
-
 // ── 解拉黑 ──
-
-async function confirmRemove(): Promise<void> {
-  if (!removing.value) return
-  const target = removing.value
-  removing.value = null
-  try {
-    await securityApi.remove(target.id)
-    toast.success(`已解除拉黑 ${target.ip_or_cidr}`)
-    await load()
-  } catch (e) {
-    toast.error((e as Error).message)
-  }
-}
 
 // ── 挂载 ──
 
@@ -227,45 +162,7 @@ onMounted(() => void load())
     <AppPagination :total="total" :page="page" :page-size="pageSize" @update:page="page = $event; load()" />
   </AppCard>
 
-  <!-- 拉黑弹窗 -->
-  <AppModal :open="creating" title="拉黑 IP / CIDR" @close="creating = false">
-    <div class="space-y-4">
-      <AppInput
-        v-model="formIp"
-        label="IP / 网段"
-        placeholder="如 1.2.3.4、10.0.0.0/24、2001:db8::/32"
-        required
-      />
-      <AppInput v-model="formReason" label="原因" placeholder="拉黑原因 / 备注" />
-      <AppInput
-        v-model="formExpires"
-        label="时长（秒，可选）"
-        type="number"
-        placeholder="不填 = 永久拉黑"
-      />
-      <p class="text-xs text-slate-500">
-        拉黑后数据面数秒内生效，对 HTTP / WebSocket / TCP 隧道三协议统一拦截（403）。
-        重复拉黑同一 IP / 网段会刷新原因与过期时间。
-        <template v-if="parseExpires(formExpires) !== null && !Number.isNaN(parseExpires(formExpires))">
-          <br />本次拉黑时长：{{ fmtDuration(parseExpires(formExpires) as number) }}
-        </template>
-      </p>
-    </div>
-    <template #footer>
-      <AppButton variant="secondary" @click="creating = false">取消</AppButton>
-      <AppButton :loading="submitting" @click="submitCreate">确认拉黑</AppButton>
-    </template>
-  </AppModal>
+  <BlacklistCreateModal v-model:open="creating" @created="page = 1; load()" />
 
-  <!-- 解拉黑确认 -->
-  <AppModal :open="removing !== null" title="解除拉黑" @close="removing = null">
-    <p class="text-sm text-slate-600">
-      确定解除 <code class="rounded bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">{{ removing?.ip_or_cidr }}</code> 的拉黑吗？
-      解除后该 IP 立即可重新访问网关。
-    </p>
-    <template #footer>
-      <AppButton variant="secondary" @click="removing = null">取消</AppButton>
-      <AppButton variant="danger" @click="confirmRemove">确认解除</AppButton>
-    </template>
-  </AppModal>
+  <BlacklistRemoveModal :item="removing" @close="removing = null" @removed="load()" />
 </template>
