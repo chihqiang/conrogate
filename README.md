@@ -138,6 +138,7 @@ CONROGATE_LOG_OUTPUT_FILE_ENABLED=false
 | `/api/v1/reports/events` | POST | 事件批量上报 |
 
 完整 API 文档 → [`docs/api.md`](docs/api.md)
+全部业务错误码与 HTTP 状态码映射见 → [`docs/status.md`](docs/status.md)
 
 ## 架构
 
