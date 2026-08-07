@@ -88,7 +88,8 @@ cargo build --release -p conrogate -p conrogate-gate -p conrogate-control -p con
 
 ```bash
 ./scripts/dev-up.sh
-# 自动：启动依赖（PG + Redis）→ 执行迁移 → 启动合并模式（seed 演示数据）
+# 自动：启动依赖（PG + Redis）→ 执行迁移 → 启动合并模式
+# 如需演示数据，手动执行：cargo run -p conrogate-migrate -- --seed
 ```
 
 脚本使用的环境变量（硬编码）：

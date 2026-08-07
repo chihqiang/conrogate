@@ -141,7 +141,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 |-------------------------------|--------------------------|----------------------------------------------------------|
 | `id`                          | `u64`                    | 路由唯一标识（自动生成）                                  |
 | `name`                        | `String`                 | 路由名称（人类可读）                                      |
-| `protocol`                    | `ProtocolId`             | 协议类型：`"http"` / `"websocket"` / `"tcp_tunnel"`      |
+| `protocol`                    | `ProtocolId`             | 协议类型：`"http"` / `"web_socket"` / `"tcp_tunnel"`      |
 | `match_conditions`            | `RouteMatchConditions`   | 多维度匹配规则（见下表）                                  |
 | `priority`                    | `i32`                    | 优先级，值越大越优先匹配；相同优先级按数据库顺序            |
 | `upstream_id`                 | `u64/null`               | 匹配流量转发目标上游的 ID                                 |
@@ -170,7 +170,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 | `op`    | `MatchOp`   | 匹配操作符：`"exact"`（精确）/ `"prefix"`（前缀）/ `"regex"`（正则）/ `"not_empty"`（非空） |
 | `value` | `String`    | 比较值（`not_empty` 时可省略）                                    |
 
-**`ProtocolId` 枚举值：** `"http"` | `"websocket"` | `"tcp_tunnel"`
+**`ProtocolId` 枚举值：** `"http"` | `"web_socket"` | `"tcp_tunnel"`
 
 ---
 
@@ -199,7 +199,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 | 字段                          | 类型                     | 是否必填 | 默认值   | 说明                                   |
 |-------------------------------|--------------------------|----------|----------|----------------------------------------|
 | `name`                        | `String`                 | 是       | —        | 路由名称（须全局唯一）                  |
-| `protocol`                    | `ProtocolId`             | 是       | —        | `"http"` / `"websocket"` / `"tcp_tunnel"` |
+| `protocol`                    | `ProtocolId`             | 是       | —        | `"http"` / `"web_socket"` / `"tcp_tunnel"` |
 | `match_conditions`            | `RouteMatchConditions`   | 是       | —        | 匹配规则（见上方说明）                  |
 | `priority`                    | `i32`                    | 否       | `10`     | 值越大越优先匹配                        |
 | `upstream_id`                 | `u64/null`               | 否       | `null`   | 转发目标上游 ID                        |
@@ -561,7 +561,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 
 获取 QPS 时序数据，用于绘制时序图表。
 
-**查询参数：** `range_min: u32`（必填，默认 `5`）
+**查询参数：** `range_min: u32`（否，默认 `5`）
 
 **响应 `data`：**
 
@@ -582,7 +582,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 
 获取延迟百分位数汇总。
 
-**查询参数：** `range_min: u32`
+**查询参数：** `range_min: u32`（否，默认 `5`）
 
 **响应 `data`：**
 
@@ -590,7 +590,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 {
   "avg_ms": 45.2,
   "p50_ms": 32,
-  "p95_ms": 120,
+  "p90_ms": 120,
   "p99_ms": 250
 }
 ```
@@ -599,7 +599,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 |-----------|--------|------------------------|
 | `avg_ms`  | `f64`  | 平均延迟（毫秒）        |
 | `p50_ms`  | `u32`  | P50 延迟（毫秒）        |
-| `p95_ms`  | `u32`  | P95 延迟（毫秒）        |
+| `p90_ms`  | `u32`  | P90 延迟（毫秒）        |
 | `p99_ms`  | `u32`  | P99 延迟（毫秒）        |
 
 ---
@@ -760,7 +760,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 | `window_start` | `DateTime<Utc>`   | 指标窗口起始时间                            |
 | `window_end`   | `DateTime<Utc>`   | 指标窗口结束时间                            |
 | `bucket_sec`   | `u32`             | 时间桶粒度（秒）                            |
-| `metrics`      | `Vec<MetricRow>`  | 指标行数组（结构同第 9 节）                 |
+| `metrics`      | `Vec<MetricRow>`  | 指标行数组（结构同 §7 指标与洞察）                 |
 
 **响应 `data`：** `null`
 
@@ -776,7 +776,7 @@ Authorization: Bearer <operator>:<secret>:<role>
 |------------|------------------|----------------------------------------|
 | `gate_id`  | `String`         | 上报的网关实例 ID                       |
 | `trace_id` | `String`         | 批次级追踪 ID                           |
-| `events`   | `Vec<EventRow>`  | 事件行数组（结构同第 10 节）            |
+| `events`   | `Vec<EventRow>`  | 事件行数组（结构同 §8 事件查询）            |
 
 **响应 `data`：** `null`
 
@@ -793,6 +793,8 @@ Authorization: Bearer <operator>:<secret>:<role>
 ---
 
 ## 错误码
+
+> 控制面统一信封的 HTTP 状态码：`401`（未认证）/ `500`（内部错误）/ 其余业务错误均 `200`（通过 `code` 区分）。数据面（`4000x` 网关错误）由数据面按其自身映射返回（见下表）。
 
 | 错误码   | HTTP 状态码          | 说明                             |
 |----------|----------------------|----------------------------------|
@@ -815,14 +817,14 @@ Authorization: Bearer <operator>:<secret>:<role>
 | `30002`  | `500`                | 数据映射错误                     |
 | `30003`  | `500`                | 数据库迁移错误                   |
 | `40001`  | `500`                | 网络内部错误                     |
-| `40002`  | `500`                | 上游超时                         |
-| `40003`  | `500`                | 上游连接失败                     |
-| `40004`  | `500`                | 上游返回异常响应                 |
+| `40002`  | `502`                | 上游超时（数据面映射为 502/40006）|
+| `40003`  | `502`                | 上游连接失败（数据面映射为 502/40006）|
+| `40004`  | `502`                | 上游返回异常响应（数据面映射为 502/40006）|
 | `40005`  | `200`                | 协议不支持                       |
-| `40006`  | `500`                | 网关内部错误                     |
-| `40007`  | `502`                | 熔断器打开                       |
-| `40008`  | `200`                | 被限流器拒绝                     |
+| `40006`  | `502`                | 网关内部错误                     |
+| `40007`  | `503`                | 熔断器打开                       |
+| `40008`  | `429`                | 被限流器拒绝                     |
 | `40009`  | `502`                | 重试耗尽                         |
-| `50001`  | `200` / `503`        | 配置加载失败 / 服务未就绪        |
+| `50001`  | `500` / `503`        | 配置加载失败（服务端）/ 服务未就绪（就绪探针）|
 | `50002`  | `500`                | 初始化失败                       |
 | `59999`  | `500`                | 内部错误（兜底）                 |

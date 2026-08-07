@@ -48,7 +48,7 @@ sqlite::memory:
 |------|------|--------|------|
 | `CONROGATE_GATE_HOST` | `String` | `0.0.0.0` | 监听地址 |
 | `CONROGATE_GATE_PORT` | `u16` | `8080` | 监听端口 |
-| `CONROGATE_GATE_PROTOCOL` | `ProtocolId` | `Http` | 协议：`Http` / `Http2` |
+| `CONROGATE_GATE_PROTOCOL` | `ProtocolId` | `Http` | 协议：`http`（默认）/ `websocket` / `tcp`（`tcp_tunnel` 别名） |
 | `CONROGATE_GATE_WORKER_THREADS` | `usize` | `0`（自动） | tokio 工作线程数，0 为 CPU 核数 |
 
 ### TLS
@@ -174,7 +174,7 @@ sqlite::memory:
 
 | 变量 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `CONROGATE_CONTROL_ENABLED` | `bool` | `true` | 是否启用控制面 |
+| `CONROGATE_CONTROL_LISTEN_ENABLED` | `bool` | `true` | 是否启用控制面 |
 | `CONROGATE_CONTROL_LISTEN_HOST` | `String` | `0.0.0.0` | 监听地址 |
 | `CONROGATE_CONTROL_LISTEN_PORT` | `u16` | `9000` | 监听端口 |
 | `CONROGATE_CONTROL_LISTEN_API_PREFIX` | `String` | `/api/v1` | API 路由前缀 |

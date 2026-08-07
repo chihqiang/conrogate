@@ -24,11 +24,11 @@ docker run -d --name conrogate-mysql \
   -e MYSQL_PASSWORD=conrogatepass \
   -p 3306:3306 mysql:8.0
 
-# 2. 迁移
+# 2. 迁移（--seed 写入演示路由，供步骤 4 验证）
 CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' \
-  cargo run -p conrogate-migrate
+  cargo run -p conrogate-migrate -- --seed
 
-# 3. 合并模式启动（8080 数据面 + 9000 控制面；迁移与演示数据由 conrogate-migrate 完成）
+# 3. 合并模式启动（8080 数据面 + 9000 控制面）
 CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' \
 CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
 CONROGATE_CONTROL_AUTH_TOKEN=admin:dev-token:admin \
@@ -139,6 +139,7 @@ CONROGATE_LOG_OUTPUT_FILE_ENABLED=false
 ## 架构
 
 详细协调架构见 → [`docs/architecture.md`](docs/architecture.md)
+插件（Log / CORS / Auth）使用说明见 → [`docs/plugins.md`](docs/plugins.md)
 
 ```text
 控制面 (Control Plane :9000)

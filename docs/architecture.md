@@ -143,7 +143,7 @@ gate 每 30s 上报心跳 `POST /api/v1/reports/heartbeat`（gate_id + version +
 - `CONROGATE_CONTROL_AUTH_TOKEN` 为空字符串时鉴权中间件放行（无鉴权模式）。
 - gate 上报 / 拉取配置时携带同一 token（`CONROGATE_GATE_REFRESH_CONTROL_API_TOKEN`）。
 
-## 8. 关键文件索引
+## 7. 关键文件索引
 
 | 文件 | 协调职责 |
 |------|----------|

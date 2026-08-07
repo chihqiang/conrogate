@@ -1,0 +1,333 @@
+# 插件文档
+
+> 面向接入人员的官方插件使用说明。插件为**编译集成模式**：随 `conrogate-core` 编译内建，由二进制装配注入网关，绑定配置存在数据库并通过配置热加载下发到数据面。
+
+## 1. 插件总览
+
+当前内置三个官方插件：
+
+| 插件名 | 模块路径 | 协议 | 阻断性 | 作用 |
+|--------|----------|------|--------|------|
+| `auth` | `conrogate-core/src/plugins/auth/` | HTTP、WebSocket | **阻断** | JWT Bearer Token 鉴权，校验失败返回 401 |
+| `cors` | `conrogate-core/src/plugins/cors/` | HTTP | 非阻断 | CORS 跨域响应头注入 + OPTIONS 预检处理 |
+| `log` | `conrogate-core/src/plugins/log/` | HTTP、WebSocket | 非阻断 | 请求访问日志（`tracing::info` 结构化日志） |
+
+- **阻断性**：阻断插件（`blocking = true`）可在请求阶段直接终止请求（如鉴权失败返回 401）；非阻断插件只记录 / 改响应头，永不拦截。
+- **每绑定独立实例**：插件配置按「路由绑定」隔离，同一插件绑定到不同路由可配置不同的密钥 / 白名单 / 跳过规则，互不干扰。
+- **执行顺序**：一个路由可绑定多个插件，按绑定的 `order` **升序**执行；`before_request` 中任一阻断插件返回终止响应，后续插件不再执行；`after_response` 对所有命中协议且已执行的插件按序执行。
+- **协议匹配**：插件只对声明支持的协议生效（如 `cors` 仅 HTTP，WS/TCP 路由上绑定 cors 会被跳过）。
+
+### 1.1 绑定 / 解绑 / 更新
+
+插件绑定挂在路由下，通过控制面 API 管理：
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/routes/:route_id/plugins` | GET | 查看路由的插件绑定列表 |
+| `/api/v1/routes/:route_id/plugins` | POST | 绑定插件 |
+| `/api/v1/routes/:route_id/plugins/:plugin_name` | PUT | 更新绑定（config / order / enabled） |
+| `/api/v1/routes/:route_id/plugins/:plugin_name` | DELETE | 解绑插件 |
+
+**绑定请求体：**
+
+| 字段 | 类型 | 必填 | 默认 | 说明 |
+|------|------|------|------|------|
+| `plugin_name` | string | 是 | — | 插件名：`log` / `cors` / `auth` |
+| `config` | object/null | 否 | `null` | 插件配置 JSON；`null` 表示使用默认配置 |
+| `order` | int | 否 | `0` | 执行顺序，升序执行（数值小先执行） |
+| `blocking` | bool | 否 | `false` | 是否为阻断插件（鉴权类建议 `true`） |
+| `enabled` | bool | 否 | `true` | `false` 时该绑定不参与执行 |
+
+> 配置合法性（JSON 结构、必填字段）在绑定/更新时**即时校验**，非法配置会直接拒绝该操作，避免阻断插件（如 auth）被静默跳过。
+
+### 1.2 如何生效
+
+- `CONROGATE_GATE_REFRESH_CONFIG_SOURCE=db`（默认）/ `http`：改表即生效，数据面按轮询间隔（默认 5s）热载，原子替换插件链，**无需重启**。
+- `redis`：**必须执行发布** `POST /api/v1/configs/publish` 才会推送新快照到数据面。
+- 无论哪种模式都建议在变更后发布：生成不可变版本号，便于留档、diff 与回滚（见 `docs/operations.md`）。
+
+---
+
+## 2. `auth` — JWT Bearer Token 鉴权插件
+
+- **插件名**：`auth`
+- **协议**：HTTP、WebSocket（WS 升级握手阶段完成校验，未通过不建立隧道）
+- **阻断性**：`blocking = true`（校验失败直接终止请求，返回 `401`）
+- **是否需要请求体**：否（只读取 `Authorization` 头，路由保持流式透传路径）
+
+### 2.1 原理
+
+按路由绑定级配置构建独立的 JWT 验证器：
+
+| 算法族 | 密钥来源 | 适用场景 |
+|--------|----------|----------|
+| HS256 / HS384 / HS512 | `secret`（HMAC 对称密钥） | 自签 token、网关与上游共享密钥 |
+| RS256 / RS384 / RS512 | `rsa_pem`（静态 RSA 公钥 PEM） | 上游独立签发的 token |
+| RS256（JWKS） | `jwks_url`（远程密钥集） | 兼容 OIDC / Keycloak / Auth0 |
+
+验证要点：
+
+- **签名校验**：按 token 头声明的 `alg` 验签，不支持 `alg=none`，杜绝降级攻击。
+- **过期检查**：`exp` 过期直接拒绝（`validate_exp` 固定开启）。
+- **可选签发者 / 受众校验**：配置 `issuer` / `audience` 后逐项校验。
+- **JWKS 缓存**：按 `kid` 缓存远程密钥，TTL 默认 300s；拉取失败时若缓存未过期则继续使用旧密钥（stale-while-error），不阻塞多实例。
+
+校验失败统一返回 HTTP `401`，响应体 `{"code":10002,"msg":"unauthorized: ..."}`，并携带网关 `x-trace-id` 便于排查。
+
+### 2.2 配置字段
+
+| 字段 | 类型 | 必填 | 默认 | 说明 |
+|------|------|------|------|------|
+| `algorithm` | string | 否 | `HS256` | `HS256` / `HS384` / `HS512` / `RS256` / `RS384` / `RS512` |
+| `secret` | string | HMAC 时必填 | `""` | HMAC 对称密钥 |
+| `rsa_pem` | string | RS256 静态密钥时二选一 | 无 | RSA 公钥 PEM（须含 `-----BEGIN PUBLIC KEY-----`） |
+| `jwks_url` | string | RS256 动态密钥时二选一 | 无 | JWKS 远程密钥集 URL |
+| `jwks_cache_ttl_seconds` | int | 否 | `300` | JWKS 缓存 TTL（秒） |
+| `issuer` | string | 否 | 无 | 设置后强制校验 `iss` |
+| `audience` | string | 否 | 无 | 设置后强制校验 `aud` |
+| `require_token` | bool | 否 | `true` | `false` 时无 token 也放行（有 token 仍会校验） |
+
+配置校验在绑定 API 即时执行：HMAC 算法缺 `secret`、RSA 算法缺 `rsa_pem`/`jwks_url`（且 `require_token=true`）都会拒绝绑定。
+
+### 2.3 绑定示例
+
+HS256：
+
+```bash
+curl -X POST http://<控制面>:9000/api/v1/routes/:route_id/plugins \
+  -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
+  -d '{
+    "plugin_name": "auth",
+    "config": {
+      "algorithm": "HS256",
+      "secret": "my-secret",
+      "require_token": true
+    },
+    "order": 0,
+    "blocking": true,
+    "enabled": true
+  }'
+```
+
+RS256（静态公钥）：
+
+```bash
+curl -X POST http://<控制面>:9000/api/v1/routes/:route_id/plugins \
+  -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
+  -d '{
+    "plugin_name": "auth",
+    "config": {
+      "algorithm": "RS256",
+      "rsa_pem": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----"
+    },
+    "order": 0,
+    "blocking": true,
+    "enabled": true
+  }'
+```
+
+RS256（JWKS）：
+
+```bash
+curl -X POST http://<控制面>:9000/api/v1/routes/:route_id/plugins \
+  -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
+  -d '{
+    "plugin_name": "auth",
+    "config": {
+      "algorithm": "RS256",
+      "jwks_url": "https://auth.example.com/.well-known/jwks.json",
+      "jwks_cache_ttl_seconds": 300
+    },
+    "order": 0,
+    "blocking": true,
+    "enabled": true
+  }'
+```
+
+> JWKS 模式要求 token 携带 `kid` 头；JWKS 响应中按 `kid` 匹配 RSA 公钥。
+
+### 2.4 验证
+
+```bash
+# 无 token → 401
+curl -i http://<网关>:8080/your/path
+
+# 生成 HS256 token（Python 示例，secret 与绑定配置一致）
+python3 - <<'EOF'
+import hmac, hashlib, base64, json
+def b64(b): return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+h = b64(json.dumps({"alg":"HS256","typ":"JWT"}).encode())
+p = b64(json.dumps({"sub":"123","exp":4102444800}).encode())
+s = hmac.new(b"my-secret", f"{h}.{p}".encode(), hashlib.sha256).digest()
+print(f"{h}.{p}.{b64(s)}")
+EOF
+
+# 携带有效 token → 200
+curl -i -H "Authorization: Bearer <token>" http://<网关>:8080/your/path
+```
+
+### 2.5 注意事项
+
+- 不同路由绑定不同 `secret`/`algorithm` 是**隔离**的（每绑定独立实例），可放心分别配置。
+- 插件不读取请求体，不产生缓冲影响，对 SSE 等长连接流友好。
+- WS 路由绑定后，升级握手阶段即完成鉴权，未通过不会建立隧道。
+
+---
+
+## 3. `cors` — CORS 跨域插件
+
+- **插件名**：`cors`
+- **协议**：HTTP
+- **阻断性**：`blocking = false`（正常请求不拦截；仅 OPTIONS 预检在网关节内处理）
+- **是否需要请求体**：否
+
+### 3.1 原理
+
+在网关层统一处理浏览器跨域，避免上游各自配置：
+
+- **OPTIONS 预检请求**：在 `before_request` 阶段直接拦截，返回 `204 No Content` 并注入 CORS 响应头，**不转发给上游**。
+- **正常请求**：在 `after_response` 阶段向真实响应注入 `Access-Control-Allow-Origin` 等头，透传上游结果。
+
+Origin 匹配策略：
+
+- 配置含 `*` → 返回 `Access-Control-Allow-Origin: *`。
+- 否则按白名单**精确匹配**请求 `Origin`，命中后**回显该 Origin**（CORS 规范禁止返回多值列表，不会拼接多个域名）。
+- 未命中 → 不注入 CORS 头（浏览器会拦截跨域响应）。
+
+### 3.2 配置字段
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `allow_origins` | string[] | `["*"]` | 允许的 Origin 白名单 |
+| `allow_methods` | string[] | `["GET","POST","PUT","PATCH","DELETE","OPTIONS"]` | 预检响应 `Access-Control-Allow-Methods` |
+| `allow_headers` | string[] | `["Content-Type","Authorization"]` | 预检响应 `Access-Control-Allow-Headers` |
+| `expose_headers` | string[] | `[]` | `Access-Control-Expose-Headers`（允许前端读取的响应头） |
+| `allow_credentials` | bool | `false` | 是否允许携带 Cookie（`Access-Control-Allow-Credentials: true`） |
+| `max_age_seconds` | int | `3600` | 预检缓存时长 `Access-Control-Max-Age` |
+
+> 注意：`allow_credentials=true` 时浏览器要求 `Access-Control-Allow-Origin` 不能是 `*`，应配置为具体域名。
+
+### 3.3 绑定示例
+
+```bash
+curl -X POST http://<控制面>:9000/api/v1/routes/:route_id/plugins \
+  -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
+  -d '{
+    "plugin_name": "cors",
+    "config": {
+      "allow_origins": ["https://app.example.com", "https://admin.example.com"],
+      "allow_methods": ["GET","POST","OPTIONS"],
+      "allow_headers": ["Content-Type","Authorization","X-Custom"],
+      "expose_headers": ["X-Trace-Id","X-Request-Id"],
+      "allow_credentials": true,
+      "max_age_seconds": 600
+    },
+    "order": 0,
+    "blocking": false,
+    "enabled": true
+  }'
+```
+
+### 3.4 验证
+
+```bash
+# 预检请求 → 204 + CORS 头（不触达上游）
+curl -i -X OPTIONS http://<网关>:8080/your/path \
+  -H "Origin: https://app.example.com" \
+  -H "Access-Control-Request-Method: POST"
+
+# 正常请求 → 200 + Access-Control-Allow-Origin 回显
+curl -i http://<网关>:8080/your/path -H "Origin: https://app.example.com"
+```
+
+### 3.5 注意事项
+
+- 未命中白名单的 Origin：预检返回 204 但**不带** CORS 头（浏览器拒绝跨域读取），正常请求响应也不注入 CORS 头。
+- 插件不读取请求体，不影响流式转发路径。
+- 仅支持 HTTP 协议路由；WS / TCP 路由上绑定 cors 会被跳过。
+
+---
+
+## 4. `log` — 访问日志插件
+
+- **插件名**：`log`
+- **协议**：HTTP、WebSocket
+- **阻断性**：`blocking = false`（只记录日志，永不拦截请求）
+- **是否需要请求体**：否
+
+### 4.1 原理
+
+在请求生命周期内通过 `tracing::info!` 向网关日志输出结构化访问日志，附带 `trace_id` / `request_id` 便于链路追踪，共两条日志：
+
+| 阶段 | 钩子 | 输出内容 |
+|------|------|----------|
+| 请求进入 | `before_request` | `incoming request`：trace_id、request_id、method、path、client_ip |
+| 请求结束 | `after_response` | `request completed`：trace_id、request_id、status |
+
+`skip_paths` 配置用于跳过健康检查等高频路径：命中的路径在 `before_request` 直接放行且**不记录** incoming（对应 completed 日志同样不输出）。
+
+日志示例（网关 stdout / 日志文件）：
+
+```json
+{"timestamp":"...","level":"INFO","fields":{"message":"incoming request","trace_id":"...","request_id":"...","method":"GET","path":"/api/users","client_ip":"10.0.0.1"},"target":"conrogate_core::plugins::log"}
+{"timestamp":"...","level":"INFO","fields":{"message":"request completed","trace_id":"...","request_id":"...","status":200},"target":"conrogate_core::plugins::log"}
+```
+
+### 4.2 配置字段
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `log_body` | bool | `false` | 预留：是否记录请求体（当前实现未启用） |
+| `log_headers` | bool | `false` | 预留：是否记录请求头（当前实现未启用） |
+| `skip_paths` | string[] | `["/healthz","/readyz"]` | 命中前缀则跳过日志记录 |
+
+> 当前版本仅记录请求方法 / 路径 / 客户端 IP / 状态码等元信息；`log_body`、`log_headers` 为后续扩展保留字段，配置后暂不影响行为。
+
+### 4.3 绑定示例
+
+```bash
+curl -X POST http://<控制面>:9000/api/v1/routes/:route_id/plugins \
+  -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
+  -d '{
+    "plugin_name": "log",
+    "config": {
+      "log_body": false,
+      "log_headers": false,
+      "skip_paths": ["/healthz", "/readyz", "/metrics"]
+    },
+    "order": 0,
+    "blocking": false,
+    "enabled": true
+  }'
+```
+
+省略 `config`（传 `null`）时使用默认配置（默认跳过 `/healthz`、`/readyz`）。
+
+### 4.4 验证
+
+```bash
+curl http://<网关>:8080/your/path
+# 观察网关日志中出现 incoming request / request completed 两条记录
+```
+
+### 4.5 注意事项
+
+- 日志插件不阻断请求、不读取请求体，可与 auth 等插件同时绑定，按 `order` 升序执行。
+- 多条插件链中日志输出顺序即绑定 `order` 顺序。
+
+---
+
+## 5. 组合与最佳实践
+
+- **先鉴权后跨域**：同一路由同时绑定 `auth` 与 `cors` 时，建议 `auth.order` 小于 `cors.order`（auth 先执行），避免未鉴权请求先拿到 CORS 头。
+- **日志放最后**：`log` 通常在链尾观察（`order` 最大），记录的是经过前面插件处理后的最终请求。
+- **CORS + 凭据**：前端需要携带 Cookie（`Authorization` 或 `credentials`）时，`allow_credentials=true` 且 `allow_origins` 必须为具体域名，不能是 `*`。
+- **WebSocket**：`auth` 在 WS 升级握手阶段完成鉴权，未通过不建立隧道；`log` 对 WS 连接同样生效；`cors` 不适用于 WS。
+- **配置留档**：绑定/更新插件后建议执行 `POST /api/v1/configs/publish` 发布配置版本，便于审计与回滚（`redis` 模式必须发布才生效）。
+- **排障**：绑定返回 `20003 插件配置非法` 时按 `msg` 修正 config；数据面未生效时确认发布 / 轮询间隔。
+
+## 6. 相关文档
+
+- 配置绑定 API 细节 → `docs/api.md`
+- 配置版本发布 / 回滚 → `docs/operations.md`
+- 插件体系代码入口 → `conrogate-core/src/contract/plugin.rs`（`Plugin` trait）与 `conrogate-core/src/plugin/loader.rs`（链构建）

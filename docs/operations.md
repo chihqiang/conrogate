@@ -9,7 +9,7 @@
 
 - **合并模式**（单进程）：`cargo run -p conrogate`（或运行 `./scripts/dev-up.sh`）。
 - **分离模式**：`conrogate-migrate`（先迁移）→ `conrogate-control`（9000）+ `conrogate-gate` × N（8080）。
-- **本地零依赖模板**：`cp .env.example .env && cargo run -p conrogate`（SQLite + 自动迁移 + 演示数据）。
+- **本地零依赖模板**：`cp .env.example .env && cargo run -p conrogate-migrate`（先迁移）→ `cargo run -p conrogate`（SQLite + 合并模式；演示数据需迁移时加 `--seed`）。
 
 启动后先做体检：
 
@@ -87,17 +87,17 @@ curl -s -X POST "$BASE/routes" -H "$AUTH" -H 'Content-Type: application/json' -d
 ```
 
 `path` 三种匹配：`{"prefix": "/api"}` / `{"exact": "/health"}` / `{"regex": "^/v[0-9]+/"}`。
-`protocol` 取值：`http` / `ws`（WebSocket）/ `tcp`（TCP 隧道）。返回 `data.id`（记为 `ROUTE_ID`）。
+`protocol` 取值：`http` / `web_socket`（WebSocket）/ `tcp_tunnel`（TCP 隧道）。返回 `data.id`（记为 `ROUTE_ID`）。
 
 ### 3.3 绑定插件（可选）
 
-路由绑定插件（JWT 鉴权 / CORS 跨域 / 访问日志）的原理、配置与用法见对应插件文档（内置模块文档，`cargo doc -p conrogate-core` 可查）：
+路由绑定插件（JWT 鉴权 / CORS 跨域 / 访问日志）的原理、配置与用法见 [`docs/plugins.md`](plugins.md)（内置模块文档，`cargo doc -p conrogate-core` 亦可查阅）：
 
 - `conrogate-core/src/plugins/auth/mod.rs` — 鉴权插件 `auth`
 - `conrogate-core/src/plugins/cors/mod.rs` — 跨域插件 `cors`
 - `conrogate-core/src/plugins/log/mod.rs` — 日志插件 `log`
 
-绑定后需发布配置（见 3.4）才生效。
+`db` / `http` 模式下改表即生效（见 §2），无需发布；绑定后仍建议执行发布（见 3.4）生成不可变版本号用于留档、diff 与回滚，`redis` 模式必须发布才生效。
 
 ### 3.4 发布配置版本
 
