@@ -263,7 +263,7 @@ CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='' \
 ### 构建镜像
 
 ```bash
-docker build -t conrogate:latest .
+docker build -t ghcr.io/chihqiang/conrogate:latest .
 ```
 
 Dockerfile 构建要点：
@@ -284,7 +284,7 @@ docker run -d --name conrogate \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
   -e CONROGATE_CONTROL_AUTH_TOKEN=admin:dev-token:admin \
   -p 8080:8080 -p 9000:9000 \
-  conrogate:latest
+  ghcr.io/chihqiang/conrogate:latest
 ```
 
 ```bash
@@ -295,7 +295,7 @@ docker run -d --name conrogate-gate \
   -e CONROGATE_GATE_REFRESH_CONTROL_API_TOKEN=your-token \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
   -p 8080:8080 \
-  conrogate:latest \
+  ghcr.io/chihqiang/conrogate:latest \
   /app/conrogate-gate
 ```
 
@@ -307,7 +307,7 @@ docker run -d --name conrogate-control \
   -e CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='redis://host.docker.internal:6379' \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
   -p 9000:9000 \
-  conrogate:latest \
+  ghcr.io/chihqiang/conrogate:latest \
   /app/conrogate-control
 ```
 
@@ -318,7 +318,7 @@ docker run -d --name conrogate-control \
 ```bash
 docker run --rm \
   -e CONROGATE_DB_URL='mysql://conrogate:conrogatepass@host.docker.internal:3306/conrogate' \
-  conrogate:latest \
+  ghcr.io/chihqiang/conrogate:latest \
   /app/conrogate-migrate
 ```
 
@@ -367,11 +367,11 @@ cargo run -p conrogate
 ./scripts/dev-up.sh
 
 # ── 容器化部署（合并模式）──
-docker build -t conrogate:latest .
+docker build -t ghcr.io/chihqiang/conrogate:latest .
 docker run -d -p 8080:8080 -p 9000:9000 \
   -e CONROGATE_DB_URL='mysql://conrogate:conrogatepass@mysql:3306/conrogate' \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
-  conrogate:latest
+  ghcr.io/chihqiang/conrogate:latest
 
 # ── 生产部署（分离模式）──
 # 1. 控制面
@@ -379,7 +379,7 @@ docker run -d -p 9000:9000 \
   -e CONROGATE_DB_URL='mysql://conrogate:pass@mysql:3306/conrogate' \
   -e CONROGATE_CONTROL_AUTH_TOKEN=$SECRET \
   -e CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='redis://redis:6379' \
-  conrogate:latest /app/conrogate-control
+  ghcr.io/chihqiang/conrogate:latest /app/conrogate-control
 
 # 2. 数据面 × N
 for i in $(seq 1 3); do
@@ -387,6 +387,6 @@ for i in $(seq 1 3); do
     -e CONROGATE_DB_READ_URL='mysql://readonly:ro@slave:3306/conrogate' \
     -e CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='redis://redis:6379' \
     -e CONROGATE_GATE_REFRESH_CONTROL_API_URL='http://control:9000' \
-    conrogate:latest /app/conrogate-gate
+    ghcr.io/chihqiang/conrogate:latest /app/conrogate-gate
 done
 ```

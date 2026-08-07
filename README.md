@@ -167,7 +167,7 @@ cargo run -p conrogate-gate          # 分离模式：数据面（8080）
 ### Docker
 
 ```bash
-docker build -t conrogate:latest .                 # 构建镜像
+docker build -t ghcr.io/chihqiang/conrogate:latest .                 # 构建镜像
 docker compose -f docker-compose.deps.yml up -d    # 起依赖（PG + Redis）
 ```
 
@@ -178,7 +178,7 @@ docker compose -f docker-compose.deps.yml up -d    # 起依赖（PG + Redis）
 docker run --rm \
   -v conrogate-data:/data \
   -e CONROGATE_DB_URL=sqlite:///data/conrogate.db \
-  conrogate:latest conrogate-migrate
+  ghcr.io/chihqiang/conrogate:latest conrogate-migrate
 
 # ② 启动（8080 数据面 + 9000 控制面）
 docker run -d --name conrogate \
@@ -186,7 +186,7 @@ docker run -d --name conrogate \
   -e CONROGATE_DB_URL=sqlite:///data/conrogate.db \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
   -p 9000:9000 -p 8080:8080 \
-  conrogate:latest
+  ghcr.io/chihqiang/conrogate:latest
 
 docker logs -f conrogate     # 查看日志（需 file 输出关闭，见上）
 docker rm -f conrogate       # 停止并删除容器（数据仍在 conrogate-data 卷）
@@ -200,7 +200,7 @@ docker rm -f conrogate       # 停止并删除容器（数据仍在 conrogate-da
 # 迁移（--seed 写入演示路由；SQLite 同样先迁移再启动）
 docker run --rm \
   -e CONROGATE_DB_URL='mysql://conrogate:conrogatepass@host.docker.internal:3306/conrogate' \
-  conrogate:latest conrogate-migrate --seed
+  ghcr.io/chihqiang/conrogate:latest conrogate-migrate --seed
 
 # 分离：控制面（:9000）
 docker run -d --name conrogate-control \
@@ -208,7 +208,7 @@ docker run -d --name conrogate-control \
   -e CONROGATE_CONTROL_AUTH_TOKEN=your-secret-token \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
   -p 9000:9000 \
-  conrogate:latest conrogate-control
+  ghcr.io/chihqiang/conrogate:latest conrogate-control
 
 # 分离：数据面（:8080，HTTP 从 control 拉取配置）
 docker run -d --name conrogate-gate \
@@ -216,10 +216,10 @@ docker run -d --name conrogate-gate \
   -e CONROGATE_GATE_REFRESH_CONTROL_API_URL=http://control-host:9000 \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
   -p 8080:8080 \
-  conrogate:latest conrogate-gate
+  ghcr.io/chihqiang/conrogate:latest conrogate-gate
 ```
 
-> `--env-file` 是**容器内**路径：若使用 `.env.prod`，需挂载宿主文件，如 `-v "$PWD/.env.prod:/app/.env.prod:ro" conrogate:latest conrogate-gate --env-file /app/.env.prod`；否则直接用上面的 `-e` 传参。
+> `--env-file` 是**容器内**路径：若使用 `.env.prod`，需挂载宿主文件，如 `-v "$PWD/.env.prod:/app/.env.prod:ro" ghcr.io/chihqiang/conrogate:latest conrogate-gate --env-file /app/.env.prod`；否则直接用上面的 `-e` 传参。
 
 ## License
 
