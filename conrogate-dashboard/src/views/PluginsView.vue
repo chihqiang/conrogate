@@ -14,7 +14,7 @@ import AppEmpty from '@/components/ui/AppEmpty.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTable, { type TableColumn } from '@/components/ui/AppTable.vue'
 import PluginUninstallModal from '@/components/features/PluginUninstallModal.vue'
-import { PluginKindLabels, PluginStatus, PluginStatusLabels, Role, toOptions } from '@/types/enums'
+import { PluginKind, PluginKindLabels, PluginStatus, PluginStatusLabels, Role, toOptions } from '@/types/enums'
 import type { InstalledPluginDto } from '@/types'
 
 // ── 状态 ──
@@ -167,8 +167,15 @@ onMounted(() => void load())
           >
             停用
           </AppButton>
+          <span
+            v-if="(row as InstalledPluginDto).kind === PluginKind.Native && (row as InstalledPluginDto).status !== PluginStatus.Uninstalled"
+            class="text-xs text-slate-400"
+            title="内置插件不可卸载"
+          >
+            内置不可卸载
+          </span>
           <AppButton
-            v-if="(row as InstalledPluginDto).status !== PluginStatus.Uninstalled"
+            v-else-if="(row as InstalledPluginDto).status !== PluginStatus.Uninstalled"
             variant="danger"
             size="sm"
             @click="uninstalling = row as InstalledPluginDto"

@@ -623,6 +623,17 @@ impl ControlService {
         operator: Option<&str>,
         trace_id: &str,
     ) -> Result<(), ConrogateError> {
+        let plugin = self
+            .plugin_repo
+            .find_by_name(name)
+            .await?
+            .ok_or_else(|| ConrogateError::PluginNotFound(name.to_string()))?;
+
+        // 内置（Native）插件编译进二进制，不支持卸载
+        if plugin.kind == crate::contract::plugin::PluginKind::Native {
+            return Err(ConrogateError::BadRequest("内置插件不可卸载".to_string()));
+        }
+
         self.plugin_repo.soft_delete(name).await?;
         self.audit
             .log(
