@@ -85,10 +85,6 @@ async fn seed_official_plugins(
     let now = chrono::Utc::now();
     let plugins = [
         (
-            "log",
-            serde_json::json!({"name": "log", "title": "访问日志", "description": "请求访问日志记录"}),
-        ),
-        (
             "cors",
             serde_json::json!({"name": "cors", "title": "跨域", "description": "CORS 响应头注入与预检处理"}),
         ),
@@ -115,6 +111,6 @@ async fn seed_official_plugins(
             })
             .await?;
     }
-    tracing::info!("official plugins seeded: log / cors / auth");
+    tracing::info!("official plugins seeded: cors / auth");
     Ok(())
 }

@@ -108,22 +108,22 @@ async fn sqlite_migrate_and_repo_roundtrip() -> Result<(), Box<dyn std::error::E
         .bind(
             route_id,
             BindPluginDto {
-                plugin_name: "log".into(),
-                config: serde_json::json!({ "level": "info" }),
+                plugin_name: "cors".into(),
+                config: serde_json::json!({}),
                 order: Some(1),
                 blocking: Some(true),
                 enabled: Some(true),
             },
         )
         .await?;
-    assert_eq!(binding.plugin_name, "log");
+    assert_eq!(binding.plugin_name, "cors");
 
     // 重复绑定 → Conflict
     let dup_bind = binding_repo
         .bind(
             route_id,
             BindPluginDto {
-                plugin_name: "log".into(),
+                plugin_name: "cors".into(),
                 config: serde_json::json!({}),
                 order: Some(1),
                 blocking: Some(true),
@@ -144,7 +144,7 @@ async fn sqlite_migrate_and_repo_roundtrip() -> Result<(), Box<dyn std::error::E
     assert_eq!(upstreams.len(), 1);
     let bindings = ReadOnlyPluginBindingRepo::list_by_route(&binding_repo, route_id).await?;
     assert_eq!(bindings.len(), 1);
-    assert_eq!(bindings[0].config["level"], "info");
+    assert_eq!(bindings[0].config, serde_json::json!({}));
 
     // ── 配置版本发布（JSON 快照 + 版本唯一索引）──
     let upstream_id = upstream.id;

@@ -11,7 +11,6 @@ use std::sync::Arc;
 /// 官方插件装配（由数据面二进制注入，网关核心不依赖具体插件 crate）
 fn official_plugins() -> Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>> {
     vec![
-        Arc::new(conrogate_core::plugins::log::LogPlugin::new()),
         Arc::new(conrogate_core::plugins::cors::CorsPlugin::new()),
         Arc::new(conrogate_core::plugins::auth::AuthPlugin::new()),
     ]

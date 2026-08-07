@@ -4,13 +4,12 @@
 
 ## 1. 插件总览
 
-当前内置三个官方插件：
+当前内置两个官方插件：
 
 | 插件名 | 模块路径 | 协议 | 阻断性 | 作用 |
 |--------|----------|------|--------|------|
 | `auth` | `conrogate-core/src/plugins/auth/` | HTTP、WebSocket | **阻断** | JWT Bearer Token 鉴权，校验失败返回 401 |
 | `cors` | `conrogate-core/src/plugins/cors/` | HTTP | 非阻断 | CORS 跨域响应头注入 + OPTIONS 预检处理 |
-| `log` | `conrogate-core/src/plugins/log/` | HTTP、WebSocket | 非阻断 | 请求访问日志（`tracing::info` 结构化日志） |
 
 - **阻断性**：阻断插件（`blocking = true`）可在请求阶段直接终止请求（如鉴权失败返回 401）；非阻断插件只记录 / 改响应头，永不拦截。
 - **每绑定独立实例**：插件配置按「路由绑定」隔离，同一插件绑定到不同路由可配置不同的密钥 / 白名单 / 跳过规则，互不干扰。
@@ -32,7 +31,7 @@
 
 | 字段 | 类型 | 必填 | 默认 | 说明 |
 |------|------|------|------|------|
-| `plugin_name` | string | 是 | — | 插件名：`log` / `cors` / `auth` |
+| `plugin_name` | string | 是 | — | 插件名：`cors` / `auth` |
 | `config` | object/null | 否 | `null` | 插件配置 JSON；`null` 表示使用默认配置 |
 | `order` | int | 否 | `0` | 执行顺序，升序执行（数值小先执行） |
 | `blocking` | bool | 否 | `false` | 是否为阻断插件（鉴权类建议 `true`） |
@@ -248,85 +247,15 @@ curl -i http://<网关>:8080/your/path -H "Origin: https://app.example.com"
 
 ---
 
-## 4. `log` — 访问日志插件
-
-- **插件名**：`log`
-- **协议**：HTTP、WebSocket
-- **阻断性**：`blocking = false`（只记录日志，永不拦截请求）
-- **是否需要请求体**：否
-
-### 4.1 原理
-
-在请求生命周期内通过 `tracing::info!` 向网关日志输出结构化访问日志，附带 `trace_id` / `request_id` 便于链路追踪，共两条日志：
-
-| 阶段 | 钩子 | 输出内容 |
-|------|------|----------|
-| 请求进入 | `before_request` | `incoming request`：trace_id、request_id、method、path、client_ip |
-| 请求结束 | `after_response` | `request completed`：trace_id、request_id、status |
-
-`skip_paths` 配置用于跳过健康检查等高频路径：命中的路径在 `before_request` 直接放行且**不记录** incoming（对应 completed 日志同样不输出）。
-
-日志示例（网关 stdout / 日志文件）：
-
-```json
-{"timestamp":"...","level":"INFO","fields":{"message":"incoming request","trace_id":"...","request_id":"...","method":"GET","path":"/api/users","client_ip":"10.0.0.1"},"target":"conrogate_core::plugins::log"}
-{"timestamp":"...","level":"INFO","fields":{"message":"request completed","trace_id":"...","request_id":"...","status":200},"target":"conrogate_core::plugins::log"}
-```
-
-### 4.2 配置字段
-
-| 字段 | 类型 | 默认 | 说明 |
-|------|------|------|------|
-| `log_body` | bool | `false` | 预留：是否记录请求体（当前实现未启用） |
-| `log_headers` | bool | `false` | 预留：是否记录请求头（当前实现未启用） |
-| `skip_paths` | string[] | `["/healthz","/readyz"]` | 命中前缀则跳过日志记录 |
-
-> 当前版本仅记录请求方法 / 路径 / 客户端 IP / 状态码等元信息；`log_body`、`log_headers` 为后续扩展保留字段，配置后暂不影响行为。
-
-### 4.3 绑定示例
-
-```bash
-curl -X POST http://<控制面>:9000/api/v1/routes/:route_id/plugins \
-  -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json' \
-  -d '{
-    "plugin_name": "log",
-    "config": {
-      "log_body": false,
-      "log_headers": false,
-      "skip_paths": ["/healthz", "/readyz", "/metrics"]
-    },
-    "order": 0,
-    "blocking": false,
-    "enabled": true
-  }'
-```
-
-省略 `config`（传 `null`）时使用默认配置（默认跳过 `/healthz`、`/readyz`）。
-
-### 4.4 验证
-
-```bash
-curl http://<网关>:8080/your/path
-# 观察网关日志中出现 incoming request / request completed 两条记录
-```
-
-### 4.5 注意事项
-
-- 日志插件不阻断请求、不读取请求体，可与 auth 等插件同时绑定，按 `order` 升序执行。
-- 多条插件链中日志输出顺序即绑定 `order` 顺序。
-
----
-
-## 5. 组合与最佳实践
+## 4. 组合与最佳实践
 
 - **先鉴权后跨域**：同一路由同时绑定 `auth` 与 `cors` 时，建议 `auth.order` 小于 `cors.order`（auth 先执行），避免未鉴权请求先拿到 CORS 头。
-- **日志放最后**：`log` 通常在链尾观察（`order` 最大），记录的是经过前面插件处理后的最终请求。
 - **CORS + 凭据**：前端需要携带 Cookie（`Authorization` 或 `credentials`）时，`allow_credentials=true` 且 `allow_origins` 必须为具体域名，不能是 `*`。
-- **WebSocket**：`auth` 在 WS 升级握手阶段完成鉴权，未通过不建立隧道；`log` 对 WS 连接同样生效；`cors` 不适用于 WS。
+- **WebSocket**：`auth` 在 WS 升级握手阶段完成鉴权，未通过不建立隧道；`cors` 不适用于 WS。
 - **配置留档**：绑定/更新插件后建议执行 `POST /api/v1/configs/publish` 发布配置版本，便于审计与回滚（`redis` 模式必须发布才生效）。
 - **排障**：绑定返回 `20003 插件配置非法` 时按 `msg` 修正 config；数据面未生效时确认发布 / 轮询间隔。
 
-## 6. 相关文档
+## 5. 相关文档
 
 - 配置绑定 API 细节 → `docs/api.md`
 - 配置版本发布 / 回滚 → `docs/operations.md`

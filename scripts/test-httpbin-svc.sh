@@ -149,12 +149,12 @@ echo "$json" | jget '.url' 2>/dev/null
 echo "$json" | jget '.args' 2>/dev/null
 
 echo "== 6. 可选：绑定插件 =="
-if [ -n "${BIND_LOG_PLUGIN:-}" ]; then
+if [ -n "${BIND_CORS_PLUGIN:-}" ]; then
   curl -sS -X POST "${BASE}/routes/${route_id}/plugins" ${AUTH[@]+"${AUTH[@]}"} \
     -H 'Content-Type: application/json' \
-    -d '{"plugin_name":"log","config":{},"enabled":true}' >/dev/null
+    -d '{"plugin_name":"cors","config":{},"enabled":true}' >/dev/null
   curl -sS -X POST "${BASE}/configs/publish" ${AUTH[@]+"${AUTH[@]}"} >/dev/null
-  echo "  [OK] log 插件已绑定到路由 $route_id 并发布"
+  echo "  [OK] cors 插件已绑定到路由 $route_id 并发布"
 fi
 
 echo ""

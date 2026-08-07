@@ -143,19 +143,14 @@ pub async fn run(
 
     // ── 10. PluginRegistry + 注册静态插件 ──
     let plugin_registry = Arc::new(conrogate_core::plugin::registry::PluginRegistryImpl::new());
-    let log_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
-        Arc::new(conrogate_core::plugins::log::LogPlugin::new());
     let cors_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
         Arc::new(conrogate_core::plugins::cors::CorsPlugin::new());
     let auth_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
         Arc::new(conrogate_core::plugins::auth::AuthPlugin::new());
-    plugin_registry.register(log_plugin.clone()).await;
     plugin_registry.register(cors_plugin.clone()).await;
     plugin_registry.register(auth_plugin.clone()).await;
     // 调用插件 init() 生命周期钩子
-    for p in [&*log_plugin, &*cors_plugin, &*auth_plugin]
-        as [&dyn conrogate_core::contract::plugin::Plugin; 3]
-    {
+    for p in [&*cors_plugin, &*auth_plugin] as [&dyn conrogate_core::contract::plugin::Plugin; 2] {
         if let Err(e) = p.init(&serde_json::Value::Null).await {
             if p.is_blocking() {
                 tracing::error!(plugin = p.name(), error = %e, "blocking plugin init failed, skipping registration");

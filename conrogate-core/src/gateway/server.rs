@@ -552,6 +552,8 @@ impl GatewayServer {
         let ws_connect_timeout = config.gate.timeouts.connect;
         let ws_idle_timeout = config.gate.upgrade.idle_timeout;
         let long_conn_drain = config.gate.shutdown.long_conn_drain;
+        let access_log_enabled = config.gate.access_log.enabled;
+        let access_log_skip_paths = config.gate.access_log.skip_paths.clone();
         // 跟踪所有连接任务：宽限期结束后可强制 abort
         let mut connections = tokio::task::JoinSet::new();
         // WS 隧道停机广播
@@ -599,6 +601,7 @@ impl GatewayServer {
                     let listen_addr = addr.to_string();
                     let tls_passthrough = tls_enabled && tls_mode == "passthrough";
                     let ws_shutdown = ws_shutdown.clone();
+                    let access_log_skip_paths = access_log_skip_paths.clone();
 
                     connections.spawn(async move {
                         // 获取并发许可
@@ -656,6 +659,8 @@ impl GatewayServer {
                             ws_connect_timeout,
                             ws_idle_timeout,
                             ws_shutdown,
+                            access_log_enabled,
+                            access_log_skip_paths: access_log_skip_paths.clone(),
                         };
                         let result = if let Some(acc) = tls_acc {
                             match acc.accept(stream).await {
@@ -792,6 +797,10 @@ struct HyperServiceBridge {
     ws_idle_timeout: std::time::Duration,
     /// 停机通知：宽限期结束后广播，WS 转发任务据此关闭隧道
     ws_shutdown: Arc<tokio::sync::Notify>,
+    /// 全局访问日志开关
+    access_log_enabled: bool,
+    /// 跳过访问日志的路径前缀（健康探针等）
+    access_log_skip_paths: Vec<String>,
 }
 
 /// WebSocket 升级信息（存入响应扩展）
@@ -911,7 +920,59 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
         Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
     >;
 
-    fn call(&self, mut req: Request<Incoming>) -> Self::Future {
+    fn call(&self, req: Request<Incoming>) -> Self::Future {
+        let this = self.clone();
+        let access_log_enabled = self.access_log_enabled;
+        let access_log_skip_paths = self.access_log_skip_paths.clone();
+
+        Box::pin(async move {
+            let start = std::time::Instant::now();
+            let method = req.method().clone();
+            let path = req.uri().path().to_string();
+
+            let resp = match this.process(req).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!(error = %e, "gateway request error");
+                    error_response(http::StatusCode::BAD_GATEWAY, 40006, "gateway error")
+                }
+            };
+
+            // 全局访问日志：覆盖所有请求（含限流/熔断/上游失败/WS 升级），
+            // 与路由绑定解耦，由网关配置统一开关。
+            if access_log_enabled
+                && !access_log_skip_paths
+                    .iter()
+                    .any(|p| path.starts_with(p.as_str()))
+            {
+                let latency_ms = start.elapsed().as_millis() as u64;
+                let trace_id = resp
+                    .headers()
+                    .get("x-trace-id")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.to_string());
+                tracing::info!(
+                    trace_id = %trace_id.unwrap_or_default(),
+                    method = %method,
+                    path = %path,
+                    status = resp.status().as_u16(),
+                    client_ip = %this.client_ip,
+                    latency_ms,
+                    "access"
+                );
+            }
+
+            Ok(resp)
+        })
+    }
+}
+
+impl HyperServiceBridge {
+    /// 单请求处理主链路：路由匹配 → 流式/缓冲转发 → WS 升级（含失败路径）
+    async fn process(
+        &self,
+        mut req: Request<Incoming>,
+    ) -> Result<Response<ReqBody>, ConrogateError> {
         let handler = self.handler.clone();
         let route_matcher = self.route_matcher.clone();
         let client_ip = self.client_ip.clone();
@@ -922,332 +983,325 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
         let ws_idle_timeout = self.ws_idle_timeout;
         let ws_shutdown = self.ws_shutdown.clone();
 
-        Box::pin(async move {
-            // 健康探针：GET /healthz → 200
-            if req.method() == http::Method::GET && req.uri().path() == "/healthz" {
-                return Ok(Response::builder()
-                    .status(http::StatusCode::OK)
-                    .body(boxed_body(Bytes::from_static(b"ok")))
-                    .unwrap());
-            }
+        // 健康探针：GET /healthz → 200
+        if req.method() == http::Method::GET && req.uri().path() == "/healthz" {
+            return Ok(Response::builder()
+                .status(http::StatusCode::OK)
+                .body(boxed_body(Bytes::from_static(b"ok")))
+                .unwrap());
+        }
 
-            // 就绪探针：GET /readyz → 200（路由缓存非空）/ 503（路由为空）
-            if req.method() == http::Method::GET && req.uri().path() == "/readyz" {
-                if route_matcher.is_empty() {
-                    return Ok(error_response(
-                        http::StatusCode::SERVICE_UNAVAILABLE,
-                        50001,
-                        "not ready: no routes loaded",
-                    ));
-                }
-                return Ok(Response::builder()
-                    .status(http::StatusCode::OK)
-                    .body(boxed_body(Bytes::from_static(b"ready")))
-                    .unwrap());
-            }
-
-            // WebSocket 升级检测：在拆分请求前提取 OnUpgrade future
-            let is_ws_upgrade = req.method() == http::Method::GET
-                && req
-                    .headers()
-                    .get("upgrade")
-                    .and_then(|v| v.to_str().ok())
-                    .map(|s| s.eq_ignore_ascii_case("websocket"))
-                    .unwrap_or(false);
-            let on_upgrade = if is_ws_upgrade {
-                Some(hyper::upgrade::on(&mut req))
-            } else {
-                None
-            };
-            // 保存 WS 升级请求信息（用于构造转发到上游的握手请求）
-            let ws_req_info = if is_ws_upgrade {
-                Some((
-                    req.method().clone(),
-                    req.uri().clone(),
-                    req.headers().clone(),
-                ))
-            } else {
-                None
-            };
-
-            // 拆分请求：先匹配路由，判定是否需要缓冲 body
-            let (parts, body) = req.into_parts();
-            let match_info =
-                RouteMatchInfo::from_http_request(&parts.method, &parts.uri, &parts.headers);
-
-            // 尝试路由匹配
-            let matched_route = route_matcher.match_route(ProtocolId::Http, &match_info);
-
-            // 流式模式：路由命中且无 requires_body 插件 → 不 collect body，直接透传
-            if let Some(ref route) = matched_route {
-                if !route.requires_body {
-                    // 流式模式请求体大小限制（通过 Content-Length 头检查）
-                    if let Some(cl) = parts
-                        .headers
-                        .get("content-length")
-                        .and_then(|v| v.to_str().ok())
-                        .and_then(|s| s.parse::<usize>().ok())
-                    {
-                        if cl > max_body_bytes {
-                            return Ok(error_response(
-                                http::StatusCode::PAYLOAD_TOO_LARGE,
-                                10007,
-                                "request body too large",
-                            ));
-                        }
-                    }
-                    let resp = match handler
-                        .handle_http_stream(parts, body, route.clone(), client_ip)
-                        .await
-                    {
-                        Ok(resp) => resp,
-                        Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
-                            return Ok(error_response(
-                                http::StatusCode::TOO_MANY_REQUESTS,
-                                40008,
-                                "rate limited",
-                            ));
-                        }
-                        Err(ConrogateError::CircuitBreakerOpen) => {
-                            return Ok(error_response(
-                                http::StatusCode::SERVICE_UNAVAILABLE,
-                                40007,
-                                "circuit breaker open",
-                            ));
-                        }
-                        Err(e) => {
-                            tracing::warn!(error = %e, "stream handler error");
-                            return Ok(error_response(
-                                http::StatusCode::BAD_GATEWAY,
-                                40006,
-                                "gateway error",
-                            ));
-                        }
-                    };
-                    // WebSocket 升级响应检测（流式路径）
-                    if resp.status() == http::StatusCode::SWITCHING_PROTOCOLS {
-                        if let Some(upstream_addr) = resp
-                            .headers()
-                            .get("X-WS-Upstream-Addr")
-                            .and_then(|v| v.to_str().ok())
-                            .map(|s| s.to_string())
-                        {
-                            // 上游 Host 头（来自路由配置，与 HTTP 转发路径一致）
-                            let upstream_host = resp
-                                .headers()
-                                .get("X-WS-Host-Header")
-                                .and_then(|v| v.to_str().ok())
-                                .map(|s| s.to_string())
-                                .unwrap_or_else(|| upstream_addr.clone());
-                            // 按路由配置剥离敏感头（authorization/cookie 等，与 HTTP 路径一致）
-                            let strip_sensitive =
-                                resp.headers().contains_key("X-WS-Strip-Sensitive");
-                            // 启动 WS 双向转发任务
-                            if let (Some(on_upgrade), Some((method, uri, headers))) =
-                                (on_upgrade, ws_req_info)
-                            {
-                                let ws_shutdown = ws_shutdown.clone();
-                                tokio::spawn(async move {
-                                    match on_upgrade.await {
-                                        Ok(upgraded) => {
-                                            let io = TokioIo::new(upgraded);
-                                            let mut upgrade_req = Request::builder()
-                                                .method(method)
-                                                .uri(uri)
-                                                .body(Bytes::new())
-                                                .unwrap();
-                                            *upgrade_req.headers_mut() = headers;
-                                            if strip_sensitive {
-                                                crate::protocol::http::strip_sensitive_headers(
-                                                    upgrade_req.headers_mut(),
-                                                );
-                                            }
-                                            // 重写 Host 头为上游主机（否则上游看到的是网关的 Host）
-                                            if let Ok(v) = upstream_host.parse() {
-                                                upgrade_req
-                                                    .headers_mut()
-                                                    .insert(http::header::HOST, v);
-                                            }
-                                            let forward =
-                                                crate::protocol::upgrade::forward_websocket(
-                                                    &upstream_addr,
-                                                    io,
-                                                    upgrade_req,
-                                                    ws_connect_timeout,
-                                                    ws_idle_timeout,
-                                                    upgrade_buffer_size,
-                                                );
-                                            tokio::select! {
-                                                result = forward => {
-                                                    if let Err(e) = result {
-                                                        tracing::warn!(error = %e, "websocket forwarding error");
-                                                    }
-                                                }
-                                                _ = ws_shutdown.notified() => {
-                                                    tracing::debug!("websocket tunnel closed by shutdown");
-                                                }
-                                            }
-                                        }
-                                        Err(e) => {
-                                            tracing::warn!(error = %e, "websocket upgrade failed");
-                                        }
-                                    }
-                                });
-                            }
-                            // 清除扩展头（不透传给客户端）
-                            let mut clean_resp = resp;
-                            clean_resp.headers_mut().remove("X-WS-Upstream-Addr");
-                            clean_resp.headers_mut().remove("X-WS-Host-Header");
-                            clean_resp.headers_mut().remove("X-WS-Strip-Sensitive");
-                            clean_resp.headers_mut().remove("X-WS-Trace-Id");
-                            let (parts, _) = clean_resp.into_parts();
-                            return Ok(Response::from_parts(parts, boxed_body(Bytes::new())));
-                        }
-                    }
-                    let (parts, resp_body) = resp.into_parts();
-                    return Ok(Response::from_parts(parts, resp_body));
-                }
-            }
-
-            // 缓冲模式：路由未命中或需 requires_body 插件 → collect body
-            // 慢读保护：客户端读取请求体超时则返回 408
-            let body_bytes = match tokio::time::timeout(read_timeout, body.collect()).await {
-                Ok(Ok(collected)) => collected.to_bytes(),
-                Ok(Err(e)) => {
-                    return Ok(error_response(
-                        http::StatusCode::BAD_REQUEST,
-                        10008,
-                        &format!("request body read error: {e}"),
-                    ));
-                }
-                Err(_) => {
-                    return Ok(error_response(
-                        http::StatusCode::REQUEST_TIMEOUT,
-                        10009,
-                        "request body read timeout",
-                    ));
-                }
-            };
-
-            // 请求体大小限制
-            if body_bytes.len() > max_body_bytes {
+        // 就绪探针：GET /readyz → 200（路由缓存非空）/ 503（路由为空）
+        if req.method() == http::Method::GET && req.uri().path() == "/readyz" {
+            if route_matcher.is_empty() {
                 return Ok(error_response(
-                    http::StatusCode::PAYLOAD_TOO_LARGE,
-                    10007,
-                    "request body too large",
+                    http::StatusCode::SERVICE_UNAVAILABLE,
+                    50001,
+                    "not ready: no routes loaded",
                 ));
             }
+            return Ok(Response::builder()
+                .status(http::StatusCode::OK)
+                .body(boxed_body(Bytes::from_static(b"ready")))
+                .unwrap());
+        }
 
-            let req = Request::from_parts(parts, body_bytes);
-            let resp = match handler.handle_http(req, client_ip).await {
-                Ok(resp) => resp,
-                Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
-                    return Ok(error_response(
-                        http::StatusCode::TOO_MANY_REQUESTS,
-                        40008,
-                        "rate limited",
-                    ));
-                }
-                Err(ConrogateError::CircuitBreakerOpen) => {
-                    return Ok(error_response(
-                        http::StatusCode::SERVICE_UNAVAILABLE,
-                        40007,
-                        "circuit breaker open",
-                    ));
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "request handler error");
-                    return Ok(error_response(
-                        http::StatusCode::BAD_GATEWAY,
-                        40006,
-                        "gateway error",
-                    ));
-                }
-            };
+        // WebSocket 升级检测：在拆分请求前提取 OnUpgrade future
+        let is_ws_upgrade = req.method() == http::Method::GET
+            && req
+                .headers()
+                .get("upgrade")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.eq_ignore_ascii_case("websocket"))
+                .unwrap_or(false);
+        let on_upgrade = if is_ws_upgrade {
+            Some(hyper::upgrade::on(&mut req))
+        } else {
+            None
+        };
+        // 保存 WS 升级请求信息（用于构造转发到上游的握手请求）
+        let ws_req_info = if is_ws_upgrade {
+            Some((
+                req.method().clone(),
+                req.uri().clone(),
+                req.headers().clone(),
+            ))
+        } else {
+            None
+        };
 
-            // WebSocket 升级检测：101 响应 + X-WS-Upstream-Addr 头
-            if resp.status() == http::StatusCode::SWITCHING_PROTOCOLS {
-                if let Some(upstream_addr) = resp
-                    .headers()
-                    .get("X-WS-Upstream-Addr")
+        // 拆分请求：先匹配路由，判定是否需要缓冲 body
+        let (parts, body) = req.into_parts();
+        let match_info =
+            RouteMatchInfo::from_http_request(&parts.method, &parts.uri, &parts.headers);
+
+        // 尝试路由匹配
+        let matched_route = route_matcher.match_route(ProtocolId::Http, &match_info);
+
+        // 流式模式：路由命中且无 requires_body 插件 → 不 collect body，直接透传
+        if let Some(ref route) = matched_route {
+            if !route.requires_body {
+                // 流式模式请求体大小限制（通过 Content-Length 头检查）
+                if let Some(cl) = parts
+                    .headers
+                    .get("content-length")
                     .and_then(|v| v.to_str().ok())
-                    .map(|s| s.to_string())
+                    .and_then(|s| s.parse::<usize>().ok())
                 {
-                    // 上游 Host 头（来自路由配置，与 HTTP 转发路径一致）
-                    let upstream_host = resp
+                    if cl > max_body_bytes {
+                        return Ok(error_response(
+                            http::StatusCode::PAYLOAD_TOO_LARGE,
+                            10007,
+                            "request body too large",
+                        ));
+                    }
+                }
+                let resp = match handler
+                    .handle_http_stream(parts, body, route.clone(), client_ip)
+                    .await
+                {
+                    Ok(resp) => resp,
+                    Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
+                        return Ok(error_response(
+                            http::StatusCode::TOO_MANY_REQUESTS,
+                            40008,
+                            "rate limited",
+                        ));
+                    }
+                    Err(ConrogateError::CircuitBreakerOpen) => {
+                        return Ok(error_response(
+                            http::StatusCode::SERVICE_UNAVAILABLE,
+                            40007,
+                            "circuit breaker open",
+                        ));
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "stream handler error");
+                        return Ok(error_response(
+                            http::StatusCode::BAD_GATEWAY,
+                            40006,
+                            "gateway error",
+                        ));
+                    }
+                };
+                // WebSocket 升级响应检测（流式路径）
+                if resp.status() == http::StatusCode::SWITCHING_PROTOCOLS {
+                    if let Some(upstream_addr) = resp
                         .headers()
-                        .get("X-WS-Host-Header")
+                        .get("X-WS-Upstream-Addr")
                         .and_then(|v| v.to_str().ok())
                         .map(|s| s.to_string())
-                        .unwrap_or_else(|| upstream_addr.clone());
-                    // 按路由配置剥离敏感头（authorization/cookie 等，与 HTTP 路径一致）
-                    let strip_sensitive = resp.headers().contains_key("X-WS-Strip-Sensitive");
-                    // 启动 WS 双向转发任务
-                    if let (Some(on_upgrade), Some((method, uri, headers))) =
-                        (on_upgrade, ws_req_info)
                     {
-                        let ws_shutdown = ws_shutdown.clone();
-                        tokio::spawn(async move {
-                            match on_upgrade.await {
-                                Ok(upgraded) => {
-                                    let io = TokioIo::new(upgraded);
-                                    let mut upgrade_req = Request::builder()
-                                        .method(method)
-                                        .uri(uri)
-                                        .body(Bytes::new())
-                                        .unwrap();
-                                    *upgrade_req.headers_mut() = headers;
-                                    if strip_sensitive {
-                                        crate::protocol::http::strip_sensitive_headers(
-                                            upgrade_req.headers_mut(),
+                        // 上游 Host 头（来自路由配置，与 HTTP 转发路径一致）
+                        let upstream_host = resp
+                            .headers()
+                            .get("X-WS-Host-Header")
+                            .and_then(|v| v.to_str().ok())
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| upstream_addr.clone());
+                        // 按路由配置剥离敏感头（authorization/cookie 等，与 HTTP 路径一致）
+                        let strip_sensitive = resp.headers().contains_key("X-WS-Strip-Sensitive");
+                        // 启动 WS 双向转发任务
+                        if let (Some(on_upgrade), Some((method, uri, headers))) =
+                            (on_upgrade, ws_req_info)
+                        {
+                            let ws_shutdown = ws_shutdown.clone();
+                            tokio::spawn(async move {
+                                match on_upgrade.await {
+                                    Ok(upgraded) => {
+                                        let io = TokioIo::new(upgraded);
+                                        let mut upgrade_req = Request::builder()
+                                            .method(method)
+                                            .uri(uri)
+                                            .body(Bytes::new())
+                                            .unwrap();
+                                        *upgrade_req.headers_mut() = headers;
+                                        if strip_sensitive {
+                                            crate::protocol::http::strip_sensitive_headers(
+                                                upgrade_req.headers_mut(),
+                                            );
+                                        }
+                                        // 重写 Host 头为上游主机（否则上游看到的是网关的 Host）
+                                        if let Ok(v) = upstream_host.parse() {
+                                            upgrade_req.headers_mut().insert(http::header::HOST, v);
+                                        }
+                                        let forward = crate::protocol::upgrade::forward_websocket(
+                                            &upstream_addr,
+                                            io,
+                                            upgrade_req,
+                                            ws_connect_timeout,
+                                            ws_idle_timeout,
+                                            upgrade_buffer_size,
                                         );
-                                    }
-                                    // 重写 Host 头为上游主机（否则上游看到的是网关的 Host）
-                                    if let Ok(v) = upstream_host.parse() {
-                                        upgrade_req.headers_mut().insert(http::header::HOST, v);
-                                    }
-                                    let forward = crate::protocol::upgrade::forward_websocket(
-                                        &upstream_addr,
-                                        io,
-                                        upgrade_req,
-                                        ws_connect_timeout,
-                                        ws_idle_timeout,
-                                        upgrade_buffer_size,
-                                    );
-                                    tokio::select! {
-                                        result = forward => {
-                                            if let Err(e) = result {
-                                                tracing::warn!(error = %e, "websocket forwarding error");
+                                        tokio::select! {
+                                            result = forward => {
+                                                if let Err(e) = result {
+                                                    tracing::warn!(error = %e, "websocket forwarding error");
+                                                }
+                                            }
+                                            _ = ws_shutdown.notified() => {
+                                                tracing::debug!("websocket tunnel closed by shutdown");
                                             }
                                         }
-                                        _ = ws_shutdown.notified() => {
-                                            tracing::debug!("websocket tunnel closed by shutdown");
-                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(error = %e, "websocket upgrade failed");
                                     }
                                 }
-                                Err(e) => {
-                                    tracing::warn!(error = %e, "websocket upgrade failed");
+                            });
+                        }
+                        // 清除扩展头（不透传给客户端）
+                        let mut clean_resp = resp;
+                        clean_resp.headers_mut().remove("X-WS-Upstream-Addr");
+                        clean_resp.headers_mut().remove("X-WS-Host-Header");
+                        clean_resp.headers_mut().remove("X-WS-Strip-Sensitive");
+                        clean_resp.headers_mut().remove("X-WS-Trace-Id");
+                        let (parts, _) = clean_resp.into_parts();
+                        return Ok(Response::from_parts(parts, boxed_body(Bytes::new())));
+                    }
+                }
+                let (parts, resp_body) = resp.into_parts();
+                return Ok(Response::from_parts(parts, resp_body));
+            }
+        }
+
+        // 缓冲模式：路由未命中或需 requires_body 插件 → collect body
+        // 慢读保护：客户端读取请求体超时则返回 408
+        let body_bytes = match tokio::time::timeout(read_timeout, body.collect()).await {
+            Ok(Ok(collected)) => collected.to_bytes(),
+            Ok(Err(e)) => {
+                return Ok(error_response(
+                    http::StatusCode::BAD_REQUEST,
+                    10008,
+                    &format!("request body read error: {e}"),
+                ));
+            }
+            Err(_) => {
+                return Ok(error_response(
+                    http::StatusCode::REQUEST_TIMEOUT,
+                    10009,
+                    "request body read timeout",
+                ));
+            }
+        };
+
+        // 请求体大小限制
+        if body_bytes.len() > max_body_bytes {
+            return Ok(error_response(
+                http::StatusCode::PAYLOAD_TOO_LARGE,
+                10007,
+                "request body too large",
+            ));
+        }
+
+        let req = Request::from_parts(parts, body_bytes);
+        let resp = match handler.handle_http(req, client_ip).await {
+            Ok(resp) => resp,
+            Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
+                return Ok(error_response(
+                    http::StatusCode::TOO_MANY_REQUESTS,
+                    40008,
+                    "rate limited",
+                ));
+            }
+            Err(ConrogateError::CircuitBreakerOpen) => {
+                return Ok(error_response(
+                    http::StatusCode::SERVICE_UNAVAILABLE,
+                    40007,
+                    "circuit breaker open",
+                ));
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "request handler error");
+                return Ok(error_response(
+                    http::StatusCode::BAD_GATEWAY,
+                    40006,
+                    "gateway error",
+                ));
+            }
+        };
+
+        // WebSocket 升级检测：101 响应 + X-WS-Upstream-Addr 头
+        if resp.status() == http::StatusCode::SWITCHING_PROTOCOLS {
+            if let Some(upstream_addr) = resp
+                .headers()
+                .get("X-WS-Upstream-Addr")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+            {
+                // 上游 Host 头（来自路由配置，与 HTTP 转发路径一致）
+                let upstream_host = resp
+                    .headers()
+                    .get("X-WS-Host-Header")
+                    .and_then(|v| v.to_str().ok())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| upstream_addr.clone());
+                // 按路由配置剥离敏感头（authorization/cookie 等，与 HTTP 路径一致）
+                let strip_sensitive = resp.headers().contains_key("X-WS-Strip-Sensitive");
+                // 启动 WS 双向转发任务
+                if let (Some(on_upgrade), Some((method, uri, headers))) = (on_upgrade, ws_req_info)
+                {
+                    let ws_shutdown = ws_shutdown.clone();
+                    tokio::spawn(async move {
+                        match on_upgrade.await {
+                            Ok(upgraded) => {
+                                let io = TokioIo::new(upgraded);
+                                let mut upgrade_req = Request::builder()
+                                    .method(method)
+                                    .uri(uri)
+                                    .body(Bytes::new())
+                                    .unwrap();
+                                *upgrade_req.headers_mut() = headers;
+                                if strip_sensitive {
+                                    crate::protocol::http::strip_sensitive_headers(
+                                        upgrade_req.headers_mut(),
+                                    );
+                                }
+                                // 重写 Host 头为上游主机（否则上游看到的是网关的 Host）
+                                if let Ok(v) = upstream_host.parse() {
+                                    upgrade_req.headers_mut().insert(http::header::HOST, v);
+                                }
+                                let forward = crate::protocol::upgrade::forward_websocket(
+                                    &upstream_addr,
+                                    io,
+                                    upgrade_req,
+                                    ws_connect_timeout,
+                                    ws_idle_timeout,
+                                    upgrade_buffer_size,
+                                );
+                                tokio::select! {
+                                    result = forward => {
+                                        if let Err(e) = result {
+                                            tracing::warn!(error = %e, "websocket forwarding error");
+                                        }
+                                    }
+                                    _ = ws_shutdown.notified() => {
+                                        tracing::debug!("websocket tunnel closed by shutdown");
+                                    }
                                 }
                             }
-                        });
-                    }
-                    // 清除扩展头（不透传给客户端）
-                    let mut clean_resp = resp;
-                    clean_resp.headers_mut().remove("X-WS-Upstream-Addr");
-                    clean_resp.headers_mut().remove("X-WS-Host-Header");
-                    clean_resp.headers_mut().remove("X-WS-Strip-Sensitive");
-                    clean_resp.headers_mut().remove("X-WS-Trace-Id");
-                    return Ok(Response::from_parts(
-                        clean_resp.into_parts().0,
-                        boxed_body(Bytes::new()),
-                    ));
+                            Err(e) => {
+                                tracing::warn!(error = %e, "websocket upgrade failed");
+                            }
+                        }
+                    });
                 }
+                // 清除扩展头（不透传给客户端）
+                let mut clean_resp = resp;
+                clean_resp.headers_mut().remove("X-WS-Upstream-Addr");
+                clean_resp.headers_mut().remove("X-WS-Host-Header");
+                clean_resp.headers_mut().remove("X-WS-Strip-Sensitive");
+                clean_resp.headers_mut().remove("X-WS-Trace-Id");
+                return Ok(Response::from_parts(
+                    clean_resp.into_parts().0,
+                    boxed_body(Bytes::new()),
+                ));
             }
+        }
 
-            // 转换为 hyper 兼容响应（缓冲模式 body → 统一 ReqBody）
-            let (parts, body) = resp.into_parts();
-            Ok(Response::from_parts(parts, boxed_body(body)))
-        })
+        // 转换为 hyper 兼容响应（缓冲模式 body → 统一 ReqBody）
+        let (parts, body) = resp.into_parts();
+        Ok(Response::from_parts(parts, boxed_body(body)))
     }
 }
 

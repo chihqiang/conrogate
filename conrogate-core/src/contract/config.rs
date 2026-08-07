@@ -34,6 +34,8 @@ pub struct GateConfig {
     pub refresh: RefreshConfig,
     pub upgrade: UpgradeConfig,
     pub telemetry: TelemetryConfig,
+    /// 全局访问日志（网关核心统一输出，覆盖所有请求含失败路径）
+    pub access_log: AccessLogConfig,
     pub outbound_tls: OutboundTlsConfig,
     /// 网关实例标识（用于遥测区分多网关部署），默认取主机名
     pub gate_id: String,
@@ -201,6 +203,23 @@ impl Default for ShutdownConfig {
     fn default() -> Self {
         Self {
             long_conn_drain: Duration::from_secs(30),
+        }
+    }
+}
+
+/// 全局访问日志配置（网关核心统一输出，不依赖路由绑定）
+#[derive(Debug, Clone)]
+pub struct AccessLogConfig {
+    pub enabled: bool,
+    /// 命中前缀则跳过日志记录（健康探针等高频路径）
+    pub skip_paths: Vec<String>,
+}
+
+impl Default for AccessLogConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            skip_paths: vec!["/healthz".into(), "/readyz".into()],
         }
     }
 }
@@ -725,6 +744,17 @@ impl Config {
                         def.gate.telemetry.bucket_sec,
                     ),
                 },
+                access_log: AccessLogConfig {
+                    enabled: env_bool(
+                        "CONROGATE_GATE_ACCESS_LOG_ENABLED",
+                        def.gate.access_log.enabled,
+                    ),
+                    skip_paths: if std::env::var("CONROGATE_GATE_ACCESS_LOG_SKIP_PATHS").is_ok() {
+                        env_list("CONROGATE_GATE_ACCESS_LOG_SKIP_PATHS")
+                    } else {
+                        def.gate.access_log.skip_paths.clone()
+                    },
+                },
                 outbound_tls: OutboundTlsConfig {
                     skip_verify: env_bool(
                         "CONROGATE_GATE_OUTBOUND_TLS_SKIP_VERIFY",
@@ -856,6 +886,7 @@ impl Default for Config {
                 refresh: RefreshConfig::default(),
                 upgrade: UpgradeConfig::default(),
                 telemetry: TelemetryConfig::default(),
+                access_log: AccessLogConfig::default(),
                 outbound_tls: OutboundTlsConfig::default(),
                 gate_id: default_gate_id(),
             },
