@@ -920,19 +920,27 @@ fn boxed_body(bytes: Bytes) -> ReqBody {
     )
 }
 
-/// 构造 JSON 错误响应体（统一信封 {"code","msg","data","trace_id"}）
-fn json_error(code: i32, msg: &str) -> Bytes {
-    Bytes::from(
-        serde_json::to_vec(&crate::contract::response::error_body(code, msg)).unwrap_or_default(),
-    )
-}
-
-/// 构造 JSON 错误响应
-fn error_response(status: http::StatusCode, code: i32, msg: &str) -> Response<ReqBody> {
-    Response::builder()
+/// 构造 JSON 错误响应（统一信封 {"code","msg","data","trace_id"}，
+/// body 与 `x-trace-id` 响应头使用同一 trace_id）
+fn error_response(
+    status: http::StatusCode,
+    code: i32,
+    msg: &str,
+    trace_id: &str,
+) -> Response<ReqBody> {
+    let mut builder = Response::builder()
         .status(status)
-        .header("Content-Type", "application/json")
-        .body(boxed_body(json_error(code, msg)))
+        .header("Content-Type", "application/json");
+    if let Ok(v) = trace_id.parse::<http::HeaderValue>() {
+        builder = builder.header("x-trace-id", v);
+    }
+    builder
+        .body(boxed_body(Bytes::from(
+            serde_json::to_vec(&crate::contract::response::error_body_with_trace(
+                trace_id, code, msg,
+            ))
+            .unwrap_or_default(),
+        )))
         .unwrap()
 }
 
@@ -952,6 +960,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
             let start = std::time::Instant::now();
             let method = req.method().clone();
             let path = req.uri().path().to_string();
+            let trace_id = crate::contract::response::trace_id_from_headers(req.headers());
 
             let resp = match this.process(req).await {
                 Ok(r) => r,
@@ -961,6 +970,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                         http::StatusCode::BAD_GATEWAY,
                         ConrogateError::ERR_GATEWAY_INTERNAL,
                         "gateway error",
+                        &trace_id,
                     )
                 }
             };
@@ -1009,6 +1019,7 @@ impl HyperServiceBridge {
         let ws_connect_timeout = self.ws_connect_timeout;
         let ws_idle_timeout = self.ws_idle_timeout;
         let ws_shutdown = self.ws_shutdown.clone();
+        let req_trace_id = crate::contract::response::trace_id_from_headers(req.headers());
 
         // 健康探针：GET /healthz → 200
         if req.method() == http::Method::GET && req.uri().path() == "/healthz" {
@@ -1025,6 +1036,7 @@ impl HyperServiceBridge {
                     http::StatusCode::SERVICE_UNAVAILABLE,
                     ConrogateError::ERR_CONFIG_LOAD,
                     "not ready: no routes loaded",
+                    &req_trace_id,
                 ));
             }
             return Ok(Response::builder()
@@ -1080,6 +1092,7 @@ impl HyperServiceBridge {
                             http::StatusCode::PAYLOAD_TOO_LARGE,
                             ConrogateError::ERR_PAYLOAD_TOO_LARGE,
                             "request body too large",
+                            &req_trace_id,
                         ));
                     }
                 }
@@ -1093,6 +1106,7 @@ impl HyperServiceBridge {
                             http::StatusCode::TOO_MANY_REQUESTS,
                             ConrogateError::ERR_LIMITED,
                             "rate limited",
+                            &req_trace_id,
                         ));
                     }
                     Err(ConrogateError::CircuitBreakerOpen) => {
@@ -1100,6 +1114,7 @@ impl HyperServiceBridge {
                             http::StatusCode::SERVICE_UNAVAILABLE,
                             ConrogateError::ERR_CIRCUIT_BREAKER_OPEN,
                             "circuit breaker open",
+                            &req_trace_id,
                         ));
                     }
                     Err(e) => {
@@ -1108,6 +1123,7 @@ impl HyperServiceBridge {
                             http::StatusCode::BAD_GATEWAY,
                             ConrogateError::ERR_GATEWAY_INTERNAL,
                             "gateway error",
+                            &req_trace_id,
                         ));
                     }
                 };
@@ -1201,6 +1217,7 @@ impl HyperServiceBridge {
                     http::StatusCode::BAD_REQUEST,
                     ConrogateError::ERR_BODY_READ,
                     &format!("request body read error: {e}"),
+                    &req_trace_id,
                 ));
             }
             Err(_) => {
@@ -1208,6 +1225,7 @@ impl HyperServiceBridge {
                     http::StatusCode::REQUEST_TIMEOUT,
                     ConrogateError::ERR_BODY_READ_TIMEOUT,
                     "request body read timeout",
+                    &req_trace_id,
                 ));
             }
         };
@@ -1218,6 +1236,7 @@ impl HyperServiceBridge {
                 http::StatusCode::PAYLOAD_TOO_LARGE,
                 ConrogateError::ERR_PAYLOAD_TOO_LARGE,
                 "request body too large",
+                &req_trace_id,
             ));
         }
 
@@ -1229,6 +1248,7 @@ impl HyperServiceBridge {
                     http::StatusCode::TOO_MANY_REQUESTS,
                     ConrogateError::ERR_LIMITED,
                     "rate limited",
+                    &req_trace_id,
                 ));
             }
             Err(ConrogateError::CircuitBreakerOpen) => {
@@ -1236,6 +1256,7 @@ impl HyperServiceBridge {
                     http::StatusCode::SERVICE_UNAVAILABLE,
                     ConrogateError::ERR_CIRCUIT_BREAKER_OPEN,
                     "circuit breaker open",
+                    &req_trace_id,
                 ));
             }
             Err(e) => {
@@ -1244,6 +1265,7 @@ impl HyperServiceBridge {
                     http::StatusCode::BAD_GATEWAY,
                     ConrogateError::ERR_GATEWAY_INTERNAL,
                     "gateway error",
+                    &req_trace_id,
                 ));
             }
         };

@@ -181,19 +181,25 @@ impl HttpProtocolHandler {
     }
 
     /// 黑名单拦截响应（缓冲模式）
-    fn blacklist_response_bytes() -> Response<Bytes> {
-        Response::builder()
+    fn blacklist_response_bytes(trace_id: &str) -> Response<Bytes> {
+        let mut builder = Response::builder()
             .status(StatusCode::FORBIDDEN)
-            .header("Content-Type", "application/json")
-            .body(Self::blacklist_response_body())
-            .unwrap()
+            .header("Content-Type", "application/json");
+        if let Ok(v) = trace_id.parse::<http::HeaderValue>() {
+            builder = builder.header("x-trace-id", v);
+        }
+        builder.body(Self::blacklist_response_body()).unwrap()
     }
 
     /// 黑名单拦截响应（流式模式）
-    fn blacklist_response_stream() -> Response<ReqBody> {
-        Response::builder()
+    fn blacklist_response_stream(trace_id: &str) -> Response<ReqBody> {
+        let mut builder = Response::builder()
             .status(StatusCode::FORBIDDEN)
-            .header("Content-Type", "application/json")
+            .header("Content-Type", "application/json");
+        if let Ok(v) = trace_id.parse::<http::HeaderValue>() {
+            builder = builder.header("x-trace-id", v);
+        }
+        builder
             .body(body_from_bytes(Self::blacklist_response_body()))
             .unwrap()
     }
@@ -213,7 +219,7 @@ impl HttpProtocolHandler {
         // 全局 IP 黑名单：在路由匹配/插件执行前拦截（HTTP 与 WS 升级共用此路径）
         if self.svc.blacklist.is_blocked(&meta.real_ip) {
             tracing::info!(ip = %meta.real_ip, "request blocked by global ip blacklist");
-            return Ok(Self::blacklist_response_bytes());
+            return Ok(Self::blacklist_response_bytes(&meta.trace_id));
         }
 
         let route = self
@@ -227,15 +233,20 @@ impl HttpProtocolHandler {
             .preflight(&meta, &method, &headers, Some(&body), route)
             .await?
         {
-            PreFlight::Terminate { code, body } => Ok(Response::builder()
-                .status(code)
-                .body(Bytes::from(body.to_string().into_bytes()))
-                .unwrap_or_else(|_| {
-                    Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(Bytes::new())
-                        .unwrap()
-                })),
+            PreFlight::Terminate { code, body } => {
+                let mut builder = Response::builder().status(code);
+                if let Ok(v) = meta.trace_id.parse::<http::HeaderValue>() {
+                    builder = builder.header("x-trace-id", v);
+                }
+                Ok(builder
+                    .body(Bytes::from(body.to_string().into_bytes()))
+                    .unwrap_or_else(|_| {
+                        Response::builder()
+                            .status(StatusCode::INTERNAL_SERVER_ERROR)
+                            .body(Bytes::new())
+                            .unwrap()
+                    }))
+            }
             PreFlight::WebSocketUpgrade {
                 parts: resp_parts,
                 upstream_addr,
@@ -393,22 +404,27 @@ impl HttpProtocolHandler {
         // 全局 IP 黑名单：在路由匹配/插件执行前拦截（HTTP 与 WS 升级共用此路径）
         if self.svc.blacklist.is_blocked(&meta.real_ip) {
             tracing::info!(ip = %meta.real_ip, "request blocked by global ip blacklist");
-            return Ok(Self::blacklist_response_stream());
+            return Ok(Self::blacklist_response_stream(&meta.trace_id));
         }
 
         match self
             .preflight(&meta, &method, &headers, None, route)
             .await?
         {
-            PreFlight::Terminate { code, body } => Ok(Response::builder()
-                .status(code)
-                .body(body_from_bytes(Bytes::from(body.to_string().into_bytes())))
-                .unwrap_or_else(|_| {
-                    Response::builder()
-                        .status(StatusCode::INTERNAL_SERVER_ERROR)
-                        .body(body_from_bytes(Bytes::new()))
-                        .unwrap()
-                })),
+            PreFlight::Terminate { code, body } => {
+                let mut builder = Response::builder().status(code);
+                if let Ok(v) = meta.trace_id.parse::<http::HeaderValue>() {
+                    builder = builder.header("x-trace-id", v);
+                }
+                Ok(builder
+                    .body(body_from_bytes(Bytes::from(body.to_string().into_bytes())))
+                    .unwrap_or_else(|_| {
+                        Response::builder()
+                            .status(StatusCode::INTERNAL_SERVER_ERROR)
+                            .body(body_from_bytes(Bytes::new()))
+                            .unwrap()
+                    }))
+            }
             PreFlight::WebSocketUpgrade {
                 parts: resp_parts,
                 upstream_addr,
@@ -500,8 +516,10 @@ impl HttpProtocolHandler {
         let trace_id = headers
             .get("x-trace-id")
             .and_then(|v| v.to_str().ok())
-            .unwrap_or(&request_id)
-            .to_string();
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string)
+            .unwrap_or_else(crate::contract::response::generate_trace_id);
         let real_ip = self.resolve_real_ip(&client_ip, headers);
         RequestMeta {
             match_info,

@@ -1,16 +1,23 @@
 //! axum 路由注册。
 
 use super::handler::{self, AppState};
+use super::trace;
+use axum::body::Body;
 use axum::extract::State;
 use axum::middleware;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use tower_http::trace::TraceLayer;
+use tracing::Span;
 
 /// 构建控制面 API 路由
 ///
 /// 公开路由（health/healthz/readyz/openapi.json）挂在根路径；
 /// 受保护路由挂载在 `api_prefix` 下（默认 `/api/v1`）。
+///
+/// 中间件顺序（外→内）：trace 中间件 → TraceLayer → 认证中间件。
+/// trace 中间件在最外层，负责提取/生成 trace_id 并写入请求头，使内层 TraceLayer
+/// 的日志 span 与响应信封、`x-trace-id` 响应头、审计共用同一 trace_id。
 pub fn build_router(state: AppState, auth_token: &str, api_prefix: &str) -> Router {
     let auth_state = super::auth::AuthState::from_configured(auth_token);
 
@@ -118,7 +125,34 @@ pub fn build_router(state: AppState, auth_token: &str, api_prefix: &str) -> Rout
     Router::new()
         .merge(public_routes)
         .merge(protected_routes)
-        .layer(TraceLayer::new_for_http())
+        // 日志 span：记录 trace_id（trace 中间件已写入请求头）
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &axum::http::Request<Body>| {
+                    let method = request.method();
+                    let uri = request.uri();
+                    tracing::info_span!(
+                        "http_request",
+                        method = %method,
+                        uri = %uri,
+                        trace_id = tracing::field::Empty,
+                    )
+                })
+                .on_request(|request: &axum::http::Request<Body>, span: &Span| {
+                    let trace_id = request
+                        .headers()
+                        .get(crate::contract::constant::TRACE_ID_HEADER)
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or_default()
+                        .to_string();
+                    span.record("trace_id", trace_id);
+                }),
+        )
+        // trace 中间件在最外层：先于 TraceLayer 提取/生成 trace_id 并写入请求头
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            trace::trace_middleware,
+        ))
         .with_state(state)
 }
 

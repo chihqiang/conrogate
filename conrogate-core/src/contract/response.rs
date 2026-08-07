@@ -1,5 +1,9 @@
 //! 统一响应结构：所有接口（控制面 API / 数据面网关错误）返回 `{"code","msg","data","trace_id"}`。
+//!
+//! trace_id 生命周期：请求入口提取/生成一次（见 `trace_id_from_headers`），
+//! 贯穿响应信封、`x-trace-id` 响应头、日志 span 与审计，保证一次请求可端到端追踪。
 
+use crate::contract::constant::TRACE_ID_HEADER;
 use crate::contract::ConrogateError;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -67,6 +71,20 @@ pub fn data_body(code: i32, msg: impl Into<String>) -> serde_json::Value {
     })
 }
 
+/// 构造统一错误响应体（显式 trace_id；数据面网关错误场景，保证 body 与 `x-trace-id` 响应头一致）
+pub fn error_body_with_trace(
+    trace_id: &str,
+    code: i32,
+    msg: impl Into<String>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "code": code,
+        "msg": msg.into(),
+        "data": null,
+        "trace_id": trace_id,
+    })
+}
+
 /// 对外展示的错误信息（内部错误不暴露细节）
 fn message(e: &ConrogateError) -> String {
     if e.is_internal() {
@@ -76,8 +94,19 @@ fn message(e: &ConrogateError) -> String {
     }
 }
 
+/// 从请求头提取 trace_id：优先入站 `x-trace-id`，否则生成
+pub fn trace_id_from_headers(headers: &axum::http::HeaderMap) -> String {
+    headers
+        .get(TRACE_ID_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .unwrap_or_else(generate_trace_id)
+}
+
 /// 生成追踪 ID（32 位十六进制纳秒时间戳）
-fn generate_trace_id() -> String {
+pub fn generate_trace_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

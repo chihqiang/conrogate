@@ -3,6 +3,7 @@
 //! 写操作（POST/PUT/PATCH/DELETE）要求 Operator 权限。
 
 use super::service::ControlService;
+use super::trace::TraceId;
 use crate::contract::dto::*;
 use crate::contract::response;
 use crate::contract::ConrogateError;
@@ -36,13 +37,14 @@ fn require_role(role: &Role, required: Role) -> Result<(), ConrogateError> {
 pub async fn create_route(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Json(dto): Json<CreateRouteDto>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.create_route(dto, Some(&operator)).await {
+    match state.svc.create_route(dto, Some(&operator), &trace).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -51,13 +53,14 @@ pub async fn create_route(
 pub async fn update_route(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Json(dto): Json<UpdateRouteDto>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.update_route(dto, Some(&operator)).await {
+    match state.svc.update_route(dto, Some(&operator), &trace).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -67,6 +70,7 @@ pub async fn update_route(
 pub async fn patch_route(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Path(id): Path<u64>,
     Json(mut dto): Json<UpdateRouteDto>,
@@ -75,7 +79,7 @@ pub async fn patch_route(
         return response::err(e);
     }
     dto.id = id;
-    match state.svc.update_route(dto, Some(&operator)).await {
+    match state.svc.update_route(dto, Some(&operator), &trace).await {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -84,13 +88,14 @@ pub async fn patch_route(
 pub async fn delete_route(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Path(id): Path<u64>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.delete_route(id, Some(&operator)).await {
+    match state.svc.delete_route(id, Some(&operator), &trace).await {
         Ok(_) => response::ok_empty(),
         Err(e) => response::err(e),
     }
@@ -128,13 +133,18 @@ pub async fn list_routes(
 pub async fn create_upstream(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Json(dto): Json<CreateUpstreamDto>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.create_upstream(dto, Some(&operator)).await {
+    match state
+        .svc
+        .create_upstream(dto, Some(&operator), &trace)
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -143,13 +153,18 @@ pub async fn create_upstream(
 pub async fn update_upstream(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Json(dto): Json<UpdateUpstreamDto>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.update_upstream(dto, Some(&operator)).await {
+    match state
+        .svc
+        .update_upstream(dto, Some(&operator), &trace)
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -158,13 +173,14 @@ pub async fn update_upstream(
 pub async fn delete_upstream(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Path(id): Path<u64>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.delete_upstream(id, Some(&operator)).await {
+    match state.svc.delete_upstream(id, Some(&operator), &trace).await {
         Ok(_) => response::ok_empty(),
         Err(e) => response::err(e),
     }
@@ -174,6 +190,7 @@ pub async fn delete_upstream(
 pub async fn patch_upstream(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Path(id): Path<u64>,
     Json(mut dto): Json<UpdateUpstreamDto>,
@@ -182,7 +199,11 @@ pub async fn patch_upstream(
         return response::err(e);
     }
     dto.id = id;
-    match state.svc.update_upstream(dto, Some(&operator)).await {
+    match state
+        .svc
+        .update_upstream(dto, Some(&operator), &trace)
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -214,6 +235,7 @@ pub async fn list_upstreams(
 pub async fn bind_plugin(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Path(route_id): Path<u64>,
     Json(dto): Json<BindPluginDto>,
@@ -221,7 +243,11 @@ pub async fn bind_plugin(
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.bind_plugin(route_id, dto, Some(&operator)).await {
+    match state
+        .svc
+        .bind_plugin(route_id, dto, Some(&operator), &trace)
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -231,6 +257,7 @@ pub async fn bind_plugin(
 pub async fn update_plugin_binding(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Path((route_id, plugin_name)): Path<(u64, String)>,
     Json(dto): Json<UpdatePluginBindingDto>,
@@ -240,7 +267,7 @@ pub async fn update_plugin_binding(
     }
     match state
         .svc
-        .update_plugin_binding(route_id, &plugin_name, dto, Some(&operator))
+        .update_plugin_binding(route_id, &plugin_name, dto, Some(&operator), &trace)
         .await
     {
         Ok(data) => response::ok(data),
@@ -251,6 +278,7 @@ pub async fn update_plugin_binding(
 pub async fn unbind_plugin(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Path((route_id, plugin_name)): Path<(u64, String)>,
 ) -> Response {
@@ -259,7 +287,7 @@ pub async fn unbind_plugin(
     }
     match state
         .svc
-        .unbind_plugin(route_id, &plugin_name, Some(&operator))
+        .unbind_plugin(route_id, &plugin_name, Some(&operator), &trace)
         .await
     {
         Ok(_) => response::ok_empty(),
@@ -288,6 +316,7 @@ pub struct PublishQuery {
 pub async fn publish_config(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Query(q): Query<PublishQuery>,
 ) -> Response {
@@ -299,6 +328,7 @@ pub async fn publish_config(
         .publish_config(
             q.base_version.unwrap_or(0),
             Some(&operator),
+            &trace,
             q.remark.as_deref(),
         )
         .await
@@ -311,13 +341,18 @@ pub async fn publish_config(
 pub async fn rollback_config(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Path(version): Path<u64>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.rollback_config(version, Some(&operator)).await {
+    match state
+        .svc
+        .rollback_config(version, Some(&operator), &trace)
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -544,6 +579,7 @@ pub struct PluginStatusQuery {
 pub async fn activate_plugin(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Response {
@@ -556,6 +592,7 @@ pub async fn activate_plugin(
             &name,
             crate::contract::plugin::PluginStatus::Active,
             Some(&operator),
+            &trace,
         )
         .await
     {
@@ -568,6 +605,7 @@ pub async fn activate_plugin(
 pub async fn disable_plugin(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Response {
@@ -580,6 +618,7 @@ pub async fn disable_plugin(
             &name,
             crate::contract::plugin::PluginStatus::Disabled,
             Some(&operator),
+            &trace,
         )
         .await
     {
@@ -592,13 +631,18 @@ pub async fn disable_plugin(
 pub async fn delete_plugin(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Admin) {
         return response::err(e);
     }
-    match state.svc.delete_plugin(&name, Some(&operator)).await {
+    match state
+        .svc
+        .delete_plugin(&name, Some(&operator), &trace)
+        .await
+    {
         Ok(_) => response::ok_empty(),
         Err(e) => response::err(e),
     }
@@ -634,13 +678,18 @@ pub async fn list_ip_blacklist(
 pub async fn create_ip_blacklist(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Json(dto): Json<CreateIpBlacklistDto>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.create_ip_blacklist(dto, Some(&operator)).await {
+    match state
+        .svc
+        .create_ip_blacklist(dto, Some(&operator), &trace)
+        .await
+    {
         Ok(data) => response::ok(data),
         Err(e) => response::err(e),
     }
@@ -650,13 +699,18 @@ pub async fn create_ip_blacklist(
 pub async fn delete_ip_blacklist(
     Extension(role): Extension<Role>,
     Extension(operator): Extension<String>,
+    Extension(trace): Extension<TraceId>,
     State(state): State<AppState>,
     Path(id): Path<u64>,
 ) -> Response {
     if let Err(e) = require_role(&role, Role::Operator) {
         return response::err(e);
     }
-    match state.svc.delete_ip_blacklist(id, Some(&operator)).await {
+    match state
+        .svc
+        .delete_ip_blacklist(id, Some(&operator), &trace)
+        .await
+    {
         Ok(_) => response::ok_empty(),
         Err(e) => response::err(e),
     }

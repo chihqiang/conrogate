@@ -6,6 +6,7 @@ pub mod auth;
 pub mod handler;
 pub mod openapi;
 pub mod service;
+pub mod trace;
 
 pub use api::build_router;
 pub use handler::AppState;

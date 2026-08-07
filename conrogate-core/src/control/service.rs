@@ -69,6 +69,7 @@ impl ControlService {
         &self,
         dto: CreateRouteDto,
         operator: Option<&str>,
+        trace_id: &str,
     ) -> Result<RouteDto, ConrogateError> {
         let route = self.route_repo.create(dto).await?;
         self.audit
@@ -78,7 +79,7 @@ impl ControlService {
                 "route",
                 Some(route.id),
                 serde_json::to_value(&route).unwrap_or_default(),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
         Ok(route)
@@ -88,6 +89,7 @@ impl ControlService {
         &self,
         dto: UpdateRouteDto,
         operator: Option<&str>,
+        trace_id: &str,
     ) -> Result<RouteDto, ConrogateError> {
         let route = self.route_repo.update(dto).await?;
         self.audit
@@ -97,7 +99,7 @@ impl ControlService {
                 "route",
                 Some(route.id),
                 serde_json::to_value(&route).unwrap_or_default(),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
         Ok(route)
@@ -107,6 +109,7 @@ impl ControlService {
         &self,
         id: u64,
         operator: Option<&str>,
+        trace_id: &str,
     ) -> Result<(), ConrogateError> {
         self.route_repo.soft_delete(id).await?;
         self.audit
@@ -116,7 +119,7 @@ impl ControlService {
                 "route",
                 Some(id),
                 serde_json::json!({"id": id}),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
         Ok(())
@@ -140,6 +143,7 @@ impl ControlService {
         &self,
         dto: CreateUpstreamDto,
         operator: Option<&str>,
+        trace_id: &str,
     ) -> Result<UpstreamDto, ConrogateError> {
         let upstream = self.upstream_repo.create(dto).await?;
         self.audit
@@ -149,7 +153,7 @@ impl ControlService {
                 "upstream",
                 Some(upstream.id),
                 serde_json::to_value(&upstream).unwrap_or_default(),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
         Ok(upstream)
@@ -159,6 +163,7 @@ impl ControlService {
         &self,
         dto: UpdateUpstreamDto,
         operator: Option<&str>,
+        trace_id: &str,
     ) -> Result<UpstreamDto, ConrogateError> {
         let upstream = self.upstream_repo.update(dto).await?;
         self.audit
@@ -168,7 +173,7 @@ impl ControlService {
                 "upstream",
                 Some(upstream.id),
                 serde_json::to_value(&upstream).unwrap_or_default(),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
         Ok(upstream)
@@ -178,6 +183,7 @@ impl ControlService {
         &self,
         id: u64,
         operator: Option<&str>,
+        trace_id: &str,
     ) -> Result<(), ConrogateError> {
         self.upstream_repo.soft_delete(id).await?;
         self.audit
@@ -187,7 +193,7 @@ impl ControlService {
                 "upstream",
                 Some(id),
                 serde_json::json!({"id": id}),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
         Ok(())
@@ -212,6 +218,7 @@ impl ControlService {
         route_id: u64,
         dto: BindPluginDto,
         operator: Option<&str>,
+        trace_id: &str,
     ) -> Result<PluginBindingDto, ConrogateError> {
         let binding = self.binding_repo.bind(route_id, dto).await?;
         self.audit
@@ -221,7 +228,7 @@ impl ControlService {
                 "plugin_binding",
                 Some(binding.id),
                 serde_json::to_value(&binding).unwrap_or_default(),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
         Ok(binding)
@@ -232,6 +239,7 @@ impl ControlService {
         route_id: u64,
         plugin_name: &str,
         operator: Option<&str>,
+        trace_id: &str,
     ) -> Result<(), ConrogateError> {
         self.binding_repo.unbind(route_id, plugin_name).await?;
         self.audit
@@ -241,7 +249,7 @@ impl ControlService {
                 "plugin_binding",
                 None,
                 serde_json::json!({"route_id": route_id, "plugin": plugin_name}),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
         Ok(())
@@ -260,6 +268,7 @@ impl ControlService {
         plugin_name: &str,
         dto: UpdatePluginBindingDto,
         operator: Option<&str>,
+        trace_id: &str,
     ) -> Result<PluginBindingDto, ConrogateError> {
         let binding = self.binding_repo.update(route_id, plugin_name, dto).await?;
         self.audit
@@ -269,7 +278,7 @@ impl ControlService {
                 "plugin_binding",
                 Some(binding.id),
                 serde_json::to_value(&binding).unwrap_or_default(),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
         Ok(binding)
@@ -281,6 +290,7 @@ impl ControlService {
         &self,
         base_version: u64,
         operator: Option<&str>,
+        trace_id: &str,
         remark: Option<&str>,
     ) -> Result<ConfigVersionDto, ConrogateError> {
         // 构建当前配置快照
@@ -326,7 +336,7 @@ impl ControlService {
                 "config_version",
                 Some(version.version),
                 serde_json::json!({"version": version.version, "base": version.base_version}),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
 
@@ -337,6 +347,7 @@ impl ControlService {
         &self,
         target_version: u64,
         operator: Option<&str>,
+        trace_id: &str,
     ) -> Result<ConfigVersionDto, ConrogateError> {
         // 1. 取目标快照
         let target_snapshot = self
@@ -387,7 +398,7 @@ impl ControlService {
                 "config_version",
                 Some(version.version),
                 serde_json::json!({"target": target_version, "new_version": version.version}),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
 
@@ -571,6 +582,7 @@ impl ControlService {
         name: &str,
         status: crate::contract::plugin::PluginStatus,
         operator: Option<&str>,
+        trace_id: &str,
     ) -> Result<(), ConrogateError> {
         self.plugin_repo.update_status(name, status).await?;
         self.audit
@@ -580,7 +592,7 @@ impl ControlService {
                 "plugin",
                 None,
                 serde_json::json!({"name": name, "status": format!("{:?}", status)}),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
         Ok(())
@@ -591,6 +603,7 @@ impl ControlService {
         &self,
         name: &str,
         operator: Option<&str>,
+        trace_id: &str,
     ) -> Result<(), ConrogateError> {
         self.plugin_repo.soft_delete(name).await?;
         self.audit
@@ -600,7 +613,7 @@ impl ControlService {
                 "plugin",
                 None,
                 serde_json::json!({"name": name}),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
         Ok(())
@@ -624,6 +637,7 @@ impl ControlService {
         &self,
         dto: CreateIpBlacklistDto,
         operator: Option<&str>,
+        trace_id: &str,
     ) -> Result<IpBlacklistDto, ConrogateError> {
         let ip_or_cidr = dto.ip_or_cidr.trim().to_string();
         if crate::security::blacklist::parse_ip_or_cidr(&ip_or_cidr).is_none() {
@@ -657,7 +671,7 @@ impl ControlService {
                 "ip_blacklist",
                 Some(entry.id),
                 serde_json::to_value(&entry).unwrap_or_default(),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
         Ok(entry)
@@ -668,6 +682,7 @@ impl ControlService {
         &self,
         id: u64,
         operator: Option<&str>,
+        trace_id: &str,
     ) -> Result<(), ConrogateError> {
         self.ip_blacklist_repo.delete(id).await?;
         self.audit
@@ -677,7 +692,7 @@ impl ControlService {
                 "ip_blacklist",
                 Some(id),
                 serde_json::json!({"id": id}),
-                None,
+                Some(trace_id.to_string()),
             )
             .await;
         Ok(())
