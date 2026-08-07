@@ -13,6 +13,7 @@ pub mod gateway;
 pub mod health;
 pub mod plugin;
 pub mod protocol;
+pub mod response;
 pub mod storage;
 pub mod traffic;
 

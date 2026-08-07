@@ -86,13 +86,13 @@
 use crate::contract::{
     plugin::{Plugin, PluginContext, PluginKind, PluginOutcome},
     protocol::ProtocolId,
-    ConrogateError,
+    response, ConrogateError,
 };
 use crate::security::blacklist::parse_ip_or_cidr;
 use async_trait::async_trait;
 use http::StatusCode;
 use ipnet::IpNet;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::sync::Arc;
 
 /// ip_allow_deny 插件配置
@@ -163,10 +163,10 @@ impl IpAllowDenyPlugin {
             || (!self.compiled.allow.is_empty()
                 && !self.compiled.allow.iter().any(|net| net.contains(&ip)));
         if denied {
-            return Some(json!({
-                "code": 10003,
-                "msg": "forbidden: ip not allowed",
-            }));
+            return Some(response::data_body(
+                ConrogateError::ERR_FORBIDDEN,
+                "forbidden: ip not allowed",
+            ));
         }
         None
     }
@@ -244,6 +244,7 @@ mod tests {
     use super::*;
     use crate::contract::plugin::{HttpContext, PluginLogger, PluginMetrics, PluginServices};
     use http::Method;
+    use serde_json::json;
 
     struct NoopMetrics;
     #[async_trait]
@@ -293,7 +294,7 @@ mod tests {
         let mut ctx = ctx_with_ip("10.20.0.5");
         let out = p.before_request(&mut ctx).await.unwrap();
         assert!(
-            matches!(out, PluginOutcome::Terminate(s, b) if s == StatusCode::FORBIDDEN && b["code"] == 10003)
+            matches!(out, PluginOutcome::Terminate(s, b) if s == StatusCode::FORBIDDEN && b["code"] == ConrogateError::ERR_FORBIDDEN)
         );
     }
 

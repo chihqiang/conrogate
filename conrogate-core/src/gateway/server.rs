@@ -920,21 +920,11 @@ fn boxed_body(bytes: Bytes) -> ReqBody {
     )
 }
 
-/// 构造 JSON 错误响应体
+/// 构造 JSON 错误响应体（统一信封 {"code","msg","data","trace_id"}）
 fn json_error(code: i32, msg: &str) -> Bytes {
-    let trace_id = format!(
-        "{:032x}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    );
-    let body = serde_json::json!({
-        "code": code,
-        "msg": msg,
-        "trace_id": trace_id
-    });
-    Bytes::from(serde_json::to_vec(&body).unwrap_or_default())
+    Bytes::from(
+        serde_json::to_vec(&crate::contract::response::error_body(code, msg)).unwrap_or_default(),
+    )
 }
 
 /// 构造 JSON 错误响应
@@ -967,7 +957,11 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
                 Ok(r) => r,
                 Err(e) => {
                     tracing::warn!(error = %e, "gateway request error");
-                    error_response(http::StatusCode::BAD_GATEWAY, 40006, "gateway error")
+                    error_response(
+                        http::StatusCode::BAD_GATEWAY,
+                        ConrogateError::ERR_GATEWAY_INTERNAL,
+                        "gateway error",
+                    )
                 }
             };
 
@@ -1029,7 +1023,7 @@ impl HyperServiceBridge {
             if route_matcher.is_empty() {
                 return Ok(error_response(
                     http::StatusCode::SERVICE_UNAVAILABLE,
-                    50001,
+                    ConrogateError::ERR_CONFIG_LOAD,
                     "not ready: no routes loaded",
                 ));
             }
@@ -1084,7 +1078,7 @@ impl HyperServiceBridge {
                     if cl > max_body_bytes {
                         return Ok(error_response(
                             http::StatusCode::PAYLOAD_TOO_LARGE,
-                            10007,
+                            ConrogateError::ERR_PAYLOAD_TOO_LARGE,
                             "request body too large",
                         ));
                     }
@@ -1097,14 +1091,14 @@ impl HyperServiceBridge {
                     Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
                         return Ok(error_response(
                             http::StatusCode::TOO_MANY_REQUESTS,
-                            40008,
+                            ConrogateError::ERR_LIMITED,
                             "rate limited",
                         ));
                     }
                     Err(ConrogateError::CircuitBreakerOpen) => {
                         return Ok(error_response(
                             http::StatusCode::SERVICE_UNAVAILABLE,
-                            40007,
+                            ConrogateError::ERR_CIRCUIT_BREAKER_OPEN,
                             "circuit breaker open",
                         ));
                     }
@@ -1112,7 +1106,7 @@ impl HyperServiceBridge {
                         tracing::warn!(error = %e, "stream handler error");
                         return Ok(error_response(
                             http::StatusCode::BAD_GATEWAY,
-                            40006,
+                            ConrogateError::ERR_GATEWAY_INTERNAL,
                             "gateway error",
                         ));
                     }
@@ -1205,14 +1199,14 @@ impl HyperServiceBridge {
             Ok(Err(e)) => {
                 return Ok(error_response(
                     http::StatusCode::BAD_REQUEST,
-                    10008,
+                    ConrogateError::ERR_BODY_READ,
                     &format!("request body read error: {e}"),
                 ));
             }
             Err(_) => {
                 return Ok(error_response(
                     http::StatusCode::REQUEST_TIMEOUT,
-                    10009,
+                    ConrogateError::ERR_BODY_READ_TIMEOUT,
                     "request body read timeout",
                 ));
             }
@@ -1222,7 +1216,7 @@ impl HyperServiceBridge {
         if body_bytes.len() > max_body_bytes {
             return Ok(error_response(
                 http::StatusCode::PAYLOAD_TOO_LARGE,
-                10007,
+                ConrogateError::ERR_PAYLOAD_TOO_LARGE,
                 "request body too large",
             ));
         }
@@ -1233,14 +1227,14 @@ impl HyperServiceBridge {
             Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
                 return Ok(error_response(
                     http::StatusCode::TOO_MANY_REQUESTS,
-                    40008,
+                    ConrogateError::ERR_LIMITED,
                     "rate limited",
                 ));
             }
             Err(ConrogateError::CircuitBreakerOpen) => {
                 return Ok(error_response(
                     http::StatusCode::SERVICE_UNAVAILABLE,
-                    40007,
+                    ConrogateError::ERR_CIRCUIT_BREAKER_OPEN,
                     "circuit breaker open",
                 ));
             }
@@ -1248,7 +1242,7 @@ impl HyperServiceBridge {
                 tracing::warn!(error = %e, "request handler error");
                 return Ok(error_response(
                     http::StatusCode::BAD_GATEWAY,
-                    40006,
+                    ConrogateError::ERR_GATEWAY_INTERNAL,
                     "gateway error",
                 ));
             }

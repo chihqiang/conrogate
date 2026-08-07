@@ -1,11 +1,10 @@
 //! 认证中间件：Bearer Token 校验 + RBAC 角色控制。
 //! Token 格式：operator:secret:role（role = viewer / operator / admin）
 
+use crate::contract::ConrogateError;
 use axum::extract::{Request, State};
-use axum::http::StatusCode;
 use axum::middleware::Next;
-use axum::response::{IntoResponse, Response};
-use axum::Json;
+use axum::response::Response;
 
 /// 认证配置：支持逗号分隔的多个独立 token，每个 token 内嵌 operator:secret:role
 #[derive(Clone)]
@@ -63,24 +62,7 @@ fn parse_token(token: &str) -> Option<(&str, &str, Role)> {
 
 /// 构建 401 统一错误体（code=10002）
 fn unauthorized_response() -> Response {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let trace_id = format!(
-        "{:032x}",
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    );
-    (
-        StatusCode::UNAUTHORIZED,
-        Json(serde_json::json!({
-            "code": 10002,
-            "msg": "unauthorized",
-            "data": null,
-            "trace_id": trace_id,
-        })),
-    )
-        .into_response()
+    crate::contract::response::err(ConrogateError::Unauthorized)
 }
 
 /// Bearer Token 认证中间件

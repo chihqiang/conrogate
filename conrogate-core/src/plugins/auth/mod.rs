@@ -143,7 +143,7 @@
 use crate::contract::{
     plugin::{Plugin, PluginContext, PluginKind, PluginOutcome},
     protocol::ProtocolId,
-    ConrogateError,
+    response, ConrogateError,
 };
 use async_trait::async_trait;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
@@ -578,10 +578,10 @@ impl Plugin for AuthPlugin {
                         );
                         return Ok(PluginOutcome::Terminate(
                             http::StatusCode::UNAUTHORIZED,
-                            serde_json::json!({
-                                "code": 10002,
-                                "msg": format!("unauthorized: invalid token header: {}", e)
-                            }),
+                            response::data_body(
+                                ConrogateError::ERR_UNAUTHORIZED,
+                                format!("unauthorized: invalid token header: {}", e),
+                            ),
                         ));
                     }
                 };
@@ -597,10 +597,10 @@ impl Plugin for AuthPlugin {
                         );
                         return Ok(PluginOutcome::Terminate(
                             http::StatusCode::UNAUTHORIZED,
-                            serde_json::json!({
-                                "code": 10002,
-                                "msg": format!("unauthorized: {}", e)
-                            }),
+                            response::data_body(
+                                ConrogateError::ERR_UNAUTHORIZED,
+                                format!("unauthorized: {}", e),
+                            ),
                         ));
                     }
                 };
@@ -629,10 +629,10 @@ impl Plugin for AuthPlugin {
                         );
                         Ok(PluginOutcome::Terminate(
                             http::StatusCode::UNAUTHORIZED,
-                            serde_json::json!({
-                                "code": 10002,
-                                "msg": format!("unauthorized: {}", e)
-                            }),
+                            response::data_body(
+                                ConrogateError::ERR_UNAUTHORIZED,
+                                format!("unauthorized: {}", e),
+                            ),
                         ))
                     }
                 }
@@ -641,10 +641,10 @@ impl Plugin for AuthPlugin {
                 // 需要鉴权但无 token
                 Ok(PluginOutcome::Terminate(
                     http::StatusCode::UNAUTHORIZED,
-                    serde_json::json!({
-                        "code": 10002,
-                        "msg": "unauthorized: missing bearer token"
-                    }),
+                    response::data_body(
+                        ConrogateError::ERR_UNAUTHORIZED,
+                        "unauthorized: missing bearer token",
+                    ),
                 ))
             }
             (None, false) => Ok(PluginOutcome::Continue),

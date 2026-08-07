@@ -2,9 +2,9 @@
 //! 所有 handler 返回统一响应结构 {"code", "msg", "data", "trace_id"}。
 //! 写操作（POST/PUT/PATCH/DELETE）要求 Operator 权限。
 
-use super::response;
 use super::service::ControlService;
 use crate::contract::dto::*;
+use crate::contract::response;
 use crate::contract::ConrogateError;
 use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Response};
@@ -675,42 +675,24 @@ pub async fn healthz() -> Response {
 pub async fn readyz(State(state): State<AppState>) -> Response {
     // 1. 检查 DB 连通性
     if let Err(e) = state.svc.list_nodes().await {
-        let body = serde_json::json!({
-            "code": 50001,
-            "msg": format!("not ready: {e}"),
-            "data": null,
-            "trace_id": format!("{:x}", std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_nanos())
-                .unwrap_or(0)),
-        });
+        let body = response::error_body(ConrogateError::ERR_CONFIG_LOAD, format!("not ready: {e}"));
         return (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response();
     }
     // 2. 检查路由是否已加载
     match state.svc.list_routes(1, 1).await {
         Ok(routes) if routes.total > 0 => response::ok(serde_json::json!({"status": "ok"})),
         Ok(_) => {
-            let body = serde_json::json!({
-                "code": 50001,
-                "msg": "not ready: no routes loaded",
-                "data": null,
-                "trace_id": format!("{:x}", std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_nanos())
-                    .unwrap_or(0)),
-            });
+            let body = response::error_body(
+                ConrogateError::ERR_CONFIG_LOAD,
+                "not ready: no routes loaded",
+            );
             (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response()
         }
         Err(e) => {
-            let body = serde_json::json!({
-                "code": 50001,
-                "msg": format!("not ready: route check failed: {e}"),
-                "data": null,
-                "trace_id": format!("{:x}", std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_nanos())
-                    .unwrap_or(0)),
-            });
+            let body = response::error_body(
+                ConrogateError::ERR_CONFIG_LOAD,
+                format!("not ready: route check failed: {e}"),
+            );
             (axum::http::StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response()
         }
     }

@@ -1,6 +1,6 @@
 # 状态码总览
 
-> 本页汇总 Conrogate 全部业务错误码与相关 HTTP 状态码，覆盖控制面统一信封与数据面直接响应。代码实现见 `conrogate-core/src/contract/error.rs`（`ConrogateError::code()`）与 `conrogate-core/src/gateway/server.rs`（`error_response`）。
+> 本页汇总 Conrogate 全部业务错误码与相关 HTTP 状态码，覆盖控制面统一信封与数据面直接响应。**权威定义**：所有错误码以 `ConrogateError::ERR_*` 关联常量集中在 `conrogate-core/src/contract/error.rs`（`code()` 引用常量，控制面/数据面/插件均引用常量，禁止散落字面量）；统一响应信封/`error_body` 见 `conrogate-core/src/contract/response.rs`，数据面错误响应见 `conrogate-core/src/gateway/server.rs`（`error_response`）。
 
 ## 1. 响应信封
 

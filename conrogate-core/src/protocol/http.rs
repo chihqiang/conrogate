@@ -4,7 +4,7 @@ use crate::contract::dto::{RouteSnapshot, UpstreamNodeDto};
 use crate::contract::gateway::ServiceContext;
 use crate::contract::plugin::{HttpContext, Plugin, PluginContext, PluginOutcome, PluginResponse};
 use crate::contract::protocol::{ProtocolId, RouteMatchInfo};
-use crate::contract::ConrogateError;
+use crate::contract::{response, ConrogateError};
 use crate::protocol::handler::{plugin_services, ProtocolHandler};
 use crate::protocol::proxy::{body_from_bytes, body_from_incoming, HttpClient, ReqBody};
 use bytes::Bytes;
@@ -175,7 +175,8 @@ impl HttpProtocolHandler {
     /// 全局 IP 黑名单拦截响应体（统一错误码 10003）
     fn blacklist_response_body() -> Bytes {
         Bytes::from(
-            serde_json::json!({"code": 10003, "msg": "forbidden: ip not allowed"}).to_string(),
+            response::data_body(ConrogateError::ERR_FORBIDDEN, "forbidden: ip not allowed")
+                .to_string(),
         )
     }
 
