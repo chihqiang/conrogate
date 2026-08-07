@@ -47,6 +47,7 @@ const configTemplates: Record<string, string> = {
   cors: '{\n  "allow_origins": ["*"],\n  "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],\n  "allow_headers": ["Content-Type", "Authorization"],\n  "expose_headers": [],\n  "allow_credentials": false,\n  "max_age_seconds": 3600\n}',
   auth: '{\n  "algorithm": "HS256",\n  "secret": "",\n  "require_token": true\n}',
   header_rewrite: '{\n  "request": {\n    "set": { "X-Real-IP": "$client_ip" },\n    "add": {},\n    "remove": []\n  },\n  "response": {\n    "set": { "X-Powered-By": "conrogate" },\n    "add": {},\n    "remove": []\n  }\n}',
+  ip_allow_deny: '{\n  "allow": ["10.0.0.0/8", "192.168.1.0/24"],\n  "deny": ["10.20.0.0/16"]\n}',
 }
 
 const form = ref<BindingForm>(emptyForm())

@@ -17,7 +17,7 @@ export interface QpsSeriesResponse {
 export interface LatencyResponse {
   avg_ms: number
   p50_ms: number
-  p95_ms: number
+  p90_ms: number
   p99_ms: number
 }
 

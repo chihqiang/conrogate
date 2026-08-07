@@ -54,6 +54,10 @@ pub fn build_router(state: AppState, auth_token: &str, api_prefix: &str) -> Rout
                 .patch(handler::patch_upstream)
                 .delete(handler::delete_upstream),
         )
+        .route(
+            "/upstreams/:id/route-bindings",
+            get(handler::get_upstream_route_bindings),
+        )
         // ── 插件绑定 ──
         .route(
             "/routes/:id/plugins",

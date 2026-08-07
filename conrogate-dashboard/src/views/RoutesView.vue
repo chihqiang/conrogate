@@ -184,10 +184,30 @@ onMounted(() => {
       <!-- 操作列 -->
       <template #cell-actions="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <AppButton v-if="auth.canWrite" variant="ghost" size="sm" @click="toggleEnabled(row as RouteDto)">
+          <!-- 启用时中性（停用动作），停用时高亮（恢复流量动作） -->
+          <AppButton
+            v-if="auth.canWrite"
+            :variant="(row as RouteDto).enabled ? 'secondary' : 'primary'"
+            size="sm"
+            @click="toggleEnabled(row as RouteDto)"
+          >
             {{ (row as RouteDto).enabled ? '停用' : '启用' }}
           </AppButton>
           <AppButton v-if="auth.canWrite" variant="ghost" size="sm" @click="openBindings(row as RouteDto)">
+            <svg
+              class="h-3.5 w-3.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 2 2 7l10 5 10-5-10-5Z" />
+              <path d="m2 17 10 5 10-5" />
+              <path d="m2 12 10 5 10-5" />
+            </svg>
             插件
           </AppButton>
           <AppButton v-if="auth.canWrite" variant="secondary" size="sm" @click="openEdit(row as RouteDto)">

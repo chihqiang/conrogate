@@ -105,6 +105,13 @@ pub struct UpdateUpstreamDto {
     pub nodes: Option<Vec<CreateUpstreamNodeDto>>,
 }
 
+/// 引用某上游的路由（删除保护提示用）
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpstreamRouteBindingDto {
+    pub id: u64,
+    pub name: String,
+}
+
 // ── 插件绑定 ──
 
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]

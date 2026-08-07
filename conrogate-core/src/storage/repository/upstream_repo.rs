@@ -235,4 +235,24 @@ impl UpstreamRepo for UpstreamRepoImpl {
             page_size,
         })
     }
+
+    async fn list_route_bindings(
+        &self,
+        id: u64,
+    ) -> Result<Vec<UpstreamRouteBindingDto>, ConrogateError> {
+        let models = crate::storage::entity::routes::Entity::find()
+            .filter(crate::storage::entity::routes::Column::UpstreamId.eq(id as i64))
+            .filter(crate::storage::entity::routes::Column::DeletedAt.is_null())
+            .all(&self.db)
+            .await
+            .map_err(|_| ConrogateError::DatabaseInternal)?;
+
+        Ok(models
+            .into_iter()
+            .map(|m| UpstreamRouteBindingDto {
+                id: m.id as u64,
+                name: m.name,
+            })
+            .collect())
+    }
 }

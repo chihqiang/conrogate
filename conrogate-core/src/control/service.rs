@@ -185,6 +185,16 @@ impl ControlService {
         operator: Option<&str>,
         trace_id: &str,
     ) -> Result<(), ConrogateError> {
+        // 删除保护：被路由绑定的上游禁止删除，需先解绑相关路由
+        let bindings = self.upstream_repo.list_route_bindings(id).await?;
+        if !bindings.is_empty() {
+            let names: Vec<&str> = bindings.iter().map(|b| b.name.as_str()).collect();
+            return Err(ConrogateError::Conflict(format!(
+                "upstream is bound by {} route(s): {}; unbind first before deleting",
+                bindings.len(),
+                names.join(", ")
+            )));
+        }
         self.upstream_repo.soft_delete(id).await?;
         self.audit
             .log(
@@ -197,6 +207,14 @@ impl ControlService {
             )
             .await;
         Ok(())
+    }
+
+    /// 返回引用该上游的活跃路由（删除弹窗展示绑定关系）
+    pub async fn list_upstream_route_bindings(
+        &self,
+        id: u64,
+    ) -> Result<Vec<UpstreamRouteBindingDto>, ConrogateError> {
+        self.upstream_repo.list_route_bindings(id).await
     }
 
     pub async fn get_upstream(&self, id: u64) -> Result<Option<UpstreamDto>, ConrogateError> {

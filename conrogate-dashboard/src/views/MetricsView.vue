@@ -115,7 +115,7 @@ const latencyOption = computed<EChartsCoreOption>(() => {
   const items = [
     { name: '平均', value: l?.avg_ms ?? 0 },
     { name: 'P50', value: l?.p50_ms ?? 0 },
-    { name: 'P95', value: l?.p95_ms ?? 0 },
+    { name: 'P90', value: l?.p90_ms ?? 0 },
     { name: 'P99', value: l?.p99_ms ?? 0 },
   ]
   return {

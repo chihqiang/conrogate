@@ -9,6 +9,7 @@ import type {
   PaginatedResult,
   UpdateUpstreamPayload,
   UpstreamDto,
+  UpstreamRouteBindingDto,
 } from '@/types'
 
 export const upstreamApi = {
@@ -24,6 +25,9 @@ export const upstreamApi = {
   /** 更新上游 */
   update: (payload: UpdateUpstreamPayload) => api.put<UpstreamDto>(`/upstreams/${payload.id}`, payload),
 
-  /** 删除上游（软删除） */
+  /** 删除上游（软删除；被路由绑定将被拒绝） */
   remove: (id: number) => api.delete<null>(`/upstreams/${id}`),
+
+  /** 查询引用该上游的活跃路由（删除弹窗展示绑定关系） */
+  routeBindings: (id: number) => api.get<UpstreamRouteBindingDto[]>(`/upstreams/${id}/route-bindings`),
 }

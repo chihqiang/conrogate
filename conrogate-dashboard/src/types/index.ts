@@ -151,6 +151,12 @@ export interface UpdateUpstreamPayload {
   nodes?: CreateUpstreamNodePayload[] | null
 }
 
+/** 引用某上游的路由（删除保护提示用） */
+export interface UpstreamRouteBindingDto {
+  id: number
+  name: string
+}
+
 // ── 插件绑定 ──
 
 /** 插件绑定记录（查询返回） */

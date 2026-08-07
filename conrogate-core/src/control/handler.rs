@@ -186,6 +186,17 @@ pub async fn delete_upstream(
     }
 }
 
+/// 查询引用该上游的活跃路由（删除弹窗展示绑定关系，前端据此禁用删除）
+pub async fn get_upstream_route_bindings(
+    State(state): State<AppState>,
+    Path(id): Path<u64>,
+) -> Response {
+    match state.svc.list_upstream_route_bindings(id).await {
+        Ok(data) => response::ok(data),
+        Err(e) => response::err(e),
+    }
+}
+
 /// PATCH 局部更新上游：从路径取 id，body 中字段可选
 pub async fn patch_upstream(
     Extension(role): Extension<Role>,

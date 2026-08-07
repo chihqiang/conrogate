@@ -43,6 +43,12 @@ pub trait UpstreamRepo: ReadOnlyUpstreamRepo {
         page: u32,
         page_size: u32,
     ) -> Result<PaginatedResult<UpstreamDto>, ConrogateError>;
+
+    /// 返回引用该上游的活跃路由（用于删除保护：被绑定时禁止删除）
+    async fn list_route_bindings(
+        &self,
+        id: u64,
+    ) -> Result<Vec<UpstreamRouteBindingDto>, ConrogateError>;
 }
 
 // ── 插件绑定仓储 ──
