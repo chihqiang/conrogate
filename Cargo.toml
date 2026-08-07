@@ -1,12 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    # 核心层（contract / balancer / plugin / protocol / storage / traffic）
+    # 核心层（contract / balancer / plugin / protocol / storage / traffic / control）
     "conrogate-core",
     # 网关核心
     "conrogate-gateway",
-    # 控制面
-    "conrogate-control-svc",
     # 官方插件
     "conrogate-plugin-log",
     "conrogate-plugin-cors",
@@ -93,7 +91,6 @@ regex = "1.10"
 # 内部 crate 依赖
 conrogate-core = { path = "conrogate-core" }
 conrogate-gateway = { path = "conrogate-gateway" }
-conrogate-control-svc = { path = "conrogate-control-svc" }
 conrogate-plugin-log = { path = "conrogate-plugin-log" }
 conrogate-plugin-cors = { path = "conrogate-plugin-cors" }
 conrogate-plugin-auth = { path = "conrogate-plugin-auth" }

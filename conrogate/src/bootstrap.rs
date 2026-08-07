@@ -356,7 +356,7 @@ async fn start_control_plane(
     };
 
     let svc = Arc::new(
-        conrogate_control_svc::ControlService::new(
+        conrogate_core::control::ControlService::new(
             repos.route_repo,
             repos.upstream_repo,
             repos.binding_repo,
@@ -370,11 +370,11 @@ async fn start_control_plane(
         .with_config_cache(config_cache),
     );
 
-    let app_state = conrogate_control_svc::AppState {
+    let app_state = conrogate_core::control::AppState {
         svc,
         api_prefix: control_config.listen.api_prefix.clone(),
     };
-    let router = conrogate_control_svc::build_router(
+    let router = conrogate_core::control::build_router(
         app_state,
         &control_config.auth.token,
         &control_config.listen.api_prefix,

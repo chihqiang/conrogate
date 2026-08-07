@@ -102,7 +102,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let svc = Arc::new(
-        conrogate_control_svc::ControlService::new(
+        conrogate_core::control::ControlService::new(
             route_repo,
             upstream_repo,
             binding_repo,
@@ -117,11 +117,11 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // ── 4. 组装 axum 路由 + 中间件 ──
-    let app_state = conrogate_control_svc::AppState {
+    let app_state = conrogate_core::control::AppState {
         svc,
         api_prefix: config.control.listen.api_prefix.clone(),
     };
-    let router = conrogate_control_svc::build_router(
+    let router = conrogate_core::control::build_router(
         app_state,
         &config.control.auth.token,
         &config.control.listen.api_prefix,

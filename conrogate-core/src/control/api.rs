@@ -1,6 +1,6 @@
 //! axum 路由注册。
 
-use crate::handler::{self, AppState};
+use super::handler::{self, AppState};
 use axum::extract::State;
 use axum::middleware;
 use axum::routing::{get, post, put};
@@ -12,7 +12,7 @@ use tower_http::trace::TraceLayer;
 /// 公开路由（health/healthz/readyz/openapi.json）挂在根路径；
 /// 受保护路由挂载在 `api_prefix` 下（默认 `/api/v1`）。
 pub fn build_router(state: AppState, auth_token: &str, api_prefix: &str) -> Router {
-    let auth_state = crate::auth::AuthState::from_configured(auth_token);
+    let auth_state = super::auth::AuthState::from_configured(auth_token);
 
     // 公开路由（不需要认证）
     let public_routes = Router::new()
@@ -96,7 +96,7 @@ pub fn build_router(state: AppState, auth_token: &str, api_prefix: &str) -> Rout
         .route("/reports/events", post(handler::receive_events))
         .layer(middleware::from_fn_with_state(
             auth_state,
-            crate::auth::auth_middleware,
+            super::auth::auth_middleware,
         ));
 
     // 将受保护路由挂载到 api_prefix 下（空前缀则保留根路径）
@@ -115,6 +115,6 @@ pub fn build_router(state: AppState, auth_token: &str, api_prefix: &str) -> Rout
 
 /// 返回 OpenAPI JSON 文档
 async fn serve_openapi(State(state): State<AppState>) -> Json<serde_json::Value> {
-    let openapi = crate::openapi::build_openapi(&state.api_prefix);
+    let openapi = super::openapi::build_openapi(&state.api_prefix);
     Json(serde_json::to_value(&openapi).unwrap_or_default())
 }

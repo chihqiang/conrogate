@@ -5,6 +5,7 @@
 
 pub mod contract;
 pub mod balancer;
+pub mod control;
 pub mod logging;
 pub mod plugin;
 pub mod protocol;

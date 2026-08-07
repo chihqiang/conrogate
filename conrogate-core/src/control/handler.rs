@@ -2,17 +2,17 @@
 //! 所有 handler 返回统一响应结构 {"code", "msg", "data", "trace_id"}。
 //! 写操作（POST/PUT/PATCH/DELETE）要求 Operator 权限。
 
-use crate::response;
-use crate::service::ControlService;
+use super::response;
+use super::service::ControlService;
 use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Response};
 use axum::Extension;
 use axum::Json;
-use conrogate_core::contract::dto::*;
-use conrogate_core::contract::ConrogateError;
+use crate::contract::dto::*;
+use crate::contract::ConrogateError;
 use std::sync::Arc;
 
-use crate::auth::Role;
+use super::auth::Role;
 
 /// 应用状态
 #[derive(Clone)]
@@ -523,10 +523,10 @@ pub async fn list_plugins(
         .status
         .as_deref()
         .and_then(|s| match s.to_lowercase().as_str() {
-            "installed" => Some(conrogate_core::contract::plugin::PluginStatus::Installed),
-            "active" => Some(conrogate_core::contract::plugin::PluginStatus::Active),
-            "disabled" => Some(conrogate_core::contract::plugin::PluginStatus::Disabled),
-            "uninstalled" => Some(conrogate_core::contract::plugin::PluginStatus::Uninstalled),
+            "installed" => Some(crate::contract::plugin::PluginStatus::Installed),
+            "active" => Some(crate::contract::plugin::PluginStatus::Active),
+            "disabled" => Some(crate::contract::plugin::PluginStatus::Disabled),
+            "uninstalled" => Some(crate::contract::plugin::PluginStatus::Uninstalled),
             _ => None,
         });
     match state.svc.list_plugins(status).await {
@@ -554,7 +554,7 @@ pub async fn activate_plugin(
         .svc
         .update_plugin_status(
             &name,
-            conrogate_core::contract::plugin::PluginStatus::Active,
+            crate::contract::plugin::PluginStatus::Active,
             Some(&operator),
         )
         .await
@@ -578,7 +578,7 @@ pub async fn disable_plugin(
         .svc
         .update_plugin_status(
             &name,
-            conrogate_core::contract::plugin::PluginStatus::Disabled,
+            crate::contract::plugin::PluginStatus::Disabled,
             Some(&operator),
         )
         .await

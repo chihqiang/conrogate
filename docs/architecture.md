@@ -57,9 +57,8 @@ Conrogate 采用「控制面 + 数据面」双平面架构，提供三种部署�
 
 | 组件 | 位置 | 职责 |
 |------|------|------|
-| `conrogate-core` | 核心层 | 契约（Trait/DTO/Config）、负载均衡、插件框架、协议适配、持久化（Entity/迁移/仓储/配置缓存）、流量治理 |
+| `conrogate-core` | 核心层 | 契约（Trait/DTO/Config）、负载均衡、插件框架、协议适配、持久化（Entity/迁移/仓储/配置缓存）、流量治理、控制面服务（`control/`） |
 | `conrogate-gateway` | 网关核心 | 路由匹配、上游选择、遥测、健康检查、配置热载 |
-| `conrogate-control-svc` | 控制面服务 | REST API、鉴权、审计、配置版本管理 |
 | `conrogate-gate` | 数据面二进制 | 独立启动数据面（含心跳上报） |
 | `conrogate-control` | 控制面二进制 | 独立启动控制面 |
 | `conrogate` | 合并二进制 | Bootstrap 装配两平面 |
@@ -153,6 +152,6 @@ gate 每 30s 上报心跳 `POST /api/v1/reports/heartbeat`（gate_id + version +
 | `conrogate-control/src/main.rs` | 分离模式控制面启动、仓储组装 |
 | `conrogate-gateway/src/server.rs` | 数据面配置快照加载（Redis 优先 + DB 降级） |
 | `conrogate-gate/src/http_config_loader.rs` | HTTP 模式配置拉取（翻页 + 原子重载） |
-| `conrogate-control-svc/src/service.rs` | 配置发布/回滚 + Redis 快照写入 |
+| `conrogate-core/src/control/service.rs` | 配置发布/回滚 + Redis 快照写入 |
 | `conrogate-core/src/storage/config_cache.rs` | ConfigCache 抽象：DB 直读实现 / Redis 实现（原子管道 + Pub/Sub） |
-| `conrogate-control-svc/src/api.rs` | 控制面路由注册与鉴权分层 |
+| `conrogate-core/src/control/api.rs` | 控制面路由注册与鉴权分层 |

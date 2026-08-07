@@ -65,9 +65,8 @@ conrogate/
 │   ├── architecture.md     # 协调架构：配置下发、遥测上报、进程内调度
 │   ├── deployment.md       # 部署指南：本地 / 容器化 / 生产
 │   ├── operations.md       # 操作指南：启动后的配置 / 发布 / 观测 / 回滚
-├── conrogate-core/         # 核心层：契约 + 负载均衡 / 插件框架 / 协议适配 / 持久化 / 流量治理
+├── conrogate-core/         # 核心层：契约 + 负载均衡 / 插件框架 / 协议适配 / 持久化 / 流量治理 / 控制面（control/）
 ├── conrogate-gateway/      # 网关核心：路由/代理/遥测/健康检查/配置热载
-├── conrogate-control-svc/  # 控制面服务：REST API + 鉴权 + 审计 + 版本管理
 ├── conrogate-plugin-log/   # 官方插件：访问日志
 ├── conrogate-plugin-cors/  # 官方插件：CORS 跨域
 ├── conrogate-plugin-auth/  # 官方插件：JWT 鉴权

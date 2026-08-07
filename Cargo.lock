@@ -455,7 +455,6 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
- "conrogate-control-svc",
  "conrogate-core",
  "conrogate-gateway",
  "conrogate-plugin-auth",
@@ -476,7 +475,6 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
- "conrogate-control-svc",
  "conrogate-core",
  "dotenvy",
  "tokio",
@@ -485,29 +483,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "conrogate-control-svc"
-version = "0.0.1"
-dependencies = [
- "async-trait",
- "axum",
- "chrono",
- "conrogate-core",
- "redis",
- "serde",
- "serde_json",
- "tokio",
- "tower",
- "tower-http",
- "tracing",
- "utoipa",
- "utoipa-axum",
-]
-
-[[package]]
 name = "conrogate-core"
 version = "0.0.1"
 dependencies = [
  "async-trait",
+ "axum",
  "base64",
  "bytes",
  "chrono",
@@ -531,10 +511,13 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-util",
+ "tower",
+ "tower-http",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
  "utoipa",
+ "utoipa-axum",
  "uuid",
 ]
 
