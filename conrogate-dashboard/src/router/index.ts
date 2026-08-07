@@ -1,9 +1,20 @@
 /**
  * 应用路由。
  * 除 /login 外均为受保护页面：未登录访问时重定向到登录页（记录回跳地址）。
+ *
+ * 侧边栏 / 顶栏从本路由表派生，菜单顺序与标题都在此维护。
  */
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    /** 页面标题（侧边栏 / 顶栏展示） */
+    title?: string
+    /** 公开页面：无需登录即可访问 */
+    public?: boolean
+  }
+}
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -17,17 +28,18 @@ const router = createRouter({
     },
     {
       path: '/',
+      name: 'dashboard',
       component: () => import('@/views/DashboardLayout.vue'),
-      // 默认进入路由管理页
-      redirect: { name: 'routes' },
+      // 默认进入指标洞察页
+      redirect: { name: 'metrics' },
       children: [
-        { path: 'routes', name: 'routes', component: () => import('@/views/RoutesView.vue') },
-        { path: 'upstreams', name: 'upstreams', component: () => import('@/views/UpstreamsView.vue') },
-        { path: 'configs', name: 'configs', component: () => import('@/views/ConfigsView.vue') },
-        { path: 'metrics', name: 'metrics', component: () => import('@/views/MetricsView.vue') },
-        { path: 'nodes', name: 'nodes', component: () => import('@/views/NodesView.vue') },
-        { path: 'plugins', name: 'plugins', component: () => import('@/views/PluginsView.vue') },
-        { path: 'audit', name: 'audit', component: () => import('@/views/AuditView.vue') },
+        { path: 'metrics', name: 'metrics', component: () => import('@/views/MetricsView.vue'), meta: { title: '指标洞察' } },
+        { path: 'upstreams', name: 'upstreams', component: () => import('@/views/UpstreamsView.vue'), meta: { title: '上游管理' } },
+        { path: 'routes', name: 'routes', component: () => import('@/views/RoutesView.vue'), meta: { title: '路由管理' } },
+        { path: 'plugins', name: 'plugins', component: () => import('@/views/PluginsView.vue'), meta: { title: '插件管理' } },
+        { path: 'configs', name: 'configs', component: () => import('@/views/ConfigsView.vue'), meta: { title: '配置版本' } },
+        { path: 'nodes', name: 'nodes', component: () => import('@/views/NodesView.vue'), meta: { title: '节点管理' } },
+        { path: 'audit', name: 'audit', component: () => import('@/views/AuditView.vue'), meta: { title: '审计日志' } },
       ],
     },
   ],

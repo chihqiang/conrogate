@@ -11,9 +11,9 @@ import AppBadge from '@/components/ui/AppBadge.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppEmpty from '@/components/ui/AppEmpty.vue'
-import AppModal from '@/components/ui/AppModal.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import AppTable, { type TableColumn } from '@/components/ui/AppTable.vue'
+import PluginUninstallModal from '@/components/features/PluginUninstallModal.vue'
 import { PluginKindLabels, PluginStatus, PluginStatusLabels, Role, toOptions } from '@/types/enums'
 import type { InstalledPluginDto } from '@/types'
 
@@ -31,7 +31,6 @@ const acting = ref<Record<string, string>>({})
 
 /** 卸载确认 */
 const uninstalling = ref<InstalledPluginDto | null>(null)
-const uninstallLoading = ref(false)
 
 // ── 辅助函数 ──
 
@@ -111,20 +110,8 @@ async function runAction(p: InstalledPluginDto, action: 'activate' | 'disable'):
   }
 }
 
-async function confirmUninstall(): Promise<void> {
-  if (!uninstalling.value) return
-  const name = uninstalling.value.name
-  uninstallLoading.value = true
-  try {
-    await pluginApi.uninstall(name)
-    toast.success(`已卸载插件「${name}」`)
-    uninstalling.value = null
-    await load()
-  } catch (e) {
-    toast.error((e as Error).message)
-  } finally {
-    uninstallLoading.value = false
-  }
+function onUninstalled(): void {
+  void load()
 }
 
 // ── 挂载 ──
@@ -199,14 +186,5 @@ onMounted(() => void load())
   </AppCard>
 
   <!-- 卸载确认 -->
-  <AppModal :open="uninstalling !== null" title="卸载插件" @close="uninstalling = null">
-    <p class="text-sm text-slate-600">
-      确定卸载插件 <span class="font-medium text-slate-800">{{ uninstalling?.name }}</span> 吗？
-      卸载后该插件将无法继续绑定到路由。
-    </p>
-    <template #footer>
-      <AppButton variant="secondary" @click="uninstalling = null">取消</AppButton>
-      <AppButton variant="danger" :loading="uninstallLoading" @click="confirmUninstall">卸载</AppButton>
-    </template>
-  </AppModal>
+  <PluginUninstallModal :plugin="uninstalling" @close="uninstalling = null" @uninstalled="onUninstalled" />
 </template>

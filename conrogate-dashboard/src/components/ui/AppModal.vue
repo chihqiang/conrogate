@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 模态框组件（Teleport 到 body，点击遮罩关闭）。
+ * 模态框组件（Teleport 到 body，点击遮罩 / 按 Esc 关闭）。
  * 用法：
  *   <AppModal :open="visible" title="新建路由" @close="visible = false">
  *     表单...
@@ -10,7 +10,9 @@
  *     </template>
  *   </AppModal>
  */
-withDefaults(
+import { onBeforeUnmount, watch } from 'vue'
+
+const props = withDefaults(
   defineProps<{
     open: boolean
     title: string
@@ -25,6 +27,23 @@ const emit = defineEmits<{ close: [] }>()
 function onBackdrop(): void {
   emit('close')
 }
+
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape') emit('close')
+}
+
+// 打开时监听 Esc，关闭/卸载时移除
+watch(
+  () => props.open,
+  (v) => {
+    if (v) window.addEventListener('keydown', onKeydown)
+    else window.removeEventListener('keydown', onKeydown)
+  },
+)
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
 </script>
 
 <template>

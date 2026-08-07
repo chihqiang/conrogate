@@ -12,17 +12,8 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-/** 路由名 → 页面标题 */
-const pageTitles: Record<string, string> = {
-  routes: '路由管理',
-  upstreams: '上游管理',
-  configs: '配置版本',
-  metrics: '指标洞察',
-  nodes: '节点管理',
-  audit: '审计日志',
-}
-
-const title = computed(() => pageTitles[route.name as string] ?? '控制台')
+/** 页面标题取自路由 meta.title（与侧边栏共用同一数据源） */
+const title = computed(() => (route.meta.title as string | undefined) ?? '控制台')
 
 /** 退出登录：清除 token 回登录页 */
 function logout(): void {

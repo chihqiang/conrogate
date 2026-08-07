@@ -1,17 +1,20 @@
 <script setup lang="ts">
 /**
  * 侧边导航栏：品牌区 + 功能菜单。
- * 菜单项与 router 中 DashboardLayout 的子路由一一对应。
+ * 菜单项从路由表派生（router/index.ts 中 DashboardLayout 的子路由），
+ * 顺序与路由定义一致，无需重复维护。
  */
-const navItems = [
-  { name: 'routes', label: '路由管理', to: { name: 'routes' } },
-  { name: 'upstreams', label: '上游管理', to: { name: 'upstreams' } },
-  { name: 'configs', label: '配置版本', to: { name: 'configs' } },
-  { name: 'metrics', label: '指标洞察', to: { name: 'metrics' } },
-  { name: 'nodes', label: '节点管理', to: { name: 'nodes' } },
-  { name: 'plugins', label: '插件管理', to: { name: 'plugins' } },
-  { name: 'audit', label: '审计日志', to: { name: 'audit' } },
-] as const
+import { computed } from 'vue'
+import { router } from '@/router'
+
+const navItems = computed(() => {
+  const layout = router.options.routes.find((r) => r.name === 'dashboard')
+  return (layout?.children ?? []).map((child) => ({
+    name: child.name as string,
+    label: child.meta?.title ?? (child.name as string),
+    to: { name: child.name as string },
+  }))
+})
 </script>
 
 <template>
