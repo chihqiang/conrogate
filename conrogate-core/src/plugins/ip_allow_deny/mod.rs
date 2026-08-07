@@ -157,13 +157,14 @@ impl IpAllowDenyPlugin {
     }
 
     /// 判定结果：None = 放行；Some(403 响应体) = 拒绝
-    fn decide(&self, client_ip: &str) -> Option<Value> {
+    fn decide(&self, client_ip: &str, trace_id: &str) -> Option<Value> {
         let ip = parse_ip_or_cidr(client_ip)?;
         let denied = self.compiled.deny.iter().any(|net| net.contains(&ip))
             || (!self.compiled.allow.is_empty()
                 && !self.compiled.allow.iter().any(|net| net.contains(&ip)));
         if denied {
-            return Some(response::data_body(
+            return Some(response::error_body_with_trace(
+                trace_id,
                 ConrogateError::ERR_FORBIDDEN,
                 "forbidden: ip not allowed",
             ));
@@ -225,14 +226,14 @@ impl Plugin for IpAllowDenyPlugin {
         &self,
         ctx: &mut PluginContext,
     ) -> Result<PluginOutcome, ConrogateError> {
-        if let Some(body) = self.decide(&ctx.client_ip) {
+        if let Some(body) = self.decide(&ctx.client_ip, &ctx.trace_id) {
             return Ok(PluginOutcome::Terminate(StatusCode::FORBIDDEN, body));
         }
         Ok(PluginOutcome::Continue)
     }
 
     async fn on_connect(&self, ctx: &mut PluginContext) -> Result<PluginOutcome, ConrogateError> {
-        if let Some(body) = self.decide(&ctx.client_ip) {
+        if let Some(body) = self.decide(&ctx.client_ip, &ctx.trace_id) {
             return Ok(PluginOutcome::Terminate(StatusCode::FORBIDDEN, body));
         }
         Ok(PluginOutcome::Continue)

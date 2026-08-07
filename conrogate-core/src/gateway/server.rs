@@ -1021,12 +1021,13 @@ impl HyperServiceBridge {
         let ws_shutdown = self.ws_shutdown.clone();
         let req_trace_id = crate::contract::response::trace_id_from_headers(req.headers());
 
-        // 健康探针：GET /healthz → 200
+        // 健康探针：GET /healthz → 200（仍携带 x-trace-id，保证最小响应可追踪）
         if req.method() == http::Method::GET && req.uri().path() == "/healthz" {
-            return Ok(Response::builder()
-                .status(http::StatusCode::OK)
-                .body(boxed_body(Bytes::from_static(b"ok")))
-                .unwrap());
+            let mut builder = Response::builder().status(http::StatusCode::OK);
+            if let Ok(v) = req_trace_id.parse::<http::HeaderValue>() {
+                builder = builder.header("x-trace-id", v);
+            }
+            return Ok(builder.body(boxed_body(Bytes::from_static(b"ok"))).unwrap());
         }
 
         // 就绪探针：GET /readyz → 200（路由缓存非空）/ 503（路由为空）
@@ -1039,8 +1040,11 @@ impl HyperServiceBridge {
                     &req_trace_id,
                 ));
             }
-            return Ok(Response::builder()
-                .status(http::StatusCode::OK)
+            let mut builder = Response::builder().status(http::StatusCode::OK);
+            if let Ok(v) = req_trace_id.parse::<http::HeaderValue>() {
+                builder = builder.header("x-trace-id", v);
+            }
+            return Ok(builder
                 .body(boxed_body(Bytes::from_static(b"ready")))
                 .unwrap());
         }
@@ -1193,8 +1197,11 @@ impl HyperServiceBridge {
                                 }
                             });
                         }
-                        // 清除扩展头（不透传给客户端）
+                        // 清除扩展头（不透传给客户端）；trace_id 先复制为客户端可见的 x-trace-id
                         let mut clean_resp = resp;
+                        if let Some(v) = clean_resp.headers().get("X-WS-Trace-Id").cloned() {
+                            clean_resp.headers_mut().insert("x-trace-id", v);
+                        }
                         clean_resp.headers_mut().remove("X-WS-Upstream-Addr");
                         clean_resp.headers_mut().remove("X-WS-Host-Header");
                         clean_resp.headers_mut().remove("X-WS-Strip-Sensitive");

@@ -63,15 +63,8 @@ pub fn error_body(code: i32, msg: impl Into<String>) -> serde_json::Value {
     })
 }
 
-/// 构造数据面精简体：`{"code","msg"}`（无信封；HTTP / WS 拦截、插件拒绝场景）
-pub fn data_body(code: i32, msg: impl Into<String>) -> serde_json::Value {
-    serde_json::json!({
-        "code": code,
-        "msg": msg.into(),
-    })
-}
-
-/// 构造统一错误响应体（显式 trace_id；数据面网关错误场景，保证 body 与 `x-trace-id` 响应头一致）
+/// 构造统一错误响应体（显式 trace_id；HTTP/WS 拦截、插件拒绝、网关错误场景，
+/// 保证 body 与 `x-trace-id` 响应头一致）
 pub fn error_body_with_trace(
     trace_id: &str,
     code: i32,
@@ -105,12 +98,7 @@ pub fn trace_id_from_headers(headers: &axum::http::HeaderMap) -> String {
         .unwrap_or_else(generate_trace_id)
 }
 
-/// 生成追踪 ID（32 位十六进制纳秒时间戳）
+/// 生成追踪 ID（UUID v4）
 pub fn generate_trace_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!("{nanos:032x}")
+    uuid::Uuid::new_v4().to_string()
 }

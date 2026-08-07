@@ -578,7 +578,8 @@ impl Plugin for AuthPlugin {
                         );
                         return Ok(PluginOutcome::Terminate(
                             http::StatusCode::UNAUTHORIZED,
-                            response::data_body(
+                            response::error_body_with_trace(
+                                &ctx.trace_id,
                                 ConrogateError::ERR_UNAUTHORIZED,
                                 format!("unauthorized: invalid token header: {}", e),
                             ),
@@ -597,7 +598,8 @@ impl Plugin for AuthPlugin {
                         );
                         return Ok(PluginOutcome::Terminate(
                             http::StatusCode::UNAUTHORIZED,
-                            response::data_body(
+                            response::error_body_with_trace(
+                                &ctx.trace_id,
                                 ConrogateError::ERR_UNAUTHORIZED,
                                 format!("unauthorized: {}", e),
                             ),
@@ -629,7 +631,8 @@ impl Plugin for AuthPlugin {
                         );
                         Ok(PluginOutcome::Terminate(
                             http::StatusCode::UNAUTHORIZED,
-                            response::data_body(
+                            response::error_body_with_trace(
+                                &ctx.trace_id,
                                 ConrogateError::ERR_UNAUTHORIZED,
                                 format!("unauthorized: {}", e),
                             ),
@@ -641,7 +644,8 @@ impl Plugin for AuthPlugin {
                 // 需要鉴权但无 token
                 Ok(PluginOutcome::Terminate(
                     http::StatusCode::UNAUTHORIZED,
-                    response::data_body(
+                    response::error_body_with_trace(
+                        &ctx.trace_id,
                         ConrogateError::ERR_UNAUTHORIZED,
                         "unauthorized: missing bearer token",
                     ),

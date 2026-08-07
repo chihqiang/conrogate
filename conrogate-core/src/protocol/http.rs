@@ -172,11 +172,15 @@ impl HttpProtocolHandler {
         self.svc.plugins.route_plugins(route_id)
     }
 
-    /// 全局 IP 黑名单拦截响应体（统一错误码 10003）
-    fn blacklist_response_body() -> Bytes {
+    /// 全局 IP 黑名单拦截响应体（统一信封，含 trace_id，统一错误码 10003）
+    fn blacklist_response_body(trace_id: &str) -> Bytes {
         Bytes::from(
-            response::data_body(ConrogateError::ERR_FORBIDDEN, "forbidden: ip not allowed")
-                .to_string(),
+            response::error_body_with_trace(
+                trace_id,
+                ConrogateError::ERR_FORBIDDEN,
+                "forbidden: ip not allowed",
+            )
+            .to_string(),
         )
     }
 
@@ -188,7 +192,9 @@ impl HttpProtocolHandler {
         if let Ok(v) = trace_id.parse::<http::HeaderValue>() {
             builder = builder.header("x-trace-id", v);
         }
-        builder.body(Self::blacklist_response_body()).unwrap()
+        builder
+            .body(Self::blacklist_response_body(trace_id))
+            .unwrap()
     }
 
     /// 黑名单拦截响应（流式模式）
@@ -200,7 +206,7 @@ impl HttpProtocolHandler {
             builder = builder.header("x-trace-id", v);
         }
         builder
-            .body(body_from_bytes(Self::blacklist_response_body()))
+            .body(body_from_bytes(Self::blacklist_response_body(trace_id)))
             .unwrap()
     }
 
@@ -1442,6 +1448,7 @@ mod tests {
             .header("upgrade", "websocket")
             .header("sec-websocket-version", "13")
             .header("sec-websocket-key", "x3JJHMbDL1EzLkh9GBhXDw==")
+            .header("x-trace-id", "ws-trace-456")
             .body(Bytes::new())
             .unwrap();
         let resp = handler
@@ -1461,6 +1468,13 @@ mod tests {
                 .get("X-WS-Upstream-Addr")
                 .and_then(|v| v.to_str().ok()),
             Some(upstream.to_string().as_str())
+        );
+        // 101 响应携带 WS 内部 trace 头（server.rs 桥接层会转成客户端可见的 x-trace-id）
+        assert_eq!(
+            resp.headers()
+                .get("X-WS-Trace-Id")
+                .and_then(|v| v.to_str().ok()),
+            Some("ws-trace-456")
         );
 
         let rows = metrics.lock().unwrap();
@@ -1591,5 +1605,34 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(&body[..], b"echo:ping");
+    }
+
+    /// 黑名单拦截：统一信封，body trace_id 与 x-trace-id 响应头一致（无精简版返回）
+    #[test]
+    fn blacklist_response_is_unified_envelope_with_trace_id() {
+        let resp = HttpProtocolHandler::blacklist_response_bytes("trace-black-123");
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            resp.headers().get("x-trace-id").unwrap().to_str().unwrap(),
+            "trace-black-123"
+        );
+        let value: serde_json::Value =
+            serde_json::from_slice(&resp.into_body()).expect("unified json envelope");
+        assert_eq!(value["code"], ConrogateError::ERR_FORBIDDEN);
+        assert_eq!(value["msg"], "forbidden: ip not allowed");
+        assert_eq!(value["data"], serde_json::Value::Null);
+        assert_eq!(value["trace_id"], "trace-black-123");
+    }
+
+    /// 插件拒绝（auth/ip_allow_deny 等）：统一信封携带请求 trace_id
+    #[test]
+    fn plugin_terminate_body_is_unified_envelope_with_trace_id() {
+        let body = crate::contract::response::error_body_with_trace(
+            "plugin-trace-789",
+            ConrogateError::ERR_UNAUTHORIZED,
+            "unauthorized: missing bearer token",
+        );
+        assert_eq!(body["code"], ConrogateError::ERR_UNAUTHORIZED);
+        assert_eq!(body["trace_id"], "plugin-trace-789");
     }
 }
