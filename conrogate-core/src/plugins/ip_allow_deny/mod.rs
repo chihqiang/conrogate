@@ -278,6 +278,7 @@ mod tests {
                 metrics: Arc::new(NoopMetrics),
                 logger: Arc::new(NoopLogger),
             },
+            response_headers: http::HeaderMap::new(),
         }
     }
 

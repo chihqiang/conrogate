@@ -46,6 +46,9 @@ pub struct PluginContext {
 
     /// 插件服务访问（仅钩子执行期间有效，由管线执行器注入）
     pub services: PluginServices,
+
+    /// 插件 Terminate 时需要附加到终止响应的 HTTP 响应头（仅 HTTP 系协议有效）
+    pub response_headers: http::HeaderMap,
 }
 
 /// HTTP 请求上下文

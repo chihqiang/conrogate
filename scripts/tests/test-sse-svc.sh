@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# SSE 流式接入测试：用 scripts/sse.php（Swoole）起本地 SSE 上游，
+# SSE 流式接入测试：用 scripts/upstream/sse.php（Swoole）起本地 SSE 上游，
 # 注册到 conrogate（上游 + 路由），发布后经网关校验：
 #   1) 正文与直连一致；2) 首字节远早于整条流结束（证明流式透传而非整体缓冲）。
 #
@@ -9,8 +9,8 @@ set -euo pipefail
 #   ./scripts/dev-up.sh
 #
 # 用法：
-#   ./scripts/test-sse-svc.sh            # 起上游 → 注册 → 发布 → 网关 SSE 流式校验
-#   ./scripts/test-sse-svc.sh --cleanup  # 删除示例上游与路由
+#   ./scripts/tests/test-sse-svc.sh            # 起上游 → 注册 → 发布 → 网关 SSE 流式校验
+#   ./scripts/tests/test-sse-svc.sh --cleanup  # 删除示例上游与路由
 #
 # 可覆盖的环境变量：
 #   CONROGATE_CONTROL_BASE   控制面地址，默认 http://127.0.0.1:9000/api/v1
@@ -28,7 +28,7 @@ SSE_COUNT="${SSE_COUNT:-8}"
 SSE_DELAY_MS="${SSE_DELAY_MS:-250}"
 UPSTREAM_NAME="sse-stream"
 ROUTE_NAME="sse-stream-route"
-SSE_SERVER="$(cd "$(dirname "$0")" && pwd)/sse.php"
+SSE_SERVER="$(cd "$(dirname "$0")" && pwd)/../upstream/sse.php"
 SSE_HOST="127.0.0.1"
 SSE_PORT=""
 SSE_PID=""
@@ -232,4 +232,4 @@ fi
 echo ""
 echo "== 完成 =="
 echo "  上游 id=$upstream_id 路由 id=$route_id 路径 $SSE_PATH"
-echo "  清理示例配置：./scripts/test-sse-svc.sh --cleanup"
+echo "  清理示例配置：./scripts/tests/test-sse-svc.sh --cleanup"

@@ -111,6 +111,7 @@ use serde_json::Value;
 
 /// CORS 插件配置
 #[derive(Debug, Clone, serde::Deserialize)]
+#[serde(default)]
 pub struct CorsPluginConfig {
     pub allow_origins: Vec<String>,
     pub allow_methods: Vec<String>,
@@ -217,28 +218,27 @@ impl Plugin for CorsPlugin {
         if let Some(http) = &ctx.http {
             // OPTIONS 预检请求直接返回
             if http.method == "OPTIONS" {
-                let mut headers = http::HeaderMap::new();
                 let request_origin = http.headers.get("origin").and_then(|v| v.to_str().ok());
                 if let Some(origin) = self.resolve_origin(request_origin) {
                     if let Ok(v) = origin.parse() {
-                        headers.insert("Access-Control-Allow-Origin", v);
+                        ctx.response_headers.insert("Access-Control-Allow-Origin", v);
                     }
                 }
                 let methods = self.config.allow_methods.join(", ");
                 let allow_headers = self.config.allow_headers.join(", ");
 
                 if let Ok(v) = methods.parse() {
-                    headers.insert("Access-Control-Allow-Methods", v);
+                    ctx.response_headers.insert("Access-Control-Allow-Methods", v);
                 }
                 if let Ok(v) = allow_headers.parse() {
-                    headers.insert("Access-Control-Allow-Headers", v);
+                    ctx.response_headers.insert("Access-Control-Allow-Headers", v);
                 }
                 if let Ok(v) = self.config.max_age_seconds.to_string().parse() {
-                    headers.insert("Access-Control-Max-Age", v);
+                    ctx.response_headers.insert("Access-Control-Max-Age", v);
                 }
                 if self.config.allow_credentials {
                     if let Ok(v) = "true".parse() {
-                        headers.insert("Access-Control-Allow-Credentials", v);
+                        ctx.response_headers.insert("Access-Control-Allow-Credentials", v);
                     }
                 }
 
@@ -338,6 +338,7 @@ mod tests {
                 metrics: Arc::new(NoopMetrics),
                 logger: Arc::new(NoopLogger),
             },
+            response_headers: http::HeaderMap::new(),
         }
     }
 

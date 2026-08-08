@@ -259,10 +259,17 @@ impl HttpProtocolHandler {
             .preflight(&meta, &method, &headers, Some(&body), route)
             .await?
         {
-            PreFlight::Terminate { code, body } => {
+            PreFlight::Terminate {
+                code,
+                body,
+                headers,
+            } => {
                 let mut builder = Response::builder().status(code);
                 if let Ok(v) = meta.trace_id.parse::<http::HeaderValue>() {
                     builder = builder.header("x-trace-id", v);
+                }
+                for (name, value) in headers.iter() {
+                    builder = builder.header(name, value);
                 }
                 Ok(builder
                     .body(Bytes::from(body.to_string().into_bytes()))
@@ -294,6 +301,12 @@ impl HttpProtocolHandler {
                 node,
             } => {
                 // 9. 构造上游请求（处理 Header）
+                // 使用插件改写后的请求头（未改写时回退原始请求头）
+                let effective_headers: &HeaderMap = plugin_ctx
+                    .http
+                    .as_ref()
+                    .map(|h| &h.headers)
+                    .unwrap_or(&headers);
                 let upstream_uri = Self::build_upstream_uri(&node, &uri)?;
                 let upstream_uri_clone = upstream_uri.clone();
                 let method_clone = method.clone();
@@ -312,7 +325,7 @@ impl HttpProtocolHandler {
                 *upstream_req.headers_mut() = Self::build_out_headers(
                     &route,
                     &node,
-                    &headers,
+                    effective_headers,
                     &meta.trace_id,
                     &meta.request_id,
                     &meta.real_ip,
@@ -433,10 +446,17 @@ impl HttpProtocolHandler {
             .preflight(&meta, &method, &headers, None, route)
             .await?
         {
-            PreFlight::Terminate { code, body } => {
+            PreFlight::Terminate {
+                code,
+                body,
+                headers,
+            } => {
                 let mut builder = Response::builder().status(code);
                 if let Ok(v) = meta.trace_id.parse::<http::HeaderValue>() {
                     builder = builder.header("x-trace-id", v);
+                }
+                for (name, value) in headers.iter() {
+                    builder = builder.header(name, value);
                 }
                 Ok(builder
                     .body(body_from_bytes(Bytes::from(body.to_string().into_bytes())))
@@ -471,6 +491,12 @@ impl HttpProtocolHandler {
                 node,
             } => {
                 // 构造上游请求（流式 body）
+                // 使用插件改写后的请求头（未改写时回退原始请求头）
+                let effective_headers: &HeaderMap = plugin_ctx
+                    .http
+                    .as_ref()
+                    .map(|h| &h.headers)
+                    .unwrap_or(&headers);
                 let upstream_uri = Self::build_upstream_uri(&node, &uri)?;
                 let mut upstream_req = Request::builder()
                     .method(method)
@@ -482,7 +508,7 @@ impl HttpProtocolHandler {
                 *upstream_req.headers_mut() = Self::build_out_headers(
                     &route,
                     &node,
-                    &headers,
+                    effective_headers,
                     &meta.trace_id,
                     &meta.request_id,
                     &meta.real_ip,
@@ -577,6 +603,7 @@ impl HttpProtocolHandler {
             }),
             tunnel: None,
             services: plugin_services(&self.svc),
+            response_headers: http::HeaderMap::new(),
         };
 
         // 4. 执行插件 before_request（从管线缓存取路由插件链，每绑定独立配置实例）
@@ -589,7 +616,11 @@ impl HttpProtocolHandler {
 
         // 5. 插件可能终止请求
         if let PluginOutcome::Terminate(code, body) = plugin_outcome {
-            return Ok(PreFlight::Terminate { code, body });
+            return Ok(PreFlight::Terminate {
+                code,
+                body,
+                headers: plugin_ctx.response_headers.clone(),
+            });
         }
 
         // 6. 流量治理检查（使用配置的 QPS）
@@ -774,16 +805,8 @@ impl HttpProtocolHandler {
         if let Some(h) = resp_builder.headers_mut() {
             *h = headers.clone();
         }
-        // 12a. 响应方向注入头
-        let out_headers = resp_builder.headers_mut().unwrap();
-        if let Ok(v) = meta.trace_id.parse() {
-            out_headers.insert("x-trace-id", v);
-        }
-        if let Ok(v) = meta.request_id.parse() {
-            out_headers.insert("x-request-id", v);
-        }
 
-        let resp = match resp_builder.body(resp_body) {
+        let mut resp = match resp_builder.body(resp_body) {
             Ok(resp) => resp,
             Err(e) => {
                 tracing::error!(error = %e, "response build failed");
@@ -803,6 +826,16 @@ impl HttpProtocolHandler {
             .plugins
             .execute_after_response(plugin_ctx, &mut plugin_resp, plugins)
             .await?;
+        // 插件在 after_response 中对响应头的修改需回写最终响应
+        *resp.headers_mut() = plugin_resp.headers;
+        // 回写后补充网关注入的响应头（插件修改不会覆盖）
+        let out_headers = resp.headers_mut();
+        if let Ok(v) = meta.trace_id.parse() {
+            out_headers.insert("x-trace-id", v);
+        }
+        if let Ok(v) = meta.request_id.parse() {
+            out_headers.insert("x-request-id", v);
+        }
 
         // 14. 遥测：记录指标（含实际延迟）。101 Switching Protocols（WS 升级）视为成功
         let code = status.as_u16();
@@ -931,6 +964,7 @@ enum PreFlight {
     Terminate {
         code: StatusCode,
         body: serde_json::Value,
+        headers: http::HeaderMap,
     },
     /// WebSocket 升级：返回 101 + 上游地址
     WebSocketUpgrade {

@@ -86,18 +86,9 @@ cargo build --release -p conrogate -p conrogate-gate -p conrogate-control -p con
 
 ### 一键开发脚本
 
-```bash
-./scripts/dev-up.sh
-# 自动：启动依赖（PG + Redis）→ 执行迁移 → 启动合并模式
-# 如需演示数据，手动执行：cargo run -p conrogate-migrate -- --seed
-```
+`./scripts/dev-up.sh`（启动依赖 PG + Redis → 迁移 → 合并模式）及其余开发 / 测试脚本见 → [`scripts/README.md`](../scripts/README.md)。
 
-脚本使用的环境变量（硬编码）：
-
-```bash
-CONROGATE_DB_PASSWORD=conrogate_dev   # 未被代码使用（URL 已包含密码）
-CONROGATE_CONTROL_AUTH_TOKEN=admin:dev-token:admin
-```
+如需演示数据，手动执行：`cargo run -p conrogate-migrate -- --seed`。
 
 ## 4. 数据库迁移
 

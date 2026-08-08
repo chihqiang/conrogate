@@ -124,6 +124,7 @@ impl TcpTunnelProtocolHandler {
                 listen_port,
             }),
             services: plugin_services(&self.svc),
+            response_headers: http::HeaderMap::new(),
         };
 
         let plugin_outcome = self
