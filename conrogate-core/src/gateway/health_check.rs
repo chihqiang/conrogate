@@ -167,7 +167,7 @@ impl ActiveHealthChecker {
     /// 启动定期检查后台任务
     pub fn spawn_periodic_check(
         self: std::sync::Arc<Self>,
-        upstreams: std::sync::Arc<RwLock<crate::gateway::pool::UpstreamMap>>,
+        upstreams: std::sync::Arc<RwLock<std::sync::Arc<crate::gateway::pool::UpstreamMap>>>,
     ) {
         let config = self.config.clone();
         let checker = self.clone();
