@@ -1,0 +1,206 @@
+# ══════════════════════════════════════════════════════════════════════
+# Conrogate 生产环境 — 分离模式（control × 1 + gate × N）
+#
+# 用法：
+#   docker compose -f docker-compose.separated.prod.yml up -d
+#   docker compose -f docker-compose.separated.prod.yml ps
+#   docker compose -f docker-compose.separated.prod.yml logs -f control
+#
+# 拓扑：control（9000）+ gate（8080）+ postgres + redis
+#   - 控制面：写库 + 发布配置到 Redis（快照 + Pub/Sub）
+#   - 数据面：从 Redis 拉配置（config_source=redis），秒级生效；
+#             失败自动降级 HTTP 拉取 control 或 DB 轮询
+#   - 多 gate 扩缩：gate 使用 deploy.replicas；>1 实例时需移除
+#     ports 映射并在前置负载均衡（如 nginx/LB）后分发
+#     docker compose -f docker-compose.separated.prod.yml up -d --scale gate=4
+#
+# 覆盖默认值：--env-file .env.prod（文件中 ${VAR:-default} 均可覆盖）
+# ══════════════════════════════════════════════════════════════════════
+
+services:
+  # ── 存储：PostgreSQL（主库，控制面读写）──
+  postgres:
+    image: postgres:16
+    container_name: conrogate-sep-pg
+    environment:
+      POSTGRES_USER: ${PG_USER:-conrogate}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-conrogate_prod}
+      POSTGRES_DB: ${PG_DB:-conrogate}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${PG_USER:-conrogate}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [conrogate]
+
+  # ── 缓存：Redis（配置快照/推送 + 集群限流 + 熔断）──
+  redis:
+    image: redis:7-alpine
+    container_name: conrogate-sep-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [conrogate]
+
+  # ── 一次性迁移（幂等，可重复执行）──
+  migrate:
+    image: ${CONROGATE_IMAGE:-ghcr.io/chihqiang/conrogate:latest}
+    command: ["conrogate-migrate"]
+    environment:
+      CONROGATE_DB_URL: postgres://${PG_USER:-conrogate}:${PG_PASSWORD:-conrogate_prod}@postgres:5432/${PG_DB:-conrogate}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [conrogate]
+
+  # ── 控制面（只写库，不处理流量）──
+  control:
+    image: ${CONROGATE_IMAGE:-ghcr.io/chihqiang/conrogate:latest}
+    container_name: conrogate-control
+    command: ["conrogate-control"]
+    environment:
+      CONROGATE_INSTANCE_ID: ${CONTROL_INSTANCE_ID:-prod-control-01}
+
+      CONROGATE_DB_URL: postgres://${PG_USER:-conrogate}:${PG_PASSWORD:-conrogate_prod}@postgres:5432/${PG_DB:-conrogate}
+      # CONROGATE_DB_READ_URL: postgres://conrogate_ro:CHANGE_ME@read-replica:5432/conrogate
+      CONROGATE_DB_MAX_CONNECTIONS: 50
+      CONROGATE_DB_CONNECT_TIMEOUT_MS: 5000
+
+      # ── 控制面监听 ──
+      CONROGATE_CONTROL_LISTEN_ENABLED: "true"
+      CONROGATE_CONTROL_LISTEN_HOST: 0.0.0.0
+      CONROGATE_CONTROL_LISTEN_PORT: 9000
+      CONROGATE_CONTROL_LISTEN_API_PREFIX: /api/v1
+      CONROGATE_CONTROL_AUTH_TOKEN: ${CONTROL_AUTH_TOKEN:-admin:CHANGE_ME_admin:admin,ops:CHANGE_ME_ops:operator,viewer:CHANGE_ME_viewer:viewer}
+
+      # 发布配置时向 Redis 写快照 + Pub/Sub 推送，数据面秒级生效
+      CONROGATE_GATE_CONFIG_CACHE_REDIS_URL: redis://redis:6379
+      CONROGATE_GATE_CONFIG_CACHE_REDIS_CONNECT_TIMEOUT_MS: 2000
+
+      # ── 日志 ──
+      CONROGATE_LOG_LEVEL: ${LOG_LEVEL:-info}
+      CONROGATE_LOG_FORMAT: json
+      CONROGATE_LOG_OUTPUT_CONSOLE: "true"
+      CONROGATE_LOG_OUTPUT_FILE_ENABLED: "true"
+      CONROGATE_LOG_OUTPUT_FILE_PATH: /var/log/conrogate/control.log
+      CONROGATE_LOG_OUTPUT_FILE_ROTATION_SIZE_MB: 10
+      CONROGATE_LOG_OUTPUT_FILE_RETENTION_DAYS: 30
+    ports:
+      - "9000:9000"
+    volumes:
+      - conrogate-logs:/var/log/conrogate
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    networks: [conrogate]
+
+  # ── 数据面（不监听控制端口，配置来自 Redis）──
+  gate:
+    image: ${CONROGATE_IMAGE:-ghcr.io/chihqiang/conrogate:latest}
+    command: ["conrogate-gate"]
+    deploy:
+      replicas: ${GATE_REPLICAS:-1}
+    environment:
+      CONROGATE_INSTANCE_ID: ${GATE_INSTANCE_ID:-prod-gate-01}
+
+      # 数据面：不监听控制面端口
+      CONROGATE_CONTROL_LISTEN_ENABLED: "false"
+
+      # 配置下发：Redis 快照 + Pub/Sub（优先），失败降级 HTTP 拉取
+      CONROGATE_GATE_REFRESH_CONFIG_SOURCE: redis
+      CONROGATE_GATE_REFRESH_CONFIG_POLL_INTERVAL_MS: 5000
+      CONROGATE_GATE_CONFIG_CACHE_REDIS_URL: redis://redis:6379
+      CONROGATE_GATE_CONFIG_CACHE_REDIS_CONNECT_TIMEOUT_MS: 2000
+      # HTTP 兜底源（token 必须与控制面任一 operator 完全一致）
+      CONROGATE_GATE_REFRESH_CONTROL_API_URL: http://control:9000
+      CONROGATE_GATE_REFRESH_CONTROL_API_PREFIX: /api/v1
+      CONROGATE_GATE_REFRESH_CONTROL_API_TOKEN: ${CONTROL_AUTH_TOKEN:-admin:CHANGE_ME_admin:admin,ops:CHANGE_ME_ops:operator,viewer:CHANGE_ME_viewer:viewer}
+
+      # ── 数据面 ──
+      CONROGATE_GATE_HOST: 0.0.0.0
+      CONROGATE_GATE_PORT: 8080
+      CONROGATE_GATE_PROTOCOL: http
+      CONROGATE_GATE_TLS_ENABLED: "false"
+      CONROGATE_GATE_WORKER_THREADS: 0
+      CONROGATE_GATE_MAX_CONNECTIONS: 20000
+      CONROGATE_GATE_MAX_BODY_BYTES: 10485760
+      CONROGATE_GATE_IDLE_TIMEOUT_MS: 30000
+      CONROGATE_GATE_TIMEOUT_CONNECT_MS: 3000
+      CONROGATE_GATE_TIMEOUT_TOTAL_MS: 30000
+      CONROGATE_GATE_TIMEOUT_READ_MS: 15000
+
+      # ── 限流（集群模式，依赖 Redis）──
+      CONROGATE_GATE_RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      CONROGATE_GATE_RATE_LIMIT_MODE: cluster
+      CONROGATE_GATE_RATE_LIMIT_GLOBAL_QPS: ${RATE_LIMIT_GLOBAL_QPS:-100000}
+      CONROGATE_GATE_RATE_LIMIT_ROUTE_QPS: ${RATE_LIMIT_ROUTE_QPS:-10000}
+      CONROGATE_GATE_RATE_LIMIT_IP_QPS: ${RATE_LIMIT_IP_QPS:-500}
+      CONROGATE_GATE_RATE_LIMIT_REDIS_URL: redis://redis:6379
+      CONROGATE_GATE_RATE_LIMIT_REDIS_CONNECT_TIMEOUT_MS: 2000
+
+      # ── 熔断（集群模式，依赖 Redis）──
+      CONROGATE_GATE_BREAKER_ENABLED: ${BREAKER_ENABLED:-true}
+      CONROGATE_GATE_BREAKER_WINDOW_MS: 10000
+      CONROGATE_GATE_BREAKER_FAILURE_RATE_THRESHOLD: 0.5
+      CONROGATE_GATE_BREAKER_MIN_REQUESTS: 100
+      CONROGATE_GATE_BREAKER_WAIT_MS: 30000
+      CONROGATE_GATE_BREAKER_HALF_OPEN_MAX: 5
+      CONROGATE_GATE_BREAKER_REDIS_URL: redis://redis:6379
+      CONROGATE_GATE_BREAKER_REDIS_CONNECT_TIMEOUT_MS: 2000
+
+      # ── 停机 ──
+      CONROGATE_GATE_SHUTDOWN_LONG_CONN_DRAIN_MS: 30000
+
+      # ── 日志 ──
+      CONROGATE_LOG_LEVEL: ${LOG_LEVEL:-info}
+      CONROGATE_LOG_FORMAT: json
+      CONROGATE_LOG_OUTPUT_CONSOLE: "true"
+      CONROGATE_LOG_OUTPUT_FILE_ENABLED: "true"
+      CONROGATE_LOG_OUTPUT_FILE_PATH: /var/log/conrogate/gate.log
+      CONROGATE_LOG_OUTPUT_FILE_ROTATION_SIZE_MB: 10
+      CONROGATE_LOG_OUTPUT_FILE_RETENTION_DAYS: 30
+    ports:
+      - "8080:8080"   # 多副本时移除该映射，由前置 LB 分发
+    volumes:
+      - conrogate-logs:/var/log/conrogate
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-s", "-o", "/dev/null", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+    networks: [conrogate]
+
+networks:
+  conrogate:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  conrogate-logs:

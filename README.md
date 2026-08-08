@@ -173,7 +173,7 @@ cargo run -p conrogate-gate               # 分离模式：数据面（8080）
 
 ```bash
 docker build -t ghcr.io/chihqiang/conrogate:latest .                 # 构建镜像
-docker compose -f docker-compose.deps.yml up -d    # 起依赖（PG + Redis）
+docker compose -f deploy/docker-compose.deps.yml up -d    # 起依赖（PG + Redis）
 ```
 
 **合并模式运行（SQLite + 数据卷持久化）：**

@@ -60,7 +60,7 @@ docker run -d --name conrogate-redis \
 ### Docker Compose 一键启动依赖
 
 ```bash
-docker compose -f docker-compose.deps.yml up -d
+docker compose -f deploy/docker-compose.deps.yml up -d
 # 启动 PostgreSQL 16 + Redis 7，等待 healthcheck 通过
 ```
 

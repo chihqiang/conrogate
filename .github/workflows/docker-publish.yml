@@ -37,3 +37,6 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ env.DOCKER_REGISTRY }}/${{ github.repository }}:latest
+          # 持久化 Docker 层缓存：依赖层命中后无需重编（首次仍慢，之后秒级）
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
