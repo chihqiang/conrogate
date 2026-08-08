@@ -3,7 +3,7 @@
 use crate::balancer::registry::create_default_registry;
 use crate::contract::config::Config;
 use crate::contract::gateway::ServiceContext;
-use crate::contract::protocol::{ProtocolId, RouteMatchInfo};
+use crate::contract::protocol::ProtocolId;
 use crate::contract::storage::{EventRepo, IpBlacklistRepo};
 use crate::contract::ConrogateError;
 use crate::gateway::filter::ConfigReloader;
@@ -1075,16 +1075,10 @@ impl HyperServiceBridge {
 
         // 拆分请求：先匹配路由，判定是否需要缓冲 body
         let (parts, body) = req.into_parts();
-        // 路由表存在 header 匹配条件时才解析请求头（否则省去每请求的 Vec<String> 分配）
-        let match_info = RouteMatchInfo::from_http_request(
-            &parts.method,
-            &parts.uri,
-            &parts.headers,
-            route_matcher.needs_headers(ProtocolId::Http),
-        );
-
-        // 尝试路由匹配
-        let matched_route = route_matcher.match_route(ProtocolId::Http, &match_info);
+        // 同一快照内原子完成「是否需解析请求头」判定 + 信息构造 + 路由匹配，
+        // 避免热载替换与两次读锁之间的 header 条件路由漏匹配
+        let (matched_route, match_info) =
+            route_matcher.match_http_request(&parts.method, &parts.uri, &parts.headers);
 
         // 流式模式：路由命中且无 requires_body 插件 → 不 collect body，直接透传
         if let Some(ref route) = matched_route {

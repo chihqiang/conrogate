@@ -205,6 +205,36 @@ impl RouteMatcher {
         None
     }
 
+    /// HTTP 请求路由匹配：在**同一快照内**判定是否需要构造请求头、构造匹配信息并完成匹配。
+    ///
+    /// 调用方（HyperServiceBridge）此前先 `needs_headers()` 再 `match_route()` 需两次读锁，
+    /// 两次之间若发生路由表热载替换，可能出现「表已含 header 条件但信息未构造头」的窗口
+    /// 导致 header 路由漏匹配。此方法单次快照内原子完成判定 + 构造 + 匹配。
+    pub fn match_http_request(
+        &self,
+        method: &http::Method,
+        uri: &http::Uri,
+        headers: &http::HeaderMap,
+    ) -> (Option<RouteSnapshot>, RouteMatchInfo) {
+        let table = Arc::clone(&self.routes.read().unwrap());
+        let needs_headers = table
+            .needs_headers
+            .get(&ProtocolId::Http)
+            .copied()
+            .unwrap_or(false);
+        let info = RouteMatchInfo::from_http_request(method, uri, headers, needs_headers);
+        let matched = table
+            .routes
+            .get(&ProtocolId::Http)
+            .and_then(|entries| {
+                entries
+                    .iter()
+                    .find(|e| Self::matches(&e.conditions, &e.compiled, &info))
+                    .map(|e| e.snapshot.clone())
+            });
+        (matched, info)
+    }
+
     /// 检查单个路由条件是否匹配
     fn matches(
         conditions: &RouteMatchConditions,
@@ -577,24 +607,21 @@ mod tests {
         }]);
         assert!(m.needs_headers(ProtocolId::Http));
 
-        // 构造完整头信息才能命中 header 条件路由
-        let full = RouteMatchInfo {
-            path: "/api".into(),
-            method: Some("GET".into()),
-            host: None,
-            headers: vec![("x-version".into(), "v2".into())],
-            query_params: vec![],
-        };
-        assert!(m.match_route(ProtocolId::Http, &full).is_some());
-        // 空 headers 的 lite 信息不应命中
-        let lite = RouteMatchInfo {
-            path: "/api".into(),
-            method: Some("GET".into()),
-            host: None,
-            headers: vec![],
-            query_params: vec![],
-        };
-        assert!(m.match_route(ProtocolId::Http, &lite).is_none());
+        // 原子匹配：同一快照内判定 + 构造 + 匹配，header 条件存在时信息携带完整头
+        let req = http::Request::builder()
+            .method("GET")
+            .uri("/api")
+            .header("X-Version", "v2")
+            .body(())
+            .unwrap();
+        let (matched, info) =
+            m.match_http_request(req.method(), req.uri(), req.headers());
+        assert!(matched.is_some(), "header 条件路由应命中");
+        assert_eq!(
+            info.headers,
+            vec![("x-version".to_string(), "v2".to_string())],
+            "含 header 条件时应构造完整头信息"
+        );
     }
 
     #[test]
