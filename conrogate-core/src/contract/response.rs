@@ -102,7 +102,7 @@ pub fn trace_id_from_headers(headers: &axum::http::HeaderMap) -> String {
 
 /// 生成追踪 ID（保持 UUID v4 格式）
 ///
-/// 使用快速生成器（见 [`FastIdGen`]），不引入每请求的 getrandom 系统调用。
+/// 使用快速生成器（见 `FastIdGen`），不引入每请求的 getrandom 系统调用。
 pub fn generate_trace_id() -> String {
     fast_id().generate()
 }

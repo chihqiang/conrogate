@@ -1378,7 +1378,9 @@ mod tests {
             .uri("http://gateway.local/echo")
             .body(Bytes::new())
             .unwrap();
-        let result = handler.handle(req, "192.168.1.10".into(), test_match_info(), None).await;
+        let result = handler
+            .handle(req, "192.168.1.10".into(), test_match_info(), None)
+            .await;
         assert!(result.is_err(), "connect to closed port should fail");
 
         let rows = metrics.lock().unwrap();
@@ -1411,7 +1413,9 @@ mod tests {
             .uri("http://gateway.local/echo")
             .body(Bytes::new())
             .unwrap();
-        let result = handler.handle(req, "192.168.1.10".into(), test_match_info(), None).await;
+        let result = handler
+            .handle(req, "192.168.1.10".into(), test_match_info(), None)
+            .await;
         assert!(matches!(result, Err(ConrogateError::RateLimited)));
 
         let rows = metrics.lock().unwrap();
@@ -1485,7 +1489,9 @@ mod tests {
             .uri("http://gateway.local/echo")
             .body(Bytes::new())
             .unwrap();
-        let result = handler.handle(req, "192.168.1.10".into(), test_match_info(), None).await;
+        let result = handler
+            .handle(req, "192.168.1.10".into(), test_match_info(), None)
+            .await;
         assert!(matches!(result, Err(ConrogateError::CircuitBreakerOpen)));
 
         let rows = metrics.lock().unwrap();
@@ -1645,7 +1651,13 @@ mod tests {
                                 true,
                             );
                             let resp = handler
-                                .handle_stream(parts, body, route_snapshot(), "192.168.1.10".into(), match_info)
+                                .handle_stream(
+                                    parts,
+                                    body,
+                                    route_snapshot(),
+                                    "192.168.1.10".into(),
+                                    match_info,
+                                )
                                 .await?;
                             Ok::<_, ConrogateError>(resp)
                         }

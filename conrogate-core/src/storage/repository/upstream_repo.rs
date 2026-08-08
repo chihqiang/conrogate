@@ -122,12 +122,7 @@ impl UpstreamRepo for UpstreamRepoImpl {
             active.name = Set(name);
         }
         if let Some(algo) = dto.algorithm {
-            active.algorithm = Set(match algo {
-                crate::contract::balancer::BalancerAlgorithm::RoundRobin => 0,
-                crate::contract::balancer::BalancerAlgorithm::WeightedRoundRobin => 1,
-                crate::contract::balancer::BalancerAlgorithm::LeastConnections => 2,
-                crate::contract::balancer::BalancerAlgorithm::ConsistentHash => 3,
-            });
+            active.algorithm = Set(crate::storage::convert::algorithm_to_i16(algo));
         }
         if let Some(retry) = dto.retry_enabled {
             active.retry_enabled = Set(retry);

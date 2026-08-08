@@ -165,7 +165,10 @@ impl RouteMatcher {
         let needs_headers = routes
             .iter()
             .map(|(&protocol, entries)| {
-                (protocol, entries.iter().any(|e| !e.conditions.headers.is_empty()))
+                (
+                    protocol,
+                    entries.iter().any(|e| !e.conditions.headers.is_empty()),
+                )
             })
             .collect();
 
@@ -223,15 +226,12 @@ impl RouteMatcher {
             .copied()
             .unwrap_or(false);
         let info = RouteMatchInfo::from_http_request(method, uri, headers, needs_headers);
-        let matched = table
-            .routes
-            .get(&ProtocolId::Http)
-            .and_then(|entries| {
-                entries
-                    .iter()
-                    .find(|e| Self::matches(&e.conditions, &e.compiled, &info))
-                    .map(|e| e.snapshot.clone())
-            });
+        let matched = table.routes.get(&ProtocolId::Http).and_then(|entries| {
+            entries
+                .iter()
+                .find(|e| Self::matches(&e.conditions, &e.compiled, &info))
+                .map(|e| e.snapshot.clone())
+        });
         (matched, info)
     }
 
@@ -356,9 +356,9 @@ impl RouteMatcher {
             MatchOp::Prefix => params
                 .iter()
                 .any(|(k, v)| k == &qm.key && v.starts_with(&qm.value)),
-            MatchOp::Regex => params.iter().any(|(k, v)| {
-                k == &qm.key && regex.is_some_and(|re| re.is_match(v))
-            }),
+            MatchOp::Regex => params
+                .iter()
+                .any(|(k, v)| k == &qm.key && regex.is_some_and(|re| re.is_match(v))),
             MatchOp::NotEmpty => params.iter().any(|(k, v)| k == &qm.key && !v.is_empty()),
         }
     }
@@ -473,7 +473,11 @@ mod tests {
             headers: vec![],
             query_params: vec![],
         };
-        assert!(RouteMatcher::matches(&conditions, &CompiledMatchers::compile(&conditions), &info));
+        assert!(RouteMatcher::matches(
+            &conditions,
+            &CompiledMatchers::compile(&conditions),
+            &info
+        ));
     }
 
     #[test]
@@ -489,7 +493,11 @@ mod tests {
             headers: vec![],
             query_params: vec![],
         };
-        assert!(RouteMatcher::matches(&conditions, &CompiledMatchers::compile(&conditions), &info_match));
+        assert!(RouteMatcher::matches(
+            &conditions,
+            &CompiledMatchers::compile(&conditions),
+            &info_match
+        ));
 
         let info_no_match = RouteMatchInfo {
             path: "/healthz".into(),
@@ -498,7 +506,11 @@ mod tests {
             headers: vec![],
             query_params: vec![],
         };
-        assert!(!RouteMatcher::matches(&conditions, &CompiledMatchers::compile(&conditions), &info_no_match));
+        assert!(!RouteMatcher::matches(
+            &conditions,
+            &CompiledMatchers::compile(&conditions),
+            &info_no_match
+        ));
     }
 
     #[test]
@@ -515,7 +527,11 @@ mod tests {
             headers: vec![],
             query_params: vec![],
         };
-        assert!(RouteMatcher::matches(&conditions, &CompiledMatchers::compile(&conditions), &info_get));
+        assert!(RouteMatcher::matches(
+            &conditions,
+            &CompiledMatchers::compile(&conditions),
+            &info_get
+        ));
 
         let info_put = RouteMatchInfo {
             path: "/test".into(),
@@ -524,7 +540,11 @@ mod tests {
             headers: vec![],
             query_params: vec![],
         };
-        assert!(!RouteMatcher::matches(&conditions, &CompiledMatchers::compile(&conditions), &info_put));
+        assert!(!RouteMatcher::matches(
+            &conditions,
+            &CompiledMatchers::compile(&conditions),
+            &info_put
+        ));
     }
 
     #[test]
@@ -545,7 +565,11 @@ mod tests {
             headers: vec![("x-version".into(), "v2".into())],
             query_params: vec![],
         };
-        assert!(RouteMatcher::matches(&conditions, &CompiledMatchers::compile(&conditions), &info_match));
+        assert!(RouteMatcher::matches(
+            &conditions,
+            &CompiledMatchers::compile(&conditions),
+            &info_match
+        ));
 
         let info_no_match = RouteMatchInfo {
             path: "/test".into(),
@@ -554,7 +578,11 @@ mod tests {
             headers: vec![("x-version".into(), "v1".into())],
             query_params: vec![],
         };
-        assert!(!RouteMatcher::matches(&conditions, &CompiledMatchers::compile(&conditions), &info_no_match));
+        assert!(!RouteMatcher::matches(
+            &conditions,
+            &CompiledMatchers::compile(&conditions),
+            &info_no_match
+        ));
     }
 
     #[test]
@@ -580,7 +608,10 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         }]);
-        assert!(!m.needs_headers(ProtocolId::Http), "无 header 条件不应请求头");
+        assert!(
+            !m.needs_headers(ProtocolId::Http),
+            "无 header 条件不应请求头"
+        );
 
         // 含 header 条件后：needs_headers 为 true，且 lite 信息（空 headers）不误匹配
         m.load(vec![RouteDto {
@@ -614,8 +645,7 @@ mod tests {
             .header("X-Version", "v2")
             .body(())
             .unwrap();
-        let (matched, info) =
-            m.match_http_request(req.method(), req.uri(), req.headers());
+        let (matched, info) = m.match_http_request(req.method(), req.uri(), req.headers());
         assert!(matched.is_some(), "header 条件路由应命中");
         assert_eq!(
             info.headers,

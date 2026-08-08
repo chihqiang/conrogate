@@ -10,10 +10,19 @@
 #   CONROGATE_GATE_BASE      数据面地址，默认 http://127.0.0.1:8080
 #   CONROGATE_CONTROL_AUTH_TOKEN 鉴权 token（与启动配置一致，空=无鉴权）
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 未显式覆盖时，从仓库根 .env 读取网关启动配置，保证与 dev-up.sh 一致
+ENV_FILE="$ROOT/../.env"
+env_from() { # env_from <name> -> 值（缺省空串）
+  local name=$1 v=""
+  [ -f "$ENV_FILE" ] && v=$(sed -n "s/^${name}=//p" "$ENV_FILE" | tail -n1 || echo "")
+  echo "$v"
+}
+
 BASE="${CONROGATE_CONTROL_BASE:-http://127.0.0.1:9000/api/v1}"
 GATE="${CONROGATE_GATE_BASE:-http://127.0.0.1:8080}"
-TOKEN="${CONROGATE_CONTROL_AUTH_TOKEN:-}"
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOKEN="${CONROGATE_CONTROL_AUTH_TOKEN:-$(env_from CONROGATE_CONTROL_AUTH_TOKEN)}"
 ECHO_SERVER="$ROOT/upstream/echo.php"
 
 AUTH=()
@@ -156,6 +165,13 @@ ensure_route() { # ensure_route <name> <match-conditions-json> <upstream-id> [pr
   local name=$1 cond=$2 uid=$3 prio=${4:-10} id resp
   id=$(route_id_by_name "$name")
   if [ -n "$id" ]; then
+    # 复用路由时更新匹配条件与上游（旧的随机端口/路径可能已失效）
+    api PATCH "/routes/${id}" "{
+      \"id\": $id,
+      \"match_conditions\": $cond,
+      \"upstream_id\": $uid,
+      \"priority\": $prio
+    }" >/dev/null
     echo "$id"
     return 0
   fi
@@ -198,4 +214,57 @@ health_check() {
   ready=$(curl -sS -m 5 "${GATE}/readyz")
   [ "$ready" = "ready" ] || { echo "  [FAIL] 数据面未就绪：$ready" >&2; exit 1; }
   echo "  [OK] 控制面 + 数据面均就绪"
+}
+
+CONROGATE_BIN="${CONROGATE_BIN:-$ROOT/../target/debug/conrogate}"
+MIGRATE_BIN="${MIGRATE_BIN:-$ROOT/../target/debug/conrogate-migrate}"
+
+# 启动隔离的合并模式网关实例（独立 SQLite 库 + 独立端口），用于网关级配置测试。
+# 使用前先 export 额外环境变量（如限流/熔断/TLS）。成功输出 PID 到 stdout。
+start_isolated_gateway() { # start_isolated_gateway <ctl-port> <gate-port> <db-path> -> <pid>
+  local ctl=$1 gate=$2 db=$3
+  rm -f "$db"
+  if ! CONROGATE_DB_URL="sqlite://$db" "$MIGRATE_BIN" >/dev/null 2>&1; then
+    echo "  [FAIL] 迁移隔离网关数据库失败" >&2
+    return 1
+  fi
+  local pid log
+  log=$(mktemp)
+  CONROGATE_DB_URL="sqlite://$db" \
+  CONROGATE_CONTROL_LISTEN_ENABLED=true \
+  CONROGATE_CONTROL_LISTEN_HOST=127.0.0.1 \
+  CONROGATE_CONTROL_LISTEN_PORT="$ctl" \
+  CONROGATE_CONTROL_AUTH_TOKEN="$TOKEN" \
+  CONROGATE_GATE_PORT="$gate" \
+    "$CONROGATE_BIN" >"$log" 2>&1 &
+  pid=$!
+  local ok=""
+  for _ in $(seq 1 50); do
+    if curl -sS -m 2 "${BASE%/api/v1}/healthz" >/dev/null 2>&1; then
+      # 数据面就绪以端口可响应为准（新实例无路由时 readyz=503 属正常，发布路由后才变 ready）
+      local gcode
+      gcode=$(curl -sS -m 2 -o /dev/null -w '%{http_code}' "${GATE}/readyz" 2>/dev/null || echo "")
+      if [ -n "$gcode" ] && [ "$gcode" != "000" ]; then
+        ok=1
+        break
+      fi
+    fi
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.2
+  done
+  if [ -z "$ok" ]; then
+    echo "  [FAIL] 隔离网关未就绪：$(cat "$log")" >&2
+    kill "$pid" 2>/dev/null || true
+    rm -f "$log"
+    return 1
+  fi
+  echo "$pid"
+}
+
+# 停止隔离网关并清理临时文件
+stop_isolated_gateway() { # stop_isolated_gateway <pid> [db-path]
+  local pid=$1 db=${2:-}
+  [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+  [ -n "$pid" ] && wait "$pid" 2>/dev/null || true
+  [ -n "$db" ] && rm -f "$db"
 }

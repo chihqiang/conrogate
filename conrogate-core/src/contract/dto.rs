@@ -373,7 +373,7 @@ pub struct RouteSnapshot {
     pub id: u64,
     pub protocol: ProtocolId,
     pub upstream_id: Option<u64>,
-    /// 上游 Host 头（Arc<str> 共享：请求热路径避免每次匹配克隆 String）
+    /// 上游 Host 头（`Arc<str>` 共享：请求热路径避免每次匹配克隆 String）
     pub host_header: Option<Arc<str>>,
     pub allow_retry_non_idempotent: bool,
     /// WS 隧道转发上游时是否剥离敏感头（与 HTTP 路径安全模型一致）

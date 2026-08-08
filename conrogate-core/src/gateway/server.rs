@@ -1100,13 +1100,7 @@ impl HyperServiceBridge {
                     }
                 }
                 let resp = match handler
-                    .handle_http_stream(
-                        parts,
-                        body,
-                        route.clone(),
-                        client_ip,
-                        match_info,
-                    )
+                    .handle_http_stream(parts, body, route.clone(), client_ip, match_info)
                     .await
                 {
                     Ok(resp) => resp,

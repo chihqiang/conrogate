@@ -6,7 +6,7 @@
 //! 使用方式：
 //!   cargo run -p conrogate-migrate              # 仅迁移
 //!   cargo run -p conrogate-migrate -- --seed    # 迁移 + 写入演示数据
-//!   cargo run -p conrogate-migrate -- --seed --seed-name <name> --seed-address <host:port>
+//!   cargo run -p conrogate-migrate -- --seed --seed-name `<name>` --seed-address `<host:port>`
 
 use clap::Parser;
 
