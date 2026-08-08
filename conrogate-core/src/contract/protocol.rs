@@ -3,18 +3,38 @@
 use serde::{Deserialize, Serialize};
 
 /// 数据面支持的协议标识，随协议扩展增量追加
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, utoipa::ToSchema, Default,
-)]
-#[serde(rename_all = "snake_case")]
+///
+/// 反序列化兼容 `"tcp"` 作为 `tcp_tunnel` 的别名（手动实现 Deserialize）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, utoipa::ToSchema, Default)]
 pub enum ProtocolId {
     /// HTTP/1.1 + HTTP/2
     #[default]
+    #[serde(rename = "http")]
     Http,
     /// WebSocket（HTTP 升级）
+    #[serde(rename = "websocket")]
     WebSocket,
     /// TCP 隧道
+    #[serde(rename = "tcp_tunnel")]
     TcpTunnel,
+}
+
+impl<'de> Deserialize<'de> for ProtocolId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.as_str() {
+            "http" => Ok(Self::Http),
+            "websocket" => Ok(Self::WebSocket),
+            "tcp_tunnel" | "tcp" => Ok(Self::TcpTunnel),
+            _ => Err(serde::de::Error::unknown_variant(
+                &s,
+                &["http", "websocket", "tcp_tunnel", "tcp"],
+            )),
+        }
+    }
 }
 
 impl std::fmt::Display for ProtocolId {
@@ -83,7 +103,11 @@ pub struct RouteMatchConditions {
     pub path: PathMatch,
     pub methods: Option<Vec<String>>,
     pub host: Option<String>,
+    /// 缺省为空列表（API 允许省略，兼容无 header 条件路由）
+    #[serde(default)]
     pub headers: Vec<HeaderMatch>,
+    /// 缺省为空列表（API 允许省略，兼容无 query 条件路由）
+    #[serde(default)]
     pub query_params: Vec<QueryMatch>,
 }
 
@@ -179,5 +203,60 @@ impl RouteMatchInfo {
             headers: vec![],
             query_params: vec![],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 兼容省略 headers/query_params 的路由条件（serde default）
+    #[test]
+    fn test_route_conditions_optional_fields_default() {
+        let conds: RouteMatchConditions =
+            serde_json::from_str(r#"{"path":{"prefix":"/api"}}"#).expect("缺省字段应解析成功");
+        match conds.path {
+            PathMatch::Prefix(p) => assert_eq!(p, "/api"),
+            other => panic!("unexpected path match: {other:?}"),
+        }
+        assert!(conds.headers.is_empty());
+        assert!(conds.query_params.is_empty());
+        assert!(conds.methods.is_none());
+        assert!(conds.host.is_none());
+    }
+
+    /// 协议反序列化兼容 "tcp" 别名
+    #[test]
+    fn test_protocol_id_deserialize_aliases() {
+        assert_eq!(
+            serde_json::from_str::<ProtocolId>(r#""tcp""#).unwrap(),
+            ProtocolId::TcpTunnel
+        );
+        assert_eq!(
+            serde_json::from_str::<ProtocolId>(r#""tcp_tunnel""#).unwrap(),
+            ProtocolId::TcpTunnel
+        );
+        assert_eq!(
+            serde_json::from_str::<ProtocolId>(r#""http""#).unwrap(),
+            ProtocolId::Http
+        );
+        assert_eq!(
+            serde_json::from_str::<ProtocolId>(r#""websocket""#).unwrap(),
+            ProtocolId::WebSocket
+        );
+        assert!(serde_json::from_str::<ProtocolId>(r#""ftp""#).is_err());
+    }
+
+    /// 序列化仍输出规范 snake_case（TcpTunnel → tcp_tunnel）
+    #[test]
+    fn test_protocol_id_serialize_canonical() {
+        assert_eq!(
+            serde_json::to_string(&ProtocolId::TcpTunnel).unwrap(),
+            r#""tcp_tunnel""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ProtocolId::WebSocket).unwrap(),
+            r#""websocket""#
+        );
     }
 }
