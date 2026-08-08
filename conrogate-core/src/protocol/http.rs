@@ -150,28 +150,27 @@ impl HttpProtocolHandler {
     /// XFF 信任链解析：从 X-Forwarded-For 链中提取真实客户端 IP
     ///
     /// 仅信任来自可信代理的对端所携带的 XFF：
-    /// - 无可信代理配置 → 直接使用 socket IP；
+    /// - 无可信代理配置 → 直接使用 socket IP（原值复用，零分配）；
     /// - 对端不是可信代理（客户端直连）→ 忽略其自带的 XFF，防止伪造绕过 IP 限流；
     /// - 对端是可信代理 → 从右向左取第一个非可信 IP 作为真实客户端 IP。
-    fn resolve_real_ip(&self, socket_ip: &str, headers: &http::HeaderMap) -> String {
+    fn resolve_real_ip(&self, socket_ip: String, headers: &http::HeaderMap) -> String {
         if self.trusted_proxies.is_empty() {
-            return socket_ip.to_string();
+            return socket_ip;
         }
 
         // 对端不是可信代理：直连客户端可伪造 XFF，必须忽略
-        if !self.is_trusted_proxy(socket_ip) {
-            return socket_ip.to_string();
+        if !self.is_trusted_proxy(&socket_ip) {
+            return socket_ip;
         }
 
         if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
-            let chain: Vec<&str> = xff.split(',').map(|s| s.trim()).collect();
-            for ip in chain.iter().rev() {
+            for ip in xff.split(',').map(|s| s.trim()).rev() {
                 if !self.is_trusted_proxy(ip) {
                     return ip.to_string();
                 }
             }
         }
-        socket_ip.to_string()
+        socket_ip
     }
 
     /// 检查 IP 是否为可信代理（预编译网段，热路径零分配）
@@ -542,7 +541,7 @@ impl HttpProtocolHandler {
             .filter(|s| !s.is_empty())
             .map(ToString::to_string)
             .unwrap_or_else(crate::contract::response::generate_trace_id);
-        let real_ip = self.resolve_real_ip(&client_ip, headers);
+        let real_ip = self.resolve_real_ip(client_ip, headers);
         RequestMeta {
             match_info,
             request_id,

@@ -50,22 +50,33 @@ impl Limiter for FixedWindowLimiter {
             windows.retain(|_, e| now.duration_since(e.window_start) < window);
         }
 
-        let entry = windows.entry(key.to_string()).or_insert(WindowEntry {
-            count: 0,
-            window_start: now,
-        });
+        // 快路径：窗口已存在（热路径零分配，key 无需重复复制）
+        if let Some(entry) = windows.get_mut(key) {
+            // 窗口过期 → 重置
+            if now.duration_since(entry.window_start) >= window {
+                entry.count = 0;
+                entry.window_start = now;
+            }
 
-        // 窗口过期 → 重置
-        if now.duration_since(entry.window_start) >= window {
-            entry.count = 0;
-            entry.window_start = now;
+            if entry.count >= limit {
+                return Err(ConrogateError::RateLimited);
+            }
+
+            entry.count += 1;
+            return Ok(());
         }
 
-        if entry.count >= limit {
+        // 慢路径：首次进入窗口，仅在此时分配 key 并建表
+        if limit == 0 {
             return Err(ConrogateError::RateLimited);
         }
-
-        entry.count += 1;
+        windows.insert(
+            key.to_string(),
+            WindowEntry {
+                count: 1,
+                window_start: now,
+            },
+        );
         Ok(())
     }
 }
@@ -117,7 +128,12 @@ impl Limiter for SlidingWindowLimiter {
             }
         }
 
-        let timestamps = windows.entry(key.to_string()).or_default();
+        let timestamps = match windows.get_mut(key) {
+            // 快路径：记录已存在（热路径零分配）
+            Some(ts) => ts,
+            // 慢路径：首次进入窗口，仅在此时分配 key 并建表
+            None => windows.entry(key.to_string()).or_default(),
+        };
 
         // 清除窗口外的记录
         timestamps.retain(|t| now.duration_since(*t) < window);
@@ -290,33 +306,41 @@ impl Limiter for TokenBucketLimiter {
         let window_secs = window.as_secs_f64().max(0.001);
         let refill_rate = limit as f64 / window_secs;
 
-        let entry = buckets.entry(key.to_string());
-        // 是否本调用新建（新建桶即为满桶，无需清理）
-        let is_fresh = matches!(entry, std::collections::hash_map::Entry::Vacant(_));
-        let bucket = entry.or_insert(TokenBucket {
-            tokens: limit as f64,
-            capacity: limit as f64,
-            refill_rate,
-            last_refill: now,
-        });
+        // 快路径：桶已存在（热路径零分配）
+        if let Some(bucket) = buckets.get_mut(key) {
+            // 补充令牌
+            let elapsed = now.duration_since(bucket.last_refill).as_secs_f64();
+            bucket.tokens = (bucket.tokens + elapsed * bucket.refill_rate).min(bucket.capacity);
+            bucket.last_refill = now;
 
-        // 补充令牌
-        let elapsed = now.duration_since(bucket.last_refill).as_secs_f64();
-        bucket.tokens = (bucket.tokens + elapsed * bucket.refill_rate).min(bucket.capacity);
-        bucket.last_refill = now;
+            // 空闲桶清理（已回满 = 长时间无请求）：移除，状态等价于新桶，
+            // 防止每 IP/每 key 的桶永久驻留导致内存无限增长
+            if bucket.tokens >= bucket.capacity {
+                buckets.remove(key);
+                return Ok(());
+            }
 
-        // 空闲桶清理（非新建且已回满 = 长时间无请求）：移除，状态等价于新桶，
-        // 防止每 IP/每 key 的桶永久驻留导致内存无限增长
-        if !is_fresh && bucket.tokens >= bucket.capacity {
-            buckets.remove(key);
+            if bucket.tokens < 1.0 {
+                return Err(ConrogateError::RateLimited);
+            }
+
+            bucket.tokens -= 1.0;
             return Ok(());
         }
 
-        if bucket.tokens < 1.0 {
+        // 慢路径：首次访问，新建满桶并立即消耗一个令牌（仅在此时分配 key 并建表）
+        if limit == 0 {
             return Err(ConrogateError::RateLimited);
         }
-
-        bucket.tokens -= 1.0;
+        buckets.insert(
+            key.to_string(),
+            TokenBucket {
+                tokens: limit as f64 - 1.0,
+                capacity: limit as f64,
+                refill_rate,
+                last_refill: now,
+            },
+        );
         Ok(())
     }
 }
