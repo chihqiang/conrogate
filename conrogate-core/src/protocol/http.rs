@@ -39,8 +39,8 @@ pub struct HttpProtocolHandler {
     client: HttpClient,
     /// 转发超时
     timeout: Duration,
-    /// 可信代理 CIDR 列表（XFF 信任链）
-    trusted_proxies: Vec<String>,
+    /// 可信代理 CIDR 列表（启动时预编译，热路径零解析；XFF 信任链）
+    trusted_proxies: Vec<ipnet::IpNet>,
     /// 限流配置
     rate_limit_qps: u32,
     /// 最大重试次数
@@ -105,10 +105,34 @@ impl HttpProtocolHandler {
         self
     }
 
-    /// 设置可信代理 CIDR 列表
+    /// 设置可信代理 CIDR 列表（启动时预编译；支持 `10.0.0.0/8` 与精确 IP）
     pub fn with_trusted_proxies(mut self, proxies: Vec<String>) -> Self {
-        self.trusted_proxies = proxies;
+        self.trusted_proxies = Self::compile_trusted_proxies(&proxies);
         self
+    }
+
+    /// 预编译可信代理列表：CIDR 原样解析；精确 IP 提升为全掩码网段（/32 或 /128）。
+    /// 非法项告警并忽略，避免运行时每次请求重复解析。
+    fn compile_trusted_proxies(list: &[String]) -> Vec<ipnet::IpNet> {
+        list.iter()
+            .filter_map(|p| {
+                if let Ok(cidr) = p.parse::<ipnet::IpNet>() {
+                    return Some(cidr);
+                }
+                match p.parse::<std::net::IpAddr>() {
+                    Ok(std::net::IpAddr::V4(a)) => {
+                        ipnet::Ipv4Net::new(a, 32).ok().map(ipnet::IpNet::V4)
+                    }
+                    Ok(std::net::IpAddr::V6(a)) => {
+                        ipnet::Ipv6Net::new(a, 128).ok().map(ipnet::IpNet::V6)
+                    }
+                    Err(_) => {
+                        tracing::warn!(proxy = %p, "invalid trusted proxy, ignored");
+                        None
+                    }
+                }
+            })
+            .collect()
     }
 
     /// 设置限流 QPS
@@ -150,21 +174,12 @@ impl HttpProtocolHandler {
         socket_ip.to_string()
     }
 
-    /// 检查 IP 是否为可信代理
+    /// 检查 IP 是否为可信代理（预编译网段，热路径零分配）
     fn is_trusted_proxy(&self, ip: &str) -> bool {
-        for proxy in &self.trusted_proxies {
-            if let Ok(cidr) = proxy.parse::<ipnet::IpNet>() {
-                if let Ok(addr) = ip.parse::<std::net::IpAddr>() {
-                    if cidr.contains(&addr) {
-                        return true;
-                    }
-                }
-            }
-            if proxy == ip {
-                return true;
-            }
-        }
-        false
+        let Ok(addr) = ip.parse::<std::net::IpAddr>() else {
+            return false;
+        };
+        self.trusted_proxies.iter().any(|cidr| cidr.contains(&addr))
     }
 
     /// 解析路由绑定的插件链 → Arc<dyn Plugin> 列表
@@ -215,12 +230,14 @@ impl HttpProtocolHandler {
         &self,
         req: Request<Bytes>,
         client_ip: String,
+        match_info: RouteMatchInfo,
+        pre_matched: Option<RouteSnapshot>,
     ) -> Result<Response<Bytes>, ConrogateError> {
         let (parts, body) = req.into_parts();
         let method = parts.method;
         let uri = parts.uri;
         let headers = parts.headers;
-        let meta = self.build_request_meta(&method, &uri, &headers, client_ip);
+        let meta = self.build_request_meta(match_info, &headers, client_ip);
 
         // 全局 IP 黑名单：在路由匹配/插件执行前拦截（HTTP 与 WS 升级共用此路径）
         if self.svc.blacklist.is_blocked(&meta.real_ip) {
@@ -228,12 +245,16 @@ impl HttpProtocolHandler {
             return Ok(Self::blacklist_response_bytes(&meta.trace_id));
         }
 
-        let route = self
-            .svc
-            .routes
-            .lookup_route(ProtocolId::Http, &meta.match_info)
-            .await?
-            .ok_or_else(|| ConrogateError::RouteNotFound(meta.match_info.path.clone()))?;
+        // 路由：优先使用调用方预匹配结果，未匹配时在此查找（缺省路径报告 RouteNotFound）
+        let route = match pre_matched {
+            Some(route) => route,
+            None => self
+                .svc
+                .routes
+                .lookup_route(ProtocolId::Http, &meta.match_info)
+                .await?
+                .ok_or_else(|| ConrogateError::RouteNotFound(meta.match_info.path.clone()))?,
+        };
 
         match self
             .preflight(&meta, &method, &headers, Some(&body), route)
@@ -279,11 +300,13 @@ impl HttpProtocolHandler {
                 let method_clone = method.clone();
                 let is_idempotent = matches!(method.as_str(), "GET" | "HEAD" | "OPTIONS");
                 let can_retry = is_idempotent || route.allow_retry_non_idempotent;
+                // body 已是 Bytes（缓冲模式由 bridge 收集），直接复用，无需包装再解包
+                let body_bytes = body;
 
                 let mut upstream_req = Request::builder()
                     .method(method)
                     .uri(upstream_uri)
-                    .body(body_from_bytes(body))
+                    .body(body_from_bytes(body_bytes.clone()))
                     .map_err(|e| {
                         ConrogateError::UpstreamConnectFailed(format!("request build: {e}"))
                     })?;
@@ -300,22 +323,15 @@ impl HttpProtocolHandler {
                 let mut proxy_result =
                     Err(ConrogateError::UpstreamConnectFailed("no attempt".into()));
                 let saved_headers = upstream_req.headers().clone();
-                let full_body = upstream_req.into_body();
-                let body_bytes: Bytes = http_body_util::BodyExt::collect(full_body)
-                    .await
-                    .map_err(|e| {
-                        ConrogateError::UpstreamConnectFailed(format!("body collect: {e}"))
-                    })?
-                    .to_bytes();
 
                 for attempt in 0..=self.max_retries {
                     if attempt > 0 {
                         if !can_retry {
                             break;
                         }
-                        // 指数退避 + 抖动
+                        // 指数退避 + 抖动（无系统调用）
                         let backoff = std::time::Duration::from_millis(
-                            (1u64 << attempt) * 10 + (uuid::Uuid::new_v4().as_u128() % 50) as u64,
+                            (1u64 << attempt) * 10 + response::jitter(50),
                         );
                         tokio::time::sleep(backoff).await;
                         tracing::warn!(attempt, route_id = route.id, "retrying request");
@@ -401,11 +417,12 @@ impl HttpProtocolHandler {
         body: hyper::body::Incoming,
         route: RouteSnapshot,
         client_ip: String,
+        match_info: RouteMatchInfo,
     ) -> Result<Response<ReqBody>, ConrogateError> {
         let method = parts.method.clone();
         let uri = parts.uri.clone();
         let headers = parts.headers.clone();
-        let meta = self.build_request_meta(&method, &uri, &headers, client_ip);
+        let meta = self.build_request_meta(match_info, &headers, client_ip);
 
         // 全局 IP 黑名单：在路由匹配/插件执行前拦截（HTTP 与 WS 升级共用此路径）
         if self.svc.blacklist.is_blocked(&meta.real_ip) {
@@ -509,16 +526,15 @@ impl HttpProtocolHandler {
         }
     }
 
-    /// 构造请求元数据：路由匹配信息、请求/追踪 ID、真实客户端 IP、开始时间
+    /// 构造请求元数据：请求/追踪 ID、真实客户端 IP、开始时间。
+    /// 路由匹配信息由调用方构造并传入（避免热路径重复构造）。
     fn build_request_meta(
         &self,
-        method: &Method,
-        uri: &Uri,
+        match_info: RouteMatchInfo,
         headers: &HeaderMap,
         client_ip: String,
     ) -> RequestMeta {
-        let match_info = RouteMatchInfo::from_http_request(method, uri, headers);
-        let request_id = uuid::Uuid::new_v4().to_string();
+        let request_id = response::generate_trace_id();
         let trace_id = headers
             .get("x-trace-id")
             .and_then(|v| v.to_str().ok())
@@ -935,8 +951,10 @@ impl ProtocolHandler for HttpProtocolHandler {
         &self,
         req: Request<Bytes>,
         client_ip: String,
+        match_info: crate::contract::protocol::RouteMatchInfo,
+        pre_matched: Option<crate::contract::dto::RouteSnapshot>,
     ) -> Result<Response<Bytes>, ConrogateError> {
-        self.handle(req, client_ip).await
+        self.handle(req, client_ip, match_info, pre_matched).await
     }
 
     async fn handle_http_stream(
@@ -945,8 +963,10 @@ impl ProtocolHandler for HttpProtocolHandler {
         body: hyper::body::Incoming,
         route: crate::contract::dto::RouteSnapshot,
         client_ip: String,
+        match_info: crate::contract::protocol::RouteMatchInfo,
     ) -> Result<Response<ReqBody>, ConrogateError> {
-        self.handle_stream(parts, body, route, client_ip).await
+        self.handle_stream(parts, body, route, client_ip, match_info)
+            .await
     }
 }
 
@@ -1131,6 +1151,17 @@ mod tests {
         }
     }
 
+    /// 测试用路由匹配信息：StubRoutes 忽略匹配条件，断言不依赖路径内容，
+    /// 故使用固定值即可（避免借用被 move 的 req）。
+    fn test_match_info() -> RouteMatchInfo {
+        RouteMatchInfo::from_http_request(
+            &Method::GET,
+            &Uri::from_static("/"),
+            &http::HeaderMap::new(),
+            true,
+        )
+    }
+
     fn make_handler(upstream_addr: SocketAddr) -> HttpProtocolHandler {
         make_handler_with(Some(upstream_addr), Arc::new(StubTraffic)).0
     }
@@ -1269,7 +1300,7 @@ mod tests {
             .body(Bytes::from_static(b"ping"))
             .unwrap();
         let resp = handler
-            .handle(req, "192.168.1.10".into())
+            .handle(req, "192.168.1.10".into(), test_match_info(), None)
             .await
             .expect("handle ok");
 
@@ -1291,7 +1322,7 @@ mod tests {
             .body(Bytes::new())
             .unwrap();
         let resp = handler
-            .handle(req, "192.168.1.10".into())
+            .handle(req, "192.168.1.10".into(), test_match_info(), None)
             .await
             .expect("handle ok");
 
@@ -1314,7 +1345,7 @@ mod tests {
             .uri("http://gateway.local/echo")
             .body(Bytes::new())
             .unwrap();
-        let result = handler.handle(req, "192.168.1.10".into()).await;
+        let result = handler.handle(req, "192.168.1.10".into(), test_match_info(), None).await;
         assert!(result.is_err(), "connect to closed port should fail");
 
         let rows = metrics.lock().unwrap();
@@ -1347,7 +1378,7 @@ mod tests {
             .uri("http://gateway.local/echo")
             .body(Bytes::new())
             .unwrap();
-        let result = handler.handle(req, "192.168.1.10".into()).await;
+        let result = handler.handle(req, "192.168.1.10".into(), test_match_info(), None).await;
         assert!(matches!(result, Err(ConrogateError::RateLimited)));
 
         let rows = metrics.lock().unwrap();
@@ -1369,7 +1400,7 @@ mod tests {
             .body(Bytes::from_static(b"ping"))
             .unwrap();
         let resp = handler
-            .handle(req, "192.168.1.10".into())
+            .handle(req, "192.168.1.10".into(), test_match_info(), None)
             .await
             .expect("handle ok");
         assert_eq!(resp.status(), StatusCode::OK);
@@ -1396,7 +1427,7 @@ mod tests {
             .body(Bytes::new())
             .unwrap();
         let resp = handler
-            .handle(req, "192.168.1.10".into())
+            .handle(req, "192.168.1.10".into(), test_match_info(), None)
             .await
             .expect("handle ok");
         assert_eq!(resp.status(), StatusCode::FOUND);
@@ -1421,7 +1452,7 @@ mod tests {
             .uri("http://gateway.local/echo")
             .body(Bytes::new())
             .unwrap();
-        let result = handler.handle(req, "192.168.1.10".into()).await;
+        let result = handler.handle(req, "192.168.1.10".into(), test_match_info(), None).await;
         assert!(matches!(result, Err(ConrogateError::CircuitBreakerOpen)));
 
         let rows = metrics.lock().unwrap();
@@ -1452,7 +1483,7 @@ mod tests {
             .body(Bytes::new())
             .unwrap();
         let resp = handler
-            .handle(req, "192.168.1.10".into())
+            .handle(req, "192.168.1.10".into(), test_match_info(), None)
             .await
             .expect("handle ok");
         assert_eq!(resp.status(), StatusCode::SWITCHING_PROTOCOLS);
@@ -1501,7 +1532,7 @@ mod tests {
             .body(Bytes::new())
             .unwrap();
         let resp = handler
-            .handle(req, "192.168.1.10".into())
+            .handle(req, "192.168.1.10".into(), test_match_info(), None)
             .await
             .expect("handle ok");
         assert_eq!(resp.status(), StatusCode::SWITCHING_PROTOCOLS);
@@ -1526,7 +1557,7 @@ mod tests {
             .body(Bytes::new())
             .unwrap();
         let resp = handler
-            .handle(req, "192.168.1.10".into())
+            .handle(req, "192.168.1.10".into(), test_match_info(), None)
             .await
             .expect("handle ok");
         assert_eq!(resp.status(), StatusCode::SWITCHING_PROTOCOLS);
@@ -1574,8 +1605,14 @@ mod tests {
                         let handler = handler.clone();
                         async move {
                             let (parts, body) = req.into_parts();
+                            let match_info = RouteMatchInfo::from_http_request(
+                                &parts.method,
+                                &parts.uri,
+                                &parts.headers,
+                                true,
+                            );
                             let resp = handler
-                                .handle_stream(parts, body, route_snapshot(), "192.168.1.10".into())
+                                .handle_stream(parts, body, route_snapshot(), "192.168.1.10".into(), match_info)
                                 .await?;
                             Ok::<_, ConrogateError>(resp)
                         }

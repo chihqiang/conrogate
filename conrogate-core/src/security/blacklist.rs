@@ -73,9 +73,9 @@ impl BlacklistMatcher {
         if self.is_empty() {
             return false;
         }
-        let ip: IpNet = match parse_ip_or_cidr(ip) {
-            Some(v) => v,
-            None => return false,
+        let ip: IpAddr = match ip.trim().parse() {
+            Ok(v) => v,
+            Err(_) => return false,
         };
         let now = Utc::now();
         let entries = self.entries.read().unwrap();

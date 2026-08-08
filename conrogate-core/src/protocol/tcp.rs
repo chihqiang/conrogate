@@ -111,8 +111,8 @@ impl TcpTunnelProtocolHandler {
             .and_then(|(_, p)| p.parse::<u16>().ok())
             .unwrap_or(0);
         let mut plugin_ctx = PluginContext {
-            request_id: uuid::Uuid::new_v4().to_string(),
-            trace_id: uuid::Uuid::new_v4().to_string(),
+            request_id: crate::contract::response::generate_trace_id(),
+            trace_id: crate::contract::response::generate_trace_id(),
             route_id: route.id,
             client_ip: client_ip.clone(),
             protocol: ProtocolId::TcpTunnel,

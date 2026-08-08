@@ -1075,8 +1075,13 @@ impl HyperServiceBridge {
 
         // 拆分请求：先匹配路由，判定是否需要缓冲 body
         let (parts, body) = req.into_parts();
-        let match_info =
-            RouteMatchInfo::from_http_request(&parts.method, &parts.uri, &parts.headers);
+        // 路由表存在 header 匹配条件时才解析请求头（否则省去每请求的 Vec<String> 分配）
+        let match_info = RouteMatchInfo::from_http_request(
+            &parts.method,
+            &parts.uri,
+            &parts.headers,
+            route_matcher.needs_headers(ProtocolId::Http),
+        );
 
         // 尝试路由匹配
         let matched_route = route_matcher.match_route(ProtocolId::Http, &match_info);
@@ -1101,7 +1106,13 @@ impl HyperServiceBridge {
                     }
                 }
                 let resp = match handler
-                    .handle_http_stream(parts, body, route.clone(), client_ip)
+                    .handle_http_stream(
+                        parts,
+                        body,
+                        route.clone(),
+                        client_ip,
+                        match_info,
+                    )
                     .await
                 {
                     Ok(resp) => resp,
@@ -1248,7 +1259,10 @@ impl HyperServiceBridge {
         }
 
         let req = Request::from_parts(parts, body_bytes);
-        let resp = match handler.handle_http(req, client_ip).await {
+        let resp = match handler
+            .handle_http(req, client_ip, match_info, matched_route)
+            .await
+        {
             Ok(resp) => resp,
             Err(ConrogateError::RateLimited) | Err(ConrogateError::Limited) => {
                 return Ok(error_response(

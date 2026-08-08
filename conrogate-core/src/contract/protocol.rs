@@ -110,11 +110,16 @@ pub struct RouteMatchInfo {
 }
 
 impl RouteMatchInfo {
-    /// 从 HTTP 请求构造
+    /// 从 HTTP 请求构造。
+    ///
+    /// `include_headers` 控制是否解析请求头为 `Vec<(String, String)>`：
+    /// 仅路由表存在 header 匹配条件时需要（热路径按需构造，避免无谓分配）。
+    /// `query_params` 始终解析：插件上下文需要完整的查询参数。
     pub fn from_http_request(
         method: &http::Method,
         uri: &http::Uri,
         headers: &http::HeaderMap,
+        include_headers: bool,
     ) -> Self {
         let path = uri.path().to_string();
 
@@ -129,14 +134,18 @@ impl RouteMatchInfo {
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
 
-        let header_vec: Vec<(String, String)> = headers
-            .iter()
-            .filter_map(|(name, value)| {
-                let k = name.as_str().to_string();
-                let v = value.to_str().ok()?.to_string();
-                Some((k, v))
-            })
-            .collect();
+        let header_vec: Vec<(String, String)> = if include_headers {
+            headers
+                .iter()
+                .filter_map(|(name, value)| {
+                    let k = name.as_str().to_string();
+                    let v = value.to_str().ok()?.to_string();
+                    Some((k, v))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         let query_vec: Vec<(String, String)> = uri
             .query()

@@ -16,6 +16,10 @@ use tokio::net::TcpStream;
 /// 入站协议 Handler：每种入站协议实现一个 handler。
 ///
 /// 各协议只实现自己需要的方法，其余方法沿用默认实现（返回 `ProtocolNotSupported`）。
+///
+/// HTTP 入口接收已构造的 `RouteMatchInfo` 与预匹配结果 `pre_matched`：
+/// 调用方（HyperServiceBridge）已为路由匹配构造过一次匹配信息并完成预匹配，
+/// 传入后可避免 handler 内部重复构造 `RouteMatchInfo` 与重复匹配路由（热路径零冗余分配）。
 #[async_trait::async_trait]
 pub trait ProtocolHandler: Send + Sync {
     /// 协议标识
@@ -26,6 +30,8 @@ pub trait ProtocolHandler: Send + Sync {
         &self,
         _req: Request<Bytes>,
         _client_ip: String,
+        _match_info: crate::contract::protocol::RouteMatchInfo,
+        _pre_matched: Option<RouteSnapshot>,
     ) -> Result<Response<Bytes>, ConrogateError> {
         Err(ConrogateError::ProtocolNotSupported(
             self.protocol().to_string(),
@@ -39,6 +45,7 @@ pub trait ProtocolHandler: Send + Sync {
         _body: Incoming,
         _route: RouteSnapshot,
         _client_ip: String,
+        _match_info: crate::contract::protocol::RouteMatchInfo,
     ) -> Result<Response<crate::protocol::proxy::ReqBody>, ConrogateError> {
         Err(ConrogateError::ProtocolNotSupported(
             self.protocol().to_string(),

@@ -7,34 +7,86 @@ use crate::contract::protocol::{
 };
 use crate::contract::ConrogateError;
 use std::collections::HashMap;
-use std::sync::RwLock;
-
-// ── 模块级正则缓存（进程级单例）──
-// 配置加载时预编译，运行时直接从缓存读取
-static REGEX_CACHE: std::sync::OnceLock<RwLock<HashMap<String, regex::Regex>>> =
-    std::sync::OnceLock::new();
-
-fn regex_cache() -> &'static RwLock<HashMap<String, regex::Regex>> {
-    REGEX_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
-}
+use std::sync::{Arc, RwLock};
 
 /// 路由匹配引擎
+///
+/// 读取路径无锁化（Arc 整体替换）：`match_route`/`is_empty`/`needs_headers` 仅原子
+/// clone 快照后无锁遍历；路由表热载通过 `load_with_bindings` 用新快照整体原子替换。
+/// 与 `security::blacklist::BlacklistMatcher` 相同的读多写少模式。
 pub struct RouteMatcher {
     // 按协议分组存储路由快照
     // Vec 按 priority 降序排列
-    routes: RwLock<HashMap<ProtocolId, Vec<RouteEntry>>>,
+    routes: RwLock<Arc<RouteTable>>,
+}
+
+/// 路由表快照：路由分组 + 每协议的 header 匹配条件存在性标志。
+#[derive(Default)]
+struct RouteTable {
+    routes: HashMap<ProtocolId, Vec<RouteEntry>>,
+    /// 对应 `routes` 中每个协议是否含 header 匹配条件（供调用方按需构造请求头信息）
+    needs_headers: HashMap<ProtocolId, bool>,
 }
 
 struct RouteEntry {
     snapshot: RouteSnapshot,
     conditions: RouteMatchConditions,
     priority: i32,
+    /// 正则已在配置加载时预编译，热路径直接执行，零锁零缓存查找
+    compiled: CompiledMatchers,
+}
+
+/// 预编译匹配器：路径/Header/Query 正则均在配置加载时编译一次。
+/// 相比运行时按模式字符串查全局缓存，省去每次匹配的 RwLock + 哈希查找。
+struct CompiledMatchers {
+    /// 路径正则（`PathMatch::Regex` 时存在）
+    path_regex: Option<regex::Regex>,
+    /// 与 `conditions.headers` 对齐：非 Regex op 为 None
+    header_regexes: Vec<Option<regex::Regex>>,
+    /// 与 `conditions.query_params` 对齐：非 Regex op 为 None
+    query_regexes: Vec<Option<regex::Regex>>,
+}
+
+impl CompiledMatchers {
+    fn compile(conditions: &RouteMatchConditions) -> Self {
+        let path_regex = match &conditions.path {
+            PathMatch::Regex(pattern) => compile_safe(pattern),
+            _ => None,
+        };
+        let header_regexes = conditions
+            .headers
+            .iter()
+            .map(|hm| {
+                if hm.op == MatchOp::Regex {
+                    compile_safe(&hm.value)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let query_regexes = conditions
+            .query_params
+            .iter()
+            .map(|qm| {
+                if qm.op == MatchOp::Regex {
+                    compile_safe(&qm.value)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        Self {
+            path_regex,
+            header_regexes,
+            query_regexes,
+        }
+    }
 }
 
 impl RouteMatcher {
     pub fn new() -> Self {
         Self {
-            routes: RwLock::new(HashMap::new()),
+            routes: RwLock::new(Arc::new(RouteTable::default())),
         }
     }
 
@@ -50,8 +102,8 @@ impl RouteMatcher {
         bindings: Vec<crate::contract::dto::PluginBindingDto>,
         body_required_plugins: &std::collections::HashSet<String>,
     ) {
-        let mut routes = self.routes.write().unwrap();
-        routes.clear();
+        // 本地构建新快照，最后整体原子替换（读取路径始终可见完整路由表）
+        let mut routes: HashMap<ProtocolId, Vec<RouteEntry>> = HashMap::new();
 
         // 按 route_id 分组绑定
         let mut binding_map: HashMap<u64, Vec<crate::contract::dto::PluginBindingDto>> =
@@ -85,6 +137,7 @@ impl RouteMatcher {
             let entry = RouteEntry {
                 conditions: dto.match_conditions.clone(),
                 priority: dto.priority,
+                compiled: CompiledMatchers::compile(&dto.match_conditions),
                 snapshot: RouteSnapshot {
                     id: dto.id,
                     protocol: dto.protocol,
@@ -108,25 +161,44 @@ impl RouteMatcher {
                     .then(a.snapshot.id.cmp(&b.snapshot.id))
             });
         }
+
+        let needs_headers = routes
+            .iter()
+            .map(|(&protocol, entries)| {
+                (protocol, entries.iter().any(|e| !e.conditions.headers.is_empty()))
+            })
+            .collect();
+
+        *self.routes.write().unwrap() = Arc::new(RouteTable {
+            routes,
+            needs_headers,
+        });
     }
 
     /// 检查路由表是否为空（用于就绪探针）
     pub fn is_empty(&self) -> bool {
-        let routes = self.routes.read().unwrap();
-        routes.values().all(|v| v.is_empty())
+        let table = Arc::clone(&self.routes.read().unwrap());
+        table.routes.values().all(|v| v.is_empty())
     }
 
-    /// 匹配路由
+    /// 指定协议的路由表是否含 header 匹配条件。
+    /// 供调用方决定是否需要构造完整请求头信息（避免热路径无谓分配）。
+    pub fn needs_headers(&self, protocol: ProtocolId) -> bool {
+        let table = Arc::clone(&self.routes.read().unwrap());
+        table.needs_headers.get(&protocol).copied().unwrap_or(false)
+    }
+
+    /// 匹配路由（快照无锁遍历）
     pub fn match_route(
         &self,
         protocol: ProtocolId,
         info: &RouteMatchInfo,
     ) -> Option<RouteSnapshot> {
-        let routes = self.routes.read().unwrap();
-        let entries = routes.get(&protocol)?;
+        let table = Arc::clone(&self.routes.read().unwrap());
+        let entries = table.routes.get(&protocol)?;
 
         for entry in entries {
-            if Self::matches(&entry.conditions, info) {
+            if Self::matches(&entry.conditions, &entry.compiled, info) {
                 return Some(entry.snapshot.clone());
             }
         }
@@ -134,9 +206,13 @@ impl RouteMatcher {
     }
 
     /// 检查单个路由条件是否匹配
-    fn matches(conditions: &RouteMatchConditions, info: &RouteMatchInfo) -> bool {
+    fn matches(
+        conditions: &RouteMatchConditions,
+        compiled: &CompiledMatchers,
+        info: &RouteMatchInfo,
+    ) -> bool {
         // 1. 路径匹配
-        if !Self::match_path(&conditions.path, &info.path) {
+        if !Self::match_path(&conditions.path, &info.path, compiled.path_regex.as_ref()) {
             return false;
         }
 
@@ -160,15 +236,23 @@ impl RouteMatcher {
         }
 
         // 4. Header 匹配
-        for header_match in &conditions.headers {
-            if !Self::match_header(header_match, &info.headers) {
+        for (i, header_match) in conditions.headers.iter().enumerate() {
+            if !Self::match_header(
+                header_match,
+                &info.headers,
+                compiled.header_regexes.get(i).and_then(|r| r.as_ref()),
+            ) {
                 return false;
             }
         }
 
         // 5. Query 参数匹配
-        for query_match in &conditions.query_params {
-            if !Self::match_query(query_match, &info.query_params) {
+        for (i, query_match) in conditions.query_params.iter().enumerate() {
+            if !Self::match_query(
+                query_match,
+                &info.query_params,
+                compiled.query_regexes.get(i).and_then(|r| r.as_ref()),
+            ) {
                 return false;
             }
         }
@@ -176,16 +260,16 @@ impl RouteMatcher {
         true
     }
 
-    fn match_path(path_match: &PathMatch, request_path: &str) -> bool {
+    fn match_path(
+        path_match: &PathMatch,
+        request_path: &str,
+        path_regex: Option<&regex::Regex>,
+    ) -> bool {
         match path_match {
             PathMatch::Exact(p) => request_path == p,
             PathMatch::Prefix(p) => request_path.starts_with(p),
-            PathMatch::Regex(pattern) => {
-                // 编译时已预编译的正则，此处直接执行
-                // 安全约束：编译时检查（无反向引用、无贪婪无限量词）
-                // 执行超时：100ms
-                safe_regex_match(pattern, request_path)
-            }
+            // 配置加载时已预编译，此处直接执行（regex crate 保证线性时间）
+            PathMatch::Regex(_) => path_regex.is_some_and(|re| re.is_match(request_path)),
         }
     }
 
@@ -211,7 +295,11 @@ impl RouteMatcher {
         false
     }
 
-    fn match_header(hm: &HeaderMatch, headers: &[(String, String)]) -> bool {
+    fn match_header(
+        hm: &HeaderMatch,
+        headers: &[(String, String)],
+        regex: Option<&regex::Regex>,
+    ) -> bool {
         match hm.op {
             MatchOp::Exact => headers
                 .iter()
@@ -219,24 +307,28 @@ impl RouteMatcher {
             MatchOp::Prefix => headers
                 .iter()
                 .any(|(k, v)| k.eq_ignore_ascii_case(&hm.key) && v.starts_with(&hm.value)),
-            MatchOp::Regex => headers
-                .iter()
-                .any(|(k, v)| k.eq_ignore_ascii_case(&hm.key) && safe_regex_match(&hm.value, v)),
+            MatchOp::Regex => headers.iter().any(|(k, v)| {
+                k.eq_ignore_ascii_case(&hm.key) && regex.is_some_and(|re| re.is_match(v))
+            }),
             MatchOp::NotEmpty => headers
                 .iter()
                 .any(|(k, v)| k.eq_ignore_ascii_case(&hm.key) && !v.is_empty()),
         }
     }
 
-    fn match_query(qm: &QueryMatch, params: &[(String, String)]) -> bool {
+    fn match_query(
+        qm: &QueryMatch,
+        params: &[(String, String)],
+        regex: Option<&regex::Regex>,
+    ) -> bool {
         match qm.op {
             MatchOp::Exact => params.iter().any(|(k, v)| k == &qm.key && v == &qm.value),
             MatchOp::Prefix => params
                 .iter()
                 .any(|(k, v)| k == &qm.key && v.starts_with(&qm.value)),
-            MatchOp::Regex => params
-                .iter()
-                .any(|(k, v)| k == &qm.key && safe_regex_match(&qm.value, v)),
+            MatchOp::Regex => params.iter().any(|(k, v)| {
+                k == &qm.key && regex.is_some_and(|re| re.is_match(v))
+            }),
             MatchOp::NotEmpty => params.iter().any(|(k, v)| k == &qm.key && !v.is_empty()),
         }
     }
@@ -284,75 +376,25 @@ fn validate_regex_patterns(conditions: &RouteMatchConditions) -> bool {
 }
 
 /// 尝试预编译正则（配置加载时调用）
-/// 成功：缓存编译结果，返回 true
-/// 失败：记录告警，返回 false
+/// 成功：返回 true；失败（含 ReDoS 风险）：记录告警，返回 false
 fn try_compile_regex(pattern: &str) -> bool {
-    if has_redos_risk(pattern) {
-        tracing::warn!(pattern = %pattern, "regex pattern rejected: ReDoS risk");
-        return false;
-    }
-    // 检查缓存中是否已有
-    {
-        let cache_read = regex_cache().read().unwrap();
-        if cache_read.get(pattern).is_some() {
-            return true;
-        }
-    }
-    match regex::Regex::new(pattern) {
-        Ok(re) => {
-            let mut cache_write = regex_cache().write().unwrap();
-            cache_write.insert(pattern.to_string(), re);
-            true
-        }
-        Err(e) => {
-            tracing::warn!(pattern = %pattern, error = %e, "regex compile failed");
-            false
-        }
-    }
+    compile_safe(pattern).is_some()
 }
 
-/// 安全正则匹配：使用 regex crate 编译，带 ReDoS 防护 + 全局缓存
-///
-/// 安全约束：
-/// - 禁止反向引用（\1）和贪婪无限量词（.*+）
-/// - 编译失败返回 false（不匹配）
-/// - 正则在配置加载时预编译并缓存，运行时直接从缓存读取
-/// - 执行超时：依赖 regex crate 的线性时间保证（O(n)），无需显式超时
-fn safe_regex_match(pattern: &str, text: &str) -> bool {
-    // ReDoS 防护：检查危险模式
+/// 安全编译正则：带 ReDoS 防护，编译结果直接由 `RouteEntry` 持有。
+/// 安全约束：正则 crate 保证线性时间匹配（O(n)），运行时无需额外超时。
+fn compile_safe(pattern: &str) -> Option<regex::Regex> {
     if has_redos_risk(pattern) {
         tracing::warn!(pattern = %pattern, "regex pattern rejected: ReDoS risk");
-        return false;
+        return None;
     }
-
-    let cache = regex_cache();
-
-    // 尝试从缓存读取（配置加载时已预编译）
-    {
-        let cache_read = cache.read().unwrap();
-        if let Some(re) = cache_read.get(pattern) {
-            return re.is_match(text);
-        }
-    }
-
-    // 缓存未命中（运行时动态正则，如 header/query 中的 Regex 匹配值）
-    // 编译正则（编译失败视为不匹配）
-    let re = match regex::Regex::new(pattern) {
-        Ok(re) => re,
+    match regex::Regex::new(pattern) {
+        Ok(re) => Some(re),
         Err(e) => {
             tracing::warn!(pattern = %pattern, error = %e, "regex compile failed");
-            return false;
+            None
         }
-    };
-
-    // 执行匹配（regex crate 本身有线性时间保证）
-    let result = re.is_match(text);
-
-    // 写入缓存
-    let mut cache_write = cache.write().unwrap();
-    cache_write.insert(pattern.to_string(), re);
-
-    result
+    }
 }
 
 /// 检查正则是否有 ReDoS 风险
@@ -384,12 +426,6 @@ fn has_redos_risk(pattern: &str) -> bool {
     false
 }
 
-// 保留旧函数名以兼容可能的调用
-#[allow(dead_code)]
-fn simple_regex_match(pattern: &str, text: &str) -> bool {
-    safe_regex_match(pattern, text)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,7 +443,7 @@ mod tests {
             headers: vec![],
             query_params: vec![],
         };
-        assert!(RouteMatcher::matches(&conditions, &info));
+        assert!(RouteMatcher::matches(&conditions, &CompiledMatchers::compile(&conditions), &info));
     }
 
     #[test]
@@ -423,7 +459,7 @@ mod tests {
             headers: vec![],
             query_params: vec![],
         };
-        assert!(RouteMatcher::matches(&conditions, &info_match));
+        assert!(RouteMatcher::matches(&conditions, &CompiledMatchers::compile(&conditions), &info_match));
 
         let info_no_match = RouteMatchInfo {
             path: "/healthz".into(),
@@ -432,7 +468,7 @@ mod tests {
             headers: vec![],
             query_params: vec![],
         };
-        assert!(!RouteMatcher::matches(&conditions, &info_no_match));
+        assert!(!RouteMatcher::matches(&conditions, &CompiledMatchers::compile(&conditions), &info_no_match));
     }
 
     #[test]
@@ -449,7 +485,7 @@ mod tests {
             headers: vec![],
             query_params: vec![],
         };
-        assert!(RouteMatcher::matches(&conditions, &info_get));
+        assert!(RouteMatcher::matches(&conditions, &CompiledMatchers::compile(&conditions), &info_get));
 
         let info_put = RouteMatchInfo {
             path: "/test".into(),
@@ -458,7 +494,7 @@ mod tests {
             headers: vec![],
             query_params: vec![],
         };
-        assert!(!RouteMatcher::matches(&conditions, &info_put));
+        assert!(!RouteMatcher::matches(&conditions, &CompiledMatchers::compile(&conditions), &info_put));
     }
 
     #[test]
@@ -479,7 +515,7 @@ mod tests {
             headers: vec![("x-version".into(), "v2".into())],
             query_params: vec![],
         };
-        assert!(RouteMatcher::matches(&conditions, &info_match));
+        assert!(RouteMatcher::matches(&conditions, &CompiledMatchers::compile(&conditions), &info_match));
 
         let info_no_match = RouteMatchInfo {
             path: "/test".into(),
@@ -488,7 +524,77 @@ mod tests {
             headers: vec![("x-version".into(), "v1".into())],
             query_params: vec![],
         };
-        assert!(!RouteMatcher::matches(&conditions, &info_no_match));
+        assert!(!RouteMatcher::matches(&conditions, &CompiledMatchers::compile(&conditions), &info_no_match));
+    }
+
+    #[test]
+    fn test_needs_headers_tracks_header_conditions() {
+        let m = RouteMatcher::new();
+        assert!(!m.needs_headers(ProtocolId::Http), "空表无需解析请求头");
+
+        // 无 header 条件的路由：needs_headers 保持 false
+        m.load(vec![RouteDto {
+            id: 1,
+            name: "plain".into(),
+            protocol: ProtocolId::Http,
+            match_conditions: RouteMatchConditions {
+                path: PathMatch::Prefix("/".into()),
+                ..Default::default()
+            },
+            priority: 1,
+            upstream_id: Some(1),
+            host_header: None,
+            allow_retry_non_idempotent: false,
+            ws_strip_sensitive_headers: false,
+            enabled: true,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }]);
+        assert!(!m.needs_headers(ProtocolId::Http), "无 header 条件不应请求头");
+
+        // 含 header 条件后：needs_headers 为 true，且 lite 信息（空 headers）不误匹配
+        m.load(vec![RouteDto {
+            id: 2,
+            name: "header-route".into(),
+            protocol: ProtocolId::Http,
+            match_conditions: RouteMatchConditions {
+                path: PathMatch::Prefix("/".into()),
+                headers: vec![HeaderMatch {
+                    key: "X-Version".into(),
+                    op: MatchOp::Exact,
+                    value: "v2".into(),
+                }],
+                ..Default::default()
+            },
+            priority: 1,
+            upstream_id: Some(1),
+            host_header: None,
+            allow_retry_non_idempotent: false,
+            ws_strip_sensitive_headers: false,
+            enabled: true,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }]);
+        assert!(m.needs_headers(ProtocolId::Http));
+
+        // 构造完整头信息才能命中 header 条件路由
+        let full = RouteMatchInfo {
+            path: "/api".into(),
+            method: Some("GET".into()),
+            host: None,
+            headers: vec![("x-version".into(), "v2".into())],
+            query_params: vec![],
+        };
+        assert!(m.match_route(ProtocolId::Http, &full).is_some());
+        // 空 headers 的 lite 信息不应命中
+        let lite = RouteMatchInfo {
+            path: "/api".into(),
+            method: Some("GET".into()),
+            host: None,
+            headers: vec![],
+            query_params: vec![],
+        };
+        assert!(m.match_route(ProtocolId::Http, &lite).is_none());
     }
 
     #[test]
@@ -506,30 +612,36 @@ mod tests {
             headers: vec![],
             query_params: vec![],
         };
+        let compiled = CompiledMatchers::compile(&conditions);
         assert!(RouteMatcher::matches(
             &conditions,
+            &compiled,
             &mk(Some("a.example.com".into()))
         ));
         assert!(RouteMatcher::matches(
             &conditions,
+            &compiled,
             &mk(Some("A.Example.COM".into()))
         ));
         // 要求至少一层子域：基域不匹配
         assert!(!RouteMatcher::matches(
             &conditions,
+            &compiled,
             &mk(Some("example.com".into()))
         ));
         // 多层子域不匹配
         assert!(!RouteMatcher::matches(
             &conditions,
+            &compiled,
             &mk(Some("a.b.example.com".into()))
         ));
         // 其他域不匹配
         assert!(!RouteMatcher::matches(
             &conditions,
+            &compiled,
             &mk(Some("a.other.com".into()))
         ));
         // 无 Host 不匹配
-        assert!(!RouteMatcher::matches(&conditions, &mk(None)));
+        assert!(!RouteMatcher::matches(&conditions, &compiled, &mk(None)));
     }
 }
