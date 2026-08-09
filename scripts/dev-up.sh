@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ── 启动基础依赖（PostgreSQL + Redis）──
-docker compose -f docker-compose.deps.yml up -d
+docker compose -f deploy/docker-compose.deps.yml up -d
 
 # ── 等待健康检查通过 ──
 echo "waiting for postgres..."

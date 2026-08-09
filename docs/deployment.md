@@ -60,8 +60,31 @@ docker run -d --name conrogate-redis \
 ### Docker Compose 一键启动依赖
 
 ```bash
-docker compose -f docker-compose.deps.yml up -d
+docker compose -f deploy/docker-compose.deps.yml up -d
 # 启动 PostgreSQL 16 + Redis 7，等待 healthcheck 通过
+```
+
+### 全栈 Docker Compose 部署（推荐）
+
+仓库 `deploy/` 下提供两套生产编排文件，均内置 Postgres/Redis/迁移/健康检查，
+`${VAR:-default}` 均可通过 `--env-file .env.prod` 覆盖（务必替换默认 token）：
+
+| 文件 | 模式 | 服务 |
+|------|------|------|
+| `deploy/docker-compose.prod.yml` | 合并模式（单进程 9000+8080） | `conrogate` + postgres + redis |
+| `deploy/docker-compose.separated.prod.yml` | 分离模式（control + gate） | `control`(9000) + `gate`(8080) + postgres + redis |
+
+```bash
+# 合并模式
+docker compose -f deploy/docker-compose.prod.yml up -d
+
+# 分离模式（gate 多副本：先移除 gate 的 ports 映射，由前置 LB 分发）
+docker compose -f deploy/docker-compose.separated.prod.yml up -d
+docker compose -f deploy/docker-compose.separated.prod.yml up -d --scale gate=4
+
+# 查看状态 / 日志
+docker compose -f deploy/docker-compose.separated.prod.yml ps
+docker compose -f deploy/docker-compose.separated.prod.yml logs -f control gate
 ```
 
 ## 3. 本地构建
@@ -254,15 +277,15 @@ CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='' \
 ### 构建镜像
 
 ```bash
-docker build -t ghcr.io/chihqiang/conrogate:latest .
+docker build -t zhiqiangwang/app:conrogate .
 ```
 
 Dockerfile 构建要点：
 
 | 阶段 | 基础镜像 | 说明 |
 |------|---------|------|
-| builder | `rust:1.88-bookworm` | 多阶段编译：复制全部源码后一次性全量编译（无依赖分层缓存，保证产物为真实代码） |
-| runtime | `debian:bookworm-slim` | 最小运行时：ca-certificates + wget（仅用于健康检查）；纯 rustls 无需 OpenSSL |
+| builder | `rust:1.88-bookworm` | 多阶段编译：复制全部源码后一次性全量编译（简单可靠；CI 由 gha 层缓存加速未变更层） |
+| runtime | `debian:bookworm-slim` | 最小运行时：ca-certificates + curl（仅用于健康检查）；纯 rustls 无需 OpenSSL |
 
 镜像内二进制：`conrogate`、`conrogate-gate`、`conrogate-control`、`conrogate-migrate` 均位于 `/app/`。默认以 root 运行。
 
@@ -275,7 +298,7 @@ docker run -d --name conrogate \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
   -e CONROGATE_CONTROL_AUTH_TOKEN=admin:dev-token:admin \
   -p 8080:8080 -p 9000:9000 \
-  ghcr.io/chihqiang/conrogate:latest
+  zhiqiangwang/app:conrogate
 ```
 
 ```bash
@@ -286,7 +309,7 @@ docker run -d --name conrogate-gate \
   -e CONROGATE_GATE_REFRESH_CONTROL_API_TOKEN=your-token \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
   -p 8080:8080 \
-  ghcr.io/chihqiang/conrogate:latest \
+  zhiqiangwang/app:conrogate \
   /app/conrogate-gate
 ```
 
@@ -298,7 +321,7 @@ docker run -d --name conrogate-control \
   -e CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='redis://host.docker.internal:6379' \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
   -p 9000:9000 \
-  ghcr.io/chihqiang/conrogate:latest \
+  zhiqiangwang/app:conrogate \
   /app/conrogate-control
 ```
 
@@ -309,7 +332,7 @@ docker run -d --name conrogate-control \
 ```bash
 docker run --rm \
   -e CONROGATE_DB_URL='mysql://conrogate:conrogatepass@host.docker.internal:3306/conrogate' \
-  ghcr.io/chihqiang/conrogate:latest \
+  zhiqiangwang/app:conrogate \
   /app/conrogate-migrate
 ```
 
@@ -358,11 +381,15 @@ cargo run -p conrogate
 ./scripts/dev-up.sh
 
 # ── 容器化部署（合并模式）──
-docker build -t ghcr.io/chihqiang/conrogate:latest .
+docker build -t zhiqiangwang/app:conrogate .
 docker run -d -p 8080:8080 -p 9000:9000 \
   -e CONROGATE_DB_URL='mysql://conrogate:conrogatepass@mysql:3306/conrogate' \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
-  ghcr.io/chihqiang/conrogate:latest
+  zhiqiangwang/app:conrogate
+
+# ── Compose 一键部署（合并 / 分离，含 PG+Redis+迁移+健康检查）──
+docker compose -f deploy/docker-compose.prod.yml up -d
+docker compose -f deploy/docker-compose.separated.prod.yml up -d
 
 # ── 生产部署（分离模式）──
 # 1. 控制面
@@ -370,7 +397,7 @@ docker run -d -p 9000:9000 \
   -e CONROGATE_DB_URL='mysql://conrogate:pass@mysql:3306/conrogate' \
   -e CONROGATE_CONTROL_AUTH_TOKEN=$SECRET \
   -e CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='redis://redis:6379' \
-  ghcr.io/chihqiang/conrogate:latest /app/conrogate-control
+  zhiqiangwang/app:conrogate /app/conrogate-control
 
 # 2. 数据面 × N
 for i in $(seq 1 3); do
@@ -378,6 +405,6 @@ for i in $(seq 1 3); do
     -e CONROGATE_DB_READ_URL='mysql://readonly:ro@slave:3306/conrogate' \
     -e CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='redis://redis:6379' \
     -e CONROGATE_GATE_REFRESH_CONTROL_API_URL='http://control:9000' \
-    ghcr.io/chihqiang/conrogate:latest /app/conrogate-gate
+    zhiqiangwang/app:conrogate /app/conrogate-gate
 done
 ```
