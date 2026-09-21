@@ -45,6 +45,8 @@ pub struct HttpProtocolHandler {
     rate_limit_qps: u32,
     /// 最大重试次数
     max_retries: u32,
+    /// 重试预算（启用时限制全局重试比例，防止重试风暴）
+    retry_budget: Option<Arc<dyn conrogate_core::contract::traffic::RetryBudget>>,
 }
 
 impl HttpProtocolHandler {
@@ -83,6 +85,7 @@ impl HttpProtocolHandler {
             trusted_proxies: Vec::new(),
             rate_limit_qps: 100,
             max_retries: 3,
+            retry_budget: None,
         }
     }
 
@@ -96,6 +99,7 @@ impl HttpProtocolHandler {
             trusted_proxies: Vec::new(),
             rate_limit_qps: 100,
             max_retries: 3,
+            retry_budget: None,
         }
     }
 
@@ -144,6 +148,15 @@ impl HttpProtocolHandler {
     /// 设置最大重试次数
     pub fn with_max_retries(mut self, retries: u32) -> Self {
         self.max_retries = retries;
+        self
+    }
+
+    /// 设置重试预算控制器（启用时限制全局重试比例）
+    pub fn with_retry_budget(
+        mut self,
+        budget: Arc<dyn conrogate_core::contract::traffic::RetryBudget>,
+    ) -> Self {
+        self.retry_budget = Some(budget);
         self
     }
 
@@ -341,12 +354,29 @@ impl HttpProtocolHandler {
                         if !can_retry {
                             break;
                         }
+                        // 重试预算检查：预算耗尽时停止重试，直接返回原始错误
+                        // SRE 原则：重试本身也是负载，过载时停止重试避免加剧问题
+                        if let Some(ref budget) = self.retry_budget {
+                            if budget.try_consume().is_err() {
+                                tracing::warn!(
+                                    attempt,
+                                    route_id = route.id,
+                                    "retry budget exhausted, stopping retries"
+                                );
+                                break;
+                            }
+                        }
                         // 指数退避 + 抖动（无系统调用）
                         let backoff = std::time::Duration::from_millis(
                             (1u64 << attempt) * 10 + response::jitter(50),
                         );
                         tokio::time::sleep(backoff).await;
                         tracing::warn!(attempt, route_id = route.id, "retrying request");
+                    } else {
+                        // 首次请求：记录到重试预算分母
+                        if let Some(ref budget) = self.retry_budget {
+                            budget.record_request();
+                        }
                     }
 
                     // 每次重试重建请求（body 已 clone）

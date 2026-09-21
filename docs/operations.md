@@ -175,6 +175,8 @@ curl -s "$BASE/audit-logs?action=publish" -H "$AUTH"
 - **健康检查**：`/health`（进程存活）、`/healthz`（存活探针）、`/readyz`（就绪探针，空配置时返回 503 属正常）。
 - **回滚语义**：回滚是生成新版本号并回写业务表，不会删除历史版本；如需二次回滚再对旧版本执行即可。
 - **限流/熔断**：集群模式需 `CONROGATE_GATE_RATE_LIMIT_MODE=cluster` / `CONROGATE_GATE_BREAKER_MODE`（或对应 Redis URL 已配置），否则按单机模式运行。
+- **自适应并发控制**：启用后（`CONROGATE_GATE_ADAPTIVE_CONCURRENCY_ENABLED=true`）替代静态 `MAX_CONNECTIONS` 限制，基于 AIMD 算法随上游延迟动态伸缩。并发满时短超时（`ACQUIRE_TIMEOUT_MS`，默认 100ms）后快速返回 `503`（错误码 `40010`），不排队等待。生产建议 `INITIAL_LIMIT` 设为上游可承受并发数，`LATENCY_THRESHOLD_MS` 设为 P99 延迟的 2~3 倍。
+- **重试预算**：启用后（`CONROGATE_GATE_RETRY_BUDGET_ENABLED=true`）限制窗口内重试请求比例（默认 10%），防止重试风暴加剧过载。预算耗尽时返回 `502`（错误码 `40011`），停止重试并返回原始错误。与 `RETRY_MAX_ATTEMPTS` 配合使用：`MAX_ATTEMPTS` 控制单请求最大重试次数，`BUDGET_RATIO` 控制全局重试占比。
 
 ## 8. 常见问题（FAQ）
 
@@ -184,5 +186,7 @@ curl -s "$BASE/audit-logs?action=publish" -H "$AUTH"
 | 请求 403 / `10003 无权限` | 角色不足；token 是否严格 `operator:secret:role` 三段（无冒号 → viewer） |
 | 请求 401 / `10002 unauthorized` | token 未配置或不匹配；确认与 `CONROGATE_CONTROL_AUTH_TOKEN` 中某项完全一致 |
 | 上游请求 5xx | 检查 `GET /api/v1/nodes` 心跳是否正常、上游 `address` 是否可达 |
+| 请求返回 `503` + 错误码 `40010` | 自适应并发保护触发：上游延迟过高或并发已满，检查 `ADAPTIVE_CONCURRENCY_LATENCY_THRESHOLD_MS` 是否过低、上游是否已过载 |
+| 请求返回 `502` + 错误码 `40011` | 重试预算耗尽：窗口内重试比例超限，检查 `RETRY_BUDGET_RATIO` 配置及上游健康度 |
 | `/readyz` 返回 503 | 尚未加载任何路由（空配置）或配置热载异常，查看数据面日志 |
 | 回滚后仍读到旧配置 | 数据面轮询有秒级延迟；Redis 模式确认快照已写回 |

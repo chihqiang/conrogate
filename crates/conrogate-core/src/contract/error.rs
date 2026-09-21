@@ -69,6 +69,10 @@ pub enum ConrogateError {
     Limited,
     #[error("请求重试耗尽: {0}")]
     RetryExhausted(String),
+    #[error("并发过载保护：服务暂时不可用")]
+    Overloaded,
+    #[error("重试预算耗尽")]
+    RetryBudgetExhausted,
 
     // ---- 系统（50000 段）----
     #[error("配置加载失败: {0}")]
@@ -144,6 +148,10 @@ impl ConrogateError {
     pub const ERR_LIMITED: i32 = 40008;
     /// 请求重试耗尽
     pub const ERR_RETRY_EXHAUSTED: i32 = 40009;
+    /// 并发过载保护（自适应并发限制触发快速失败）
+    pub const ERR_OVERLOADED: i32 = 40010;
+    /// 重试预算耗尽
+    pub const ERR_RETRY_BUDGET_EXHAUSTED: i32 = 40011;
     // 系统（50000 段）
     /// 配置加载失败 / 服务未就绪
     pub const ERR_CONFIG_LOAD: i32 = 50001;
@@ -185,6 +193,8 @@ impl ConrogateError {
             Self::CircuitBreakerOpen => Self::ERR_CIRCUIT_BREAKER_OPEN,
             Self::Limited => Self::ERR_LIMITED,
             Self::RetryExhausted(_) => Self::ERR_RETRY_EXHAUSTED,
+            Self::Overloaded => Self::ERR_OVERLOADED,
+            Self::RetryBudgetExhausted => Self::ERR_RETRY_BUDGET_EXHAUSTED,
 
             Self::ConfigLoad(_) => Self::ERR_CONFIG_LOAD,
             Self::Init(_) => Self::ERR_INIT,

@@ -125,6 +125,35 @@ sqlite::memory:
 | `CONROGATE_GATE_BREAKER_REDIS_URL` | `String` | `""` | Redis URL（`mode=cluster` 时必填） |
 | `CONROGATE_GATE_BREAKER_REDIS_CONNECT_TIMEOUT_MS` | `Duration` | `2000` | Redis 连接超时（毫秒） |
 
+### 自适应并发控制（Adaptive Concurrency / AIMD）
+
+> 启用后替代静态 `MAX_CONNECTIONS` 并发限制，基于上游延迟动态伸缩并发上限。
+> 算法参考 Google SRE Book "Handling Overload"：健康时线性增加（AI），延迟超阈值或失败时乘性减少（MD），并发满时短超时快速失败（503）。
+
+| 变量 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `CONROGATE_GATE_ADAPTIVE_CONCURRENCY_ENABLED` | `bool` | `false` | 是否启用自适应并发控制 |
+| `CONROGATE_GATE_ADAPTIVE_CONCURRENCY_INITIAL_LIMIT` | `usize` | `100` | 初始并发上限 |
+| `CONROGATE_GATE_ADAPTIVE_CONCURRENCY_MIN_LIMIT` | `usize` | `10` | 最小并发上限（AIMD 下界） |
+| `CONROGATE_GATE_ADAPTIVE_CONCURRENCY_MAX_LIMIT` | `usize` | `10000` | 最大并发上限（AIMD 上界） |
+| `CONROGATE_GATE_ADAPTIVE_CONCURRENCY_INCREASE_STEP` | `usize` | `1` | AI 步长：每轮无错误窗口增加的并发数 |
+| `CONROGATE_GATE_ADAPTIVE_CONCURRENCY_DECREASE_RATIO` | `f64` | `0.5` | MD 因子（0~1）：延迟超阈值时乘以的收缩比例 |
+| `CONROGATE_GATE_ADAPTIVE_CONCURRENCY_LATENCY_THRESHOLD_MS` | `Duration` | `5000` | 触发 MD 的延迟阈值（毫秒） |
+| `CONROGATE_GATE_ADAPTIVE_CONCURRENCY_WINDOW_MS` | `Duration` | `10000` | 统计窗口长度（毫秒） |
+| `CONROGATE_GATE_ADAPTIVE_CONCURRENCY_ACQUIRE_TIMEOUT_MS` | `Duration` | `100` | 获取并发许可的等待超时：超时后快速失败返回 503 |
+
+### 重试预算（Retry Budget）
+
+> 限制全局重试请求占总请求的比例，防止重试风暴在过载时加剧雪崩。
+> 预算耗尽时停止重试，直接返回原始错误（`RetryBudgetExhausted`，错误码 `40011`）。
+
+| 变量 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `CONROGATE_GATE_RETRY_BUDGET_ENABLED` | `bool` | `false` | 是否启用重试预算 |
+| `CONROGATE_GATE_RETRY_BUDGET_RATIO` | `f64` | `0.1` | 重试比例上限（0.0~1.0），如 `0.1` = 重试不超过总请求的 10% |
+| `CONROGATE_GATE_RETRY_BUDGET_WINDOW_MS` | `Duration` | `10000` | 统计窗口长度（毫秒） |
+| `CONROGATE_GATE_RETRY_BUDGET_MIN_REQUESTS` | `u32` | `10` | 窗口内最少请求数：低于此值不判定（冷启动保护，避免误杀） |
+
 ### 优雅关闭
 
 | 变量 | 类型 | 默认值 | 说明 |

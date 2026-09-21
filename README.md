@@ -6,7 +6,7 @@ Conrogate 轻量级微服务网关，内置配置中心，支持动态路由、�
 
 - **动态路由**：前缀/精确/正则路径匹配 + Host/Header/Query 多维匹配
 - **负载均衡**：轮询 / 加权轮询 / 最少连接 / 一致性哈希
-- **流量治理**：限流（令牌桶）+ 熔断 + 重试 + 超时
+- **流量治理**：限流（令牌桶）+ 熔断 + 重试 + 超时 + 自适应并发控制（AIMD）+ 重试预算（Retry Budget）
 - **协议支持**：HTTP/1.1 + HTTP/2 + WebSocket + TCP 隧道
 - **插件系统**：静态编译插件；内置 CORS / Auth / Header-Rewrite / IP-Access-Control 插件
 - **安全防护**：全局 IP 黑名单（TTL 过期 + 热载）+ 绑定级 IP allow/deny 插件，HTTP/WS/TCP 三协议生效
@@ -76,6 +76,8 @@ CONROGATE_CONTROL_AUTH_TOKEN='admin:admin-secret:admin,ops:ops-secret:operator,g
 CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='redis://127.0.0.1:6379'
 CONROGATE_GATE_RATE_LIMIT_ENABLED=true
 CONROGATE_GATE_BREAKER_ENABLED=true
+CONROGATE_GATE_ADAPTIVE_CONCURRENCY_ENABLED=true
+CONROGATE_GATE_RETRY_BUDGET_ENABLED=true
 CONROGATE_LOG_LEVEL=warn
 CONROGATE_LOG_OUTPUT_FILE_ENABLED=false
 ```
@@ -149,7 +151,7 @@ CONROGATE_LOG_OUTPUT_FILE_ENABLED=false
   REST API → 审计日志 → 配置版本发布 → Redis 快照推送
                                       ↓
 数据面 (Data Plane :8080) ←── 配置热加载 ←── DB 轮询 / Redis 快照 / HTTP 拉取
-  路由匹配 → 插件链 → 限流/熔断 → 负载均衡 → 转发
+  路由匹配 → 插件链 → 限流/熔断/自适应并发 → 负载均衡 → 转发
        ↓ 遥测采集
   ── mpsc ──► 指标聚合 / 事件批量落库（合并模式）
   ── HTTP ──► /reports/* 端点（分离模式）

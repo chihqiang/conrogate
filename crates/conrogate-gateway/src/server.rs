@@ -18,6 +18,9 @@ use conrogate_protocol::{
 };
 use conrogate_traffic::breaker::{BreakerConfig, BreakerFactoryImpl};
 use conrogate_traffic::limiter::TokenBucketLimiter;
+use conrogate_traffic::adaptive::{AdaptiveConfig, AdaptiveConcurrencyImpl};
+use conrogate_core::contract::traffic::{AdaptiveConcurrency, ConcurrencyPermit};
+use conrogate_traffic::retry_budget::{RetryBudgetConfig, RetryBudgetImpl};
 use bytes::Bytes;
 use http::{Request, Response};
 use http_body_util::{BodyExt, Full};
@@ -43,6 +46,10 @@ pub struct GatewayServer {
     config_cache: Option<Arc<dyn conrogate_core::contract::storage::ConfigCache>>,
     /// 全局 IP 黑名单匹配器（HTTP/WS/TCP 隧道统一生效，随配置热载刷新）
     blacklist: Arc<dyn conrogate_core::contract::gateway::BlacklistCheck>,
+    /// 自适应并发控制器（启用时替代静态 Semaphore）
+    adaptive_concurrency: Option<Arc<AdaptiveConcurrencyImpl>>,
+    /// 重试预算控制器（启用时限制全局重试比例）
+    retry_budget: Option<Arc<RetryBudgetImpl>>,
 }
 
 /// 遥测通道（指标/事件接收端），由调用方决定消费方式（DB 落库或日志兜底）
@@ -226,13 +233,58 @@ impl GatewayServer {
             0
         };
 
+        // 自适应并发控制（启用时替代静态 Semaphore）
+        let adaptive_concurrency = if config.gate.adaptive_concurrency.enabled {
+            let ac_config = AdaptiveConfig {
+                initial_limit: config.gate.adaptive_concurrency.initial_limit,
+                min_limit: config.gate.adaptive_concurrency.min_limit,
+                max_limit: config.gate.adaptive_concurrency.max_limit,
+                increase_step: config.gate.adaptive_concurrency.increase_step,
+                decrease_ratio: config.gate.adaptive_concurrency.decrease_ratio,
+                latency_threshold: config.gate.adaptive_concurrency.latency_threshold,
+                window: config.gate.adaptive_concurrency.window,
+                acquire_timeout: config.gate.adaptive_concurrency.acquire_timeout,
+            };
+            tracing::info!(
+                initial_limit = ac_config.initial_limit,
+                min_limit = ac_config.min_limit,
+                max_limit = ac_config.max_limit,
+                "adaptive concurrency control enabled"
+            );
+            Some(Arc::new(AdaptiveConcurrencyImpl::new(ac_config)))
+        } else {
+            None
+        };
+
+        // 重试预算（启用时限制全局重试比例）
+        let retry_budget = if config.gate.retry_budget.enabled {
+            let rb_config = RetryBudgetConfig {
+                budget_ratio: config.gate.retry_budget.budget_ratio,
+                window: config.gate.retry_budget.window,
+                min_requests: config.gate.retry_budget.min_requests,
+            };
+            tracing::info!(
+                ratio = rb_config.budget_ratio,
+                window_ms = rb_config.window.as_millis(),
+                "retry budget enabled"
+            );
+            Some(Arc::new(RetryBudgetImpl::new(rb_config)))
+        } else {
+            None
+        };
+
         let protocols = ProtocolHandlerRegistry::new();
-        protocols.register(Arc::new(
-            HttpProtocolHandler::with_timeout(svc.clone(), timeout)
-                .with_outbound_tls(config.gate.outbound_tls.skip_verify)
-                .with_trusted_proxies(config.gate.listen.trusted_proxies.clone())
-                .with_max_retries(config.gate.retry.max_attempts),
-        ));
+        let http_handler = HttpProtocolHandler::with_timeout(svc.clone(), timeout)
+            .with_outbound_tls(config.gate.outbound_tls.skip_verify)
+            .with_trusted_proxies(config.gate.listen.trusted_proxies.clone())
+            .with_max_retries(config.gate.retry.max_attempts);
+        // 注入重试预算（启用时）
+        let http_handler = if let Some(ref rb) = retry_budget {
+            http_handler.with_retry_budget(rb.clone() as Arc<dyn conrogate_core::contract::traffic::RetryBudget>)
+        } else {
+            http_handler
+        };
+        protocols.register(Arc::new(http_handler));
         protocols.register(Arc::new(TcpTunnelProtocolHandler::with_config(
             svc.clone(),
             timeout,
@@ -253,6 +305,8 @@ impl GatewayServer {
             idle_timeout: config.gate.connection.idle_timeout,
             config_cache: None,
             blacklist,
+            adaptive_concurrency,
+            retry_budget,
         };
         (
             server,
@@ -348,6 +402,8 @@ impl GatewayServer {
             idle_timeout: config.gate.connection.idle_timeout,
             config_cache: None,
             blacklist: svc.blacklist.clone(),
+            adaptive_concurrency: None,
+            retry_budget: None,
         }
     }
 
@@ -570,8 +626,10 @@ impl GatewayServer {
             .await
             .map_err(|e| ConrogateError::Init(format!("tcp bind: {e}")))?;
 
-        // 全局并发连接限制（Semaphore）
+        // 全局并发连接限制
+        // 启用自适应并发时使用 AIMD 动态调整，否则使用静态 Semaphore
         let conn_semaphore = Arc::new(tokio::sync::Semaphore::new(self.max_connections));
+        let adaptive_concurrency = self.adaptive_concurrency.clone();
         let max_body_bytes = self.max_body_bytes;
         let max_header_bytes = self.max_header_bytes;
         let idle_timeout = self.idle_timeout;
@@ -625,6 +683,8 @@ impl GatewayServer {
                     let tcp_handler = self.protocols.get(ProtocolId::TcpTunnel);
                     let route_matcher = self.route_matcher.clone();
                     let semaphore = conn_semaphore.clone();
+                    let conn_sem = conn_semaphore.clone();
+                    let ac = adaptive_concurrency.clone();
                     let tls_acc = tls_acceptor.clone();
                     let listen_addr = addr.to_string();
                     let tls_passthrough = tls_enabled && tls_mode == "passthrough";
@@ -633,11 +693,35 @@ impl GatewayServer {
 
                     connections.spawn(async move {
                         // 获取并发许可
-                        let _permit = match semaphore.acquire().await {
-                            Ok(p) => p,
-                            Err(_) => {
-                                tracing::warn!("connection semaphore closed");
-                                return;
+                        // 启用自适应并发时使用 AIMD 动态限流 + 快速失败
+                        // 否则使用静态 Semaphore（阻塞等待模式）
+                        let _permit = if let Some(ref ac) = ac {
+                            match ac.try_acquire().await {
+                                Ok(p) => p,
+                                Err(_) => {
+                                    tracing::warn!(
+                                        "adaptive concurrency: overloaded, fast-fail connection"
+                                    );
+                                    return;
+                                }
+                            }
+                        } else {
+                            match semaphore.acquire().await {
+                                Ok(p) => {
+                                    // 静态 Semaphore 路径：包装为统一 ConcurrencyPermit 类型
+                                    // forget 释放 SemaphorePermit（不归还许可到信号量），
+                                    // 由 ConcurrencyPermit drop 时手动归还
+                                    p.forget();
+                                    let sem = conn_sem.clone();
+                                    ConcurrencyPermit::new(move || {
+                                        // 归还信号量许可（对应 forget 的不归还）
+                                        sem.add_permits(1);
+                                    })
+                                }
+                                Err(_) => {
+                                    tracing::warn!("connection semaphore closed");
+                                    return;
+                                }
                             }
                         };
 
@@ -802,6 +886,16 @@ impl GatewayServer {
     /// 获取插件注册表引用
     pub fn plugin_registry(&self) -> &Arc<PluginRegistryImpl> {
         &self.plugin_registry
+    }
+
+    /// 获取自适应并发控制器（启用时）
+    pub fn adaptive_concurrency(&self) -> Option<&Arc<AdaptiveConcurrencyImpl>> {
+        self.adaptive_concurrency.as_ref()
+    }
+
+    /// 获取重试预算控制器（启用时）
+    pub fn retry_budget(&self) -> Option<&Arc<RetryBudgetImpl>> {
+        self.retry_budget.as_ref()
     }
 
     /// 优雅停机：调用所有插件的 shutdown()

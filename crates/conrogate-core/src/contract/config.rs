@@ -30,6 +30,8 @@ pub struct GateConfig {
     pub retry: RetryConfig,
     pub rate_limit: RateLimitConfig,
     pub breaker: BreakerConfig,
+    pub adaptive_concurrency: AdaptiveConcurrencyConfig,
+    pub retry_budget: RetryBudgetConfig,
     pub shutdown: ShutdownConfig,
     pub refresh: RefreshConfig,
     pub upgrade: UpgradeConfig,
@@ -190,6 +192,69 @@ impl Default for BreakerConfig {
             wait: Duration::from_secs(30),
             half_open_max: 5,
             cluster_store: None,
+        }
+    }
+}
+
+/// 自适应并发控制配置（AIMD 算法）
+#[derive(Debug, Clone)]
+pub struct AdaptiveConcurrencyConfig {
+    /// 是否启用
+    pub enabled: bool,
+    /// 初始并发上限
+    pub initial_limit: usize,
+    /// 最小并发上限（AIMD 下界）
+    pub min_limit: usize,
+    /// 最大并发上限（AIMD 上界）
+    pub max_limit: usize,
+    /// AI（Additive Increase）步长：每轮无错误窗口增加的并发数
+    pub increase_step: usize,
+    /// MD（Multiplicative Decrease）因子：延迟超阈值时乘以的因子（0~1）
+    pub decrease_ratio: f64,
+    /// 触发 MD 的延迟阈值
+    pub latency_threshold: Duration,
+    /// 统计窗口长度
+    pub window: Duration,
+    /// 获取并发许可的等待超时：超时后快速失败返回 503
+    pub acquire_timeout: Duration,
+}
+
+impl Default for AdaptiveConcurrencyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            initial_limit: 100,
+            min_limit: 10,
+            max_limit: 10_000,
+            increase_step: 1,
+            decrease_ratio: 0.5,
+            latency_threshold: Duration::from_secs(5),
+            window: Duration::from_secs(10),
+            acquire_timeout: Duration::from_millis(100),
+        }
+    }
+}
+
+/// 重试预算配置
+#[derive(Debug, Clone)]
+pub struct RetryBudgetConfig {
+    /// 是否启用
+    pub enabled: bool,
+    /// 重试比例上限（0.0~1.0），如 0.1 表示重试不超过总请求的 10%
+    pub budget_ratio: f64,
+    /// 统计窗口长度
+    pub window: Duration,
+    /// 预算窗口内最少请求数：低于此数不判定（避免冷启动误杀）
+    pub min_requests: u64,
+}
+
+impl Default for RetryBudgetConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            budget_ratio: 0.1,
+            window: Duration::from_secs(10),
+            min_requests: 10,
         }
     }
 }
@@ -668,6 +733,62 @@ impl Config {
                     ),
                     cluster_store: breaker_cluster_store,
                 },
+                adaptive_concurrency: AdaptiveConcurrencyConfig {
+                    enabled: env_bool(
+                        "CONROGATE_GATE_ADAPTIVE_CONCURRENCY_ENABLED",
+                        def.gate.adaptive_concurrency.enabled,
+                    ),
+                    initial_limit: env_usize(
+                        "CONROGATE_GATE_ADAPTIVE_CONCURRENCY_INITIAL_LIMIT",
+                        def.gate.adaptive_concurrency.initial_limit,
+                    ),
+                    min_limit: env_usize(
+                        "CONROGATE_GATE_ADAPTIVE_CONCURRENCY_MIN_LIMIT",
+                        def.gate.adaptive_concurrency.min_limit,
+                    ),
+                    max_limit: env_usize(
+                        "CONROGATE_GATE_ADAPTIVE_CONCURRENCY_MAX_LIMIT",
+                        def.gate.adaptive_concurrency.max_limit,
+                    ),
+                    increase_step: env_usize(
+                        "CONROGATE_GATE_ADAPTIVE_CONCURRENCY_INCREASE_STEP",
+                        def.gate.adaptive_concurrency.increase_step,
+                    ),
+                    decrease_ratio: env_f64(
+                        "CONROGATE_GATE_ADAPTIVE_CONCURRENCY_DECREASE_RATIO",
+                        def.gate.adaptive_concurrency.decrease_ratio,
+                    ),
+                    latency_threshold: env_duration_ms(
+                        "CONROGATE_GATE_ADAPTIVE_CONCURRENCY_LATENCY_THRESHOLD_MS",
+                        def.gate.adaptive_concurrency.latency_threshold.as_millis() as u64,
+                    ),
+                    window: env_duration_ms(
+                        "CONROGATE_GATE_ADAPTIVE_CONCURRENCY_WINDOW_MS",
+                        def.gate.adaptive_concurrency.window.as_millis() as u64,
+                    ),
+                    acquire_timeout: env_duration_ms(
+                        "CONROGATE_GATE_ADAPTIVE_CONCURRENCY_ACQUIRE_TIMEOUT_MS",
+                        def.gate.adaptive_concurrency.acquire_timeout.as_millis() as u64,
+                    ),
+                },
+                retry_budget: RetryBudgetConfig {
+                    enabled: env_bool(
+                        "CONROGATE_GATE_RETRY_BUDGET_ENABLED",
+                        def.gate.retry_budget.enabled,
+                    ),
+                    budget_ratio: env_f64(
+                        "CONROGATE_GATE_RETRY_BUDGET_RATIO",
+                        def.gate.retry_budget.budget_ratio,
+                    ),
+                    window: env_duration_ms(
+                        "CONROGATE_GATE_RETRY_BUDGET_WINDOW_MS",
+                        def.gate.retry_budget.window.as_millis() as u64,
+                    ),
+                    min_requests: env_u32(
+                        "CONROGATE_GATE_RETRY_BUDGET_MIN_REQUESTS",
+                        def.gate.retry_budget.min_requests as u32,
+                    ) as u64,
+                },
                 shutdown: ShutdownConfig {
                     long_conn_drain: env_duration_ms(
                         "CONROGATE_GATE_SHUTDOWN_LONG_CONN_DRAIN_MS",
@@ -882,6 +1003,8 @@ impl Default for Config {
                 retry: RetryConfig::default(),
                 rate_limit: RateLimitConfig::default(),
                 breaker: BreakerConfig::default(),
+                adaptive_concurrency: AdaptiveConcurrencyConfig::default(),
+                retry_budget: RetryBudgetConfig::default(),
                 shutdown: ShutdownConfig::default(),
                 refresh: RefreshConfig::default(),
                 upgrade: UpgradeConfig::default(),
@@ -989,6 +1112,22 @@ mod tests {
         assert_eq!(
             parsed.gate.breaker.failure_rate_threshold,
             default.gate.breaker.failure_rate_threshold
+        );
+        assert_eq!(
+            parsed.gate.adaptive_concurrency.enabled,
+            default.gate.adaptive_concurrency.enabled
+        );
+        assert_eq!(
+            parsed.gate.adaptive_concurrency.initial_limit,
+            default.gate.adaptive_concurrency.initial_limit
+        );
+        assert_eq!(
+            parsed.gate.retry_budget.enabled,
+            default.gate.retry_budget.enabled
+        );
+        assert_eq!(
+            parsed.gate.retry_budget.budget_ratio,
+            default.gate.retry_budget.budget_ratio
         );
         assert_eq!(
             parsed.gate.shutdown.long_conn_drain,
