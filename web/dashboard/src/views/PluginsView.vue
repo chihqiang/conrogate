@@ -187,7 +187,7 @@ onMounted(() => void load())
       </template>
 
       <template #empty>
-        <AppEmpty text="暂无已安装插件。执行 conrogate-migrate --seed 注册官方插件" />
+        <AppEmpty text="暂无已安装插件。执行 conrogate-cli -- migrate --seed 注册官方插件" />
       </template>
     </AppTable>
   </AppCard>

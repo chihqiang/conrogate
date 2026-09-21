@@ -1,7 +1,7 @@
 //! 演示数据（mock data）写入。
 //!
-//! 由 `conrogate-migrate` 在迁移完成后调用；服务二进制
-//! （conrogate / conrogate-control / conrogate-gate）不负责数据迁移与演示数据写入。
+//! 由 `conrogate-cli migrate` 在迁移完成后调用；服务二进制
+//! （conrogate serve / control / gate）不负责数据迁移与演示数据写入。
 
 use sea_orm::DatabaseConnection;
 
