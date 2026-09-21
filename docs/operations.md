@@ -8,8 +8,10 @@
 按部署方式先启动一个可用的服务（详细命令见 README「开发」与 [`docs/deployment.md`](deployment.md)）：
 
 - **合并模式**（单进程）：`cargo run -p conrogate-cli -- serve`（或运行 `./scripts/dev-up.sh`）。
-- **分离模式**：`conrogate migrate`（先迁移）→ `conrogate control`（9000）+ `conrogate gate` × N（8080）。
+- **分离模式**：`cargo run -p conrogate-cli -- migrate`（先迁移）→ `cargo run -p conrogate-cli -- control`（9000）+ `cargo run -p conrogate-cli -- gate` × N（8080）。
 - **本地零依赖模板**：`cp .env.example .env && cargo run -p conrogate-cli -- migrate`（先迁移）→ `cargo run -p conrogate-cli -- serve`（SQLite + 合并模式；演示数据需迁移时加 `--seed`）。
+
+> 生产环境使用编译后二进制：`conrogate migrate` / `conrogate control` / `conrogate gate` / `conrogate serve`（Docker 镜像内路径 `/app/conrogate`）。
 
 启动后先做体检：
 

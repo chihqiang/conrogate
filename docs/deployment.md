@@ -287,7 +287,7 @@ Dockerfile 构建要点：
 | builder | `rust:1.88-bookworm` | 多阶段编译：复制全部源码后一次性全量编译（简单可靠；CI 由 gha 层缓存加速未变更层） |
 | runtime | `debian:bookworm-slim` | 最小运行时：ca-certificates + curl（仅用于健康检查）；纯 rustls 无需 OpenSSL |
 
-镜像内二进制：`conrogate`、`conrogate gate`、`conrogate control`、`conrogate migrate` 均位于 `/app/`。默认以 root 运行。
+镜像内二进制：`/app/conrogate`（单一二进制，通过子命令区分：`serve` / `gate` / `control` / `migrate`）。默认以 root 运行。
 
 ### 容器内运行
 
