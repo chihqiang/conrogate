@@ -1,14 +1,26 @@
 [workspace]
 resolver = "2"
 members = [
-    # 核心层：契约/负载均衡/插件框架/协议适配/持久化/流量治理/控制面/网关/官方插件
-    "conrogate-core",
-    # 工具
-    "conrogate-migrate",   # 迁移工具 CLI
-    # 二进制
-    "conrogate-gate",      # 数据面二进制（分离模式）
-    "conrogate-control",   # 控制面二进制（分离模式）
-    "conrogate",           # 合并模式二进制（数据面 + 控制面）
+    # 公共基础层：契约/DTO/配置/日志
+    "crates/conrogate-core",
+    # 负载均衡算法
+    "crates/conrogate-balancer",
+    # 协议适配（HTTP/WS/TCP）
+    "crates/conrogate-protocol",
+    # 流量治理（限流/熔断/重试/超时）
+    "crates/conrogate-traffic",
+    # 数据模型 + 持久化 + 迁移
+    "crates/conrogate-storage",
+    # 安全防护（IP 黑名单等）
+    "crates/conrogate-security",
+    # 网关引擎
+    "crates/conrogate-gateway",
+    # 插件框架 + 官方插件
+    "crates/conrogate-plugins",
+    # 控制面 REST API
+    "crates/conrogate-server",
+    # 唯一二进制入口（子命令 serve/gate/control/migrate）
+    "crates/conrogate-cli",
 ]
 
 [workspace.package]
@@ -97,7 +109,7 @@ redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 regex = "1.10"
 
 # ── 内部 crate ──
-conrogate-core = { path = "conrogate-core" }
+conrogate-core = { path = "crates/conrogate-core" }
 
 [profile.release]
 lto = "thin"

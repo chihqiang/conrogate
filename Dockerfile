@@ -16,11 +16,8 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# 复制二进制
+# 复制二进制（单一入口，子命令分发）
 COPY --from=builder /build/target/release/conrogate /app/
-COPY --from=builder /build/target/release/conrogate-gate /app/
-COPY --from=builder /build/target/release/conrogate-control /app/
-COPY --from=builder /build/target/release/conrogate-migrate /app/
 
 # 暴露端口
 EXPOSE 8080 9000

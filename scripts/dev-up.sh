@@ -19,8 +19,8 @@ echo "redis ready"
 
 # ── 执行数据库迁移 + 写入演示数据 ──
 export CONROGATE_DB_PASSWORD=conrogate_dev
-cargo run -p conrogate-migrate
+cargo run -p conrogate-cli -- migrate
 
 # ── 启动合并模式（数据面 8080 + 控制面 9000）──
 export CONROGATE_CONTROL_AUTH_TOKEN=admin:dev-token:admin
-cargo run -p conrogate
+cargo run -p conrogate-cli -- serve

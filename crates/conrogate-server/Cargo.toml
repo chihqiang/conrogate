@@ -1,0 +1,24 @@
+[package]
+name = "conrogate-server"
+description = "Conrogate 控制面 REST API：路由/上游/插件/配置版本/指标/审计管理"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+conrogate-core = { workspace = true }
+conrogate-storage = { path = "../conrogate-storage" }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
+http-body-util = { workspace = true }
+http = { workspace = true }
+conrogate-security = { path = "../conrogate-security" }

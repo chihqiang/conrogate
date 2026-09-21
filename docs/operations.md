@@ -8,8 +8,8 @@
 按部署方式先启动一个可用的服务（详细命令见 README「开发」与 [`docs/deployment.md`](deployment.md)）：
 
 - **合并模式**（单进程）：`cargo run -p conrogate`（或运行 `./scripts/dev-up.sh`）。
-- **分离模式**：`conrogate-migrate`（先迁移）→ `conrogate-control`（9000）+ `conrogate-gate` × N（8080）。
-- **本地零依赖模板**：`cp .env.example .env && cargo run -p conrogate-migrate`（先迁移）→ `cargo run -p conrogate`（SQLite + 合并模式；演示数据需迁移时加 `--seed`）。
+- **分离模式**：`conrogate migrate`（先迁移）→ `conrogate control`（9000）+ `conrogate gate` × N（8080）。
+- **本地零依赖模板**：`cp .env.example .env && cargo run -p conrogate-cli -- migrate`（先迁移）→ `cargo run -p conrogate-cli -- serve`（SQLite + 合并模式；演示数据需迁移时加 `--seed`）。
 
 启动后先做体检：
 
@@ -51,7 +51,7 @@ AUTH="Authorization: Bearer $TOKEN"     # 请求头，用法：-H "$AUTH"
 
 ## 3. 快速上手：配置一条路由（标准流程）
 
-演示数据（`cargo run -p conrogate-migrate -- --seed` 写入）已含示例路由；以下是手动配置完整流程。
+演示数据（`cargo run -p conrogate-cli -- migrate --seed` 写入）已含示例路由；以下是手动配置完整流程。
 
 ### 3.1 创建上游
 
@@ -93,9 +93,9 @@ curl -s -X POST "$BASE/routes" -H "$AUTH" -H 'Content-Type: application/json' -d
 
 路由绑定插件（JWT 鉴权 / CORS 跨域 / 请求与响应头改写）的原理、配置与用法见 [`docs/plugins.md`](plugins.md)（内置模块文档，`cargo doc -p conrogate-core` 亦可查阅）：
 
-- `conrogate-core/src/plugins/auth/mod.rs` — 鉴权插件 `auth`
-- `conrogate-core/src/plugins/cors/mod.rs` — 跨域插件 `cors`
-- `conrogate-core/src/plugins/header_rewrite/mod.rs` — 头改写插件 `header_rewrite`
+- `crates/conrogate-core/src/plugins/auth/mod.rs` — 鉴权插件 `auth`
+- `crates/conrogate-core/src/plugins/cors/mod.rs` — 跨域插件 `cors`
+- `crates/conrogate-core/src/plugins/header_rewrite/mod.rs` — 头改写插件 `header_rewrite`
 
 `db` / `http` 模式下改表即生效（见 §2），无需发布；绑定后仍建议执行发布（见 3.4）生成不可变版本号用于留档、diff 与回滚，`redis` 模式必须发布才生效。
 

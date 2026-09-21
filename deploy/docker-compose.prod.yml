@@ -52,7 +52,7 @@ services:
   # ── 一次性迁移（幂等，可重复执行）──
   migrate:
     image: ${CONROGATE_IMAGE:-zhiqiangwang/app:conrogate}
-    command: ["conrogate-migrate"]
+    command: ["conrogate", "migrate"]
     environment: &db_env
       CONROGATE_DB_URL: postgres://${PG_USER:-conrogate}:${PG_PASSWORD:-conrogate_prod}@postgres:5432/${PG_DB:-conrogate}
     depends_on:

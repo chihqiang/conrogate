@@ -54,7 +54,7 @@ services:
   # ── 一次性迁移（幂等，可重复执行）──
   migrate:
     image: ${CONROGATE_IMAGE:-zhiqiangwang/app:conrogate}
-    command: ["conrogate-migrate"]
+    command: ["conrogate", "migrate"]
     environment:
       CONROGATE_DB_URL: postgres://${PG_USER:-conrogate}:${PG_PASSWORD:-conrogate_prod}@postgres:5432/${PG_DB:-conrogate}
     depends_on:
@@ -67,7 +67,7 @@ services:
   control:
     image: ${CONROGATE_IMAGE:-zhiqiangwang/app:conrogate}
     container_name: conrogate-control
-    command: ["conrogate-control"]
+    command: ["conrogate", "control"]
     environment:
       CONROGATE_INSTANCE_ID: ${CONTROL_INSTANCE_ID:-prod-control-01}
 
@@ -118,7 +118,7 @@ services:
   # ── 数据面（不监听控制端口，配置来自 Redis）──
   gate:
     image: ${CONROGATE_IMAGE:-zhiqiangwang/app:conrogate}
-    command: ["conrogate-gate"]
+    command: ["conrogate", "gate"]
     deploy:
       replicas: ${GATE_REPLICAS:-1}
     environment:

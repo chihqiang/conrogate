@@ -217,7 +217,7 @@ health_check() {
 }
 
 CONROGATE_BIN="${CONROGATE_BIN:-$ROOT/../target/debug/conrogate}"
-MIGRATE_BIN="${MIGRATE_BIN:-$ROOT/../target/debug/conrogate-migrate}"
+MIGRATE_BIN="${MIGRATE_BIN:-$ROOT/../target/debug/conrogate migrate}"
 
 # 启动隔离的合并模式网关实例（独立 SQLite 库 + 独立端口），用于网关级配置测试。
 # 使用前先 export 额外环境变量（如限流/熔断/TLS）。成功输出 PID 到 stdout。

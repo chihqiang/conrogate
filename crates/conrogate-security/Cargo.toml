@@ -1,0 +1,13 @@
+[package]
+name = "conrogate-security"
+description = "Conrogate 安全防护：全局 IP 黑名单"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+conrogate-core = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }
+ipnet = { workspace = true }

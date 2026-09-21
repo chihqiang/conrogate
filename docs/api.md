@@ -723,13 +723,13 @@ Authorization: Bearer <operator>:<secret>:<role>
 | `applied_at` | `DateTime<Utc>` | 版本应用时间                                |
 | `updated_at` | `DateTime<Utc>` | 最后心跳/更新时间                           |
 
-合并模式下此列表通常为空；分离模式下，各 `conrogate-gate` 数据面实例定期上报心跳后会填充。
+合并模式下此列表通常为空；分离模式下，各 `conrogate gate` 数据面实例定期上报心跳后会填充。
 
 ---
 
 ## 11. 数据上报（数据面 → 控制面）
 
-以下接口由 `conrogate-gate` 数据面实例调用，用于上报遥测数据。属于**受保护路由**（需要共享鉴权令牌）。
+以下接口由 `conrogate gate` 数据面实例调用，用于上报遥测数据。属于**受保护路由**（需要共享鉴权令牌）。
 
 ### `POST /reports/heartbeat`
 

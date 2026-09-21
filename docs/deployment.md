@@ -8,7 +8,7 @@
 |------|------|------|------|
 | 本地开发/测试 | 合并模式 | `conrogate` × 1 | 8080 + 9000 |
 | 小规模生产 | 合并模式 | `conrogate` × N（多副本） | 8080 + 9000 |
-| 大规模生产 | 分离模式 | `conrogate-gate` × N + `conrogate-control` × 1~2 | 8080 / 9000 |
+| 大规模生产 | 分离模式 | `conrogate gate` × N + `conrogate control` × 1~2 | 8080 / 9000 |
 
 ## 2. 基础依赖
 
@@ -45,7 +45,7 @@ export CONROGATE_DB_URL='sqlite:///tmp/conrogate.sqlite'
 export CONROGATE_DB_URL='sqlite::memory:'
 ```
 
-> 注意：SQLite 文件必须由进程自身创建，`create_if_missing(true)` 已在 `conrogate-core/src/storage/pool.rs` 中实现。SQLite 无需 Redis 即可运行。
+> 注意：SQLite 文件必须由进程自身创建，`create_if_missing(true)` 已在 `crates/conrogate-core/src/storage/pool.rs` 中实现。SQLite 无需 Redis 即可运行。
 
 ### Redis（可选，用于配置缓存与集群限流）
 
@@ -99,10 +99,10 @@ docker compose -f deploy/docker-compose.separated.prod.yml logs -f control gate
 
 ```bash
 # 全量构建（debug）
-cargo build -p conrogate -p conrogate-gate -p conrogate-control -p conrogate-migrate
+cargo build -p conrogate-cli
 
 # 全量构建（release，含 LTO 优化）
-cargo build --release -p conrogate -p conrogate-gate -p conrogate-control -p conrogate-migrate
+cargo build --release -p conrogate-cli
 ```
 
 > `release` 构建启用 `lto = "thin"` + `codegen-units = 1`，二进制体积约 30-40MB。
@@ -111,7 +111,7 @@ cargo build --release -p conrogate -p conrogate-gate -p conrogate-control -p con
 
 `./scripts/dev-up.sh`（启动依赖 PG + Redis → 迁移 → 合并模式）及其余开发 / 测试脚本见 → [`scripts/README.md`](../scripts/README.md)。
 
-如需演示数据，手动执行：`cargo run -p conrogate-migrate -- --seed`。
+如需演示数据，手动执行：`cargo run -p conrogate-cli -- migrate --seed`。
 
 ## 4. 数据库迁移
 
@@ -119,7 +119,7 @@ cargo build --release -p conrogate -p conrogate-gate -p conrogate-control -p con
 
 ```bash
 CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' \
-  cargo run -p conrogate-migrate
+  cargo run -p conrogate-cli -- migrate
 ```
 
 迁移工具自动按方言加锁串行化（防多实例并发迁移）：
@@ -132,15 +132,15 @@ CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' \
 
 ### 演示数据
 
-`conrogate-migrate` 默认仅执行迁移；需要演示数据时显式加 `--seed`（写入 1 个上游 + 1 条演示路由）。上游名称与地址可通过 `--seed-name` / `--seed-address` 自定义（默认 `echo-upstream` / `127.0.0.1:9090`）：
+`conrogate migrate` 默认仅执行迁移；需要演示数据时显式加 `--seed`（写入 1 个上游 + 1 条演示路由）。上游名称与地址可通过 `--seed-name` / `--seed-address` 自定义（默认 `echo-upstream` / `127.0.0.1:9090`）：
 
 ```bash
 CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' \
-  cargo run -p conrogate-migrate -- --seed
-# 自定义上游：cargo run -p conrogate-migrate -- --seed --seed-name <name> --seed-address <host:port>
+  cargo run -p conrogate-cli -- migrate --seed
+# 自定义上游：cargo run -p conrogate-cli -- migrate --seed --seed-name <name> --seed-address <host:port>
 ```
 
-> 服务二进制（conrogate / conrogate-control / conrogate-gate）启动时**不**执行迁移、**不**写演示数据，数据库由 `conrogate-migrate` 统一维护。
+> 服务二进制（conrogate / conrogate control / conrogate gate）启动时**不**执行迁移、**不**写演示数据，数据库由 `conrogate migrate` 统一维护。
 
 ### 数据库表清单
 
@@ -211,7 +211,7 @@ CONROGATE_CONTROL_AUTH_TOKEN=''            # 空字符串 = 关闭鉴权（开�
                      └──────────┬──────────────────────┬────┘
                                 │ 主库读写              │ 只读库
                     ┌───────────▼──────────┐   ┌───────▼──────────────┐
-                    │  conrogate-control    │   │  conrogate-gate × N  │
+                    │  conrogate control    │   │  conrogate gate × N  │
                     │  ┌──────────────────┐ │   │  ┌────────────────┐  │
                     │  │ REST API :9000   │ │   │  │ HTTP :8080     │  │
                     │  │ 审计/版本/指标    │ │   │  │ 路由/插件/转发   │  │
@@ -229,7 +229,7 @@ CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' \
 CONROGATE_CONTROL_LISTEN_PORT=9000 \
 CONROGATE_CONTROL_AUTH_TOKEN=your-secret-token \
 CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='redis://127.0.0.1:6379' \
-./target/release/conrogate-control
+./target/release/conrogate control
 ```
 
 ### 数据面启动（DB 轮询模式，默认）
@@ -240,7 +240,7 @@ CONROGATE_GATE_PORT=8080 \
 CONROGATE_GATE_REFRESH_CONFIG_SOURCE=db \
 CONROGATE_GATE_REFRESH_CONFIG_POLL_INTERVAL_MS=5000 \
 CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='redis://127.0.0.1:6379' \
-./target/release/conrogate-gate
+./target/release/conrogate gate
 ```
 
 配置热加载优先级：Redis 快照 → 直连只读 DB 轮询（任一步骤失败跳过本次重载，保持当前配置）。
@@ -252,7 +252,7 @@ CONROGATE_GATE_REFRESH_CONFIG_SOURCE=http \
 CONROGATE_GATE_REFRESH_CONTROL_API_URL=http://control:9000 \
 CONROGATE_GATE_REFRESH_CONTROL_API_TOKEN=your-secret-token \
 CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='' \
-./target/release/conrogate-gate
+./target/release/conrogate gate
 ```
 
 ### 数据面启动（SQLite 单机模式）
@@ -261,14 +261,14 @@ CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='' \
 # SQLite 无需额外依赖，无 Redis 时自动降级为 DB 轮询
 CONROGATE_DB_URL='sqlite:///data/conrogate.sqlite' \
 CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='' \
-./target/release/conrogate-gate
+./target/release/conrogate gate
 ```
 
 > SQLite 路径必须可写（容器内推荐 `/tmp` 或挂载 volume）。`create_if_missing` 已自动启用。
 
 ### 心跳上报（分离模式）
 
-`conrogate-gate` 启动后每 30s 向控制面上报心跳 `POST /api/v1/reports/heartbeat`（gate_id + version + timestamp），控制面 upsert `node_applications` 表并将上报 `timestamp` 持久化到 `last_seen`，作为节点活跃判定依据。
+`conrogate gate` 启动后每 30s 向控制面上报心跳 `POST /api/v1/reports/heartbeat`（gate_id + version + timestamp），控制面 upsert `node_applications` 表并将上报 `timestamp` 持久化到 `last_seen`，作为节点活跃判定依据。
 
 上报前提：`CONROGATE_GATE_REFRESH_CONTROL_API_URL` 非空；前缀需与控制面 `CONROGATE_CONTROL_LISTEN_API_PREFIX` 保持一致（`CONROGATE_GATE_REFRESH_CONTROL_API_PREFIX`，默认 `/api/v1`）。
 
@@ -287,7 +287,7 @@ Dockerfile 构建要点：
 | builder | `rust:1.88-bookworm` | 多阶段编译：复制全部源码后一次性全量编译（简单可靠；CI 由 gha 层缓存加速未变更层） |
 | runtime | `debian:bookworm-slim` | 最小运行时：ca-certificates + curl（仅用于健康检查）；纯 rustls 无需 OpenSSL |
 
-镜像内二进制：`conrogate`、`conrogate-gate`、`conrogate-control`、`conrogate-migrate` 均位于 `/app/`。默认以 root 运行。
+镜像内二进制：`conrogate`、`conrogate gate`、`conrogate control`、`conrogate migrate` 均位于 `/app/`。默认以 root 运行。
 
 ### 容器内运行
 
@@ -310,7 +310,7 @@ docker run -d --name conrogate-gate \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
   -p 8080:8080 \
   zhiqiangwang/app:conrogate \
-  /app/conrogate-gate
+  /app/conrogate gate
 ```
 
 ```bash
@@ -322,7 +322,7 @@ docker run -d --name conrogate-control \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
   -p 9000:9000 \
   zhiqiangwang/app:conrogate \
-  /app/conrogate-control
+  /app/conrogate control
 ```
 
 > 容器内无 `/var/log` 写入权限，**必须**设置 `CONROGATE_LOG_OUTPUT_FILE_ENABLED=false`（默认值为 `true`，会报错）。
@@ -333,7 +333,7 @@ docker run -d --name conrogate-control \
 docker run --rm \
   -e CONROGATE_DB_URL='mysql://conrogate:conrogatepass@host.docker.internal:3306/conrogate' \
   zhiqiangwang/app:conrogate \
-  /app/conrogate-migrate
+  /app/conrogate migrate
 ```
 
 ## 8. 环境变量配置
@@ -375,7 +375,7 @@ docker run --rm \
 # ── 本地开发（SQLite + 合并模式，最简）──
 CONROGATE_DB_URL='sqlite::memory:' \
 CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
-cargo run -p conrogate
+cargo run -p conrogate-cli -- serve
 
 # ── 本地开发（MySQL + Redis + 合并模式）──
 ./scripts/dev-up.sh
@@ -397,7 +397,7 @@ docker run -d -p 9000:9000 \
   -e CONROGATE_DB_URL='mysql://conrogate:pass@mysql:3306/conrogate' \
   -e CONROGATE_CONTROL_AUTH_TOKEN=$SECRET \
   -e CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='redis://redis:6379' \
-  zhiqiangwang/app:conrogate /app/conrogate-control
+  zhiqiangwang/app:conrogate /app/conrogate control
 
 # 2. 数据面 × N
 for i in $(seq 1 3); do
@@ -405,6 +405,6 @@ for i in $(seq 1 3); do
     -e CONROGATE_DB_READ_URL='mysql://readonly:ro@slave:3306/conrogate' \
     -e CONROGATE_GATE_CONFIG_CACHE_REDIS_URL='redis://redis:6379' \
     -e CONROGATE_GATE_REFRESH_CONTROL_API_URL='http://control:9000' \
-    zhiqiangwang/app:conrogate /app/conrogate-gate
+    zhiqiangwang/app:conrogate /app/conrogate gate
 done
 ```

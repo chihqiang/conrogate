@@ -1,0 +1,24 @@
+[package]
+name = "conrogate-core"
+description = "Conrogate 公共基础层：接口契约、DTO、配置、日志"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+http = { workspace = true }
+axum = { workspace = true }
+bytes = { workspace = true }
+ipnet = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+utoipa = { workspace = true }
+rand = { workspace = true }

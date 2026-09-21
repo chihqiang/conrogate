@@ -1,0 +1,13 @@
+[package]
+name = "conrogate-traffic"
+description = "Conrogate 流量治理：限流（令牌桶）/ 熔断 / 重试 / 超时"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+conrogate-core = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+redis = { workspace = true }

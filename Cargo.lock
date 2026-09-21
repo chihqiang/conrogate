@@ -449,33 +449,41 @@ dependencies = [
 ]
 
 [[package]]
-name = "conrogate"
+name = "conrogate-balancer"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "conrogate-core",
+ "seahash",
+ "tokio",
+]
+
+[[package]]
+name = "conrogate-cli"
 version = "0.0.1"
 dependencies = [
  "anyhow",
  "axum",
+ "bytes",
+ "chrono",
  "clap",
+ "conrogate-balancer",
  "conrogate-core",
+ "conrogate-gateway",
+ "conrogate-plugins",
+ "conrogate-protocol",
+ "conrogate-security",
+ "conrogate-server",
+ "conrogate-storage",
+ "conrogate-traffic",
  "dotenvy",
+ "http",
+ "http-body-util",
+ "hyper-util",
  "sea-orm",
  "serde_json",
  "tokio",
  "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "conrogate-control"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "axum",
- "clap",
- "conrogate-core",
- "dotenvy",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -484,10 +492,63 @@ version = "0.0.1"
 dependencies = [
  "async-trait",
  "axum",
- "base64",
  "bytes",
  "chrono",
+ "http",
+ "ipnet",
+ "rand",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "utoipa",
+ "uuid",
+]
+
+[[package]]
+name = "conrogate-gateway"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "conrogate-balancer",
+ "conrogate-core",
+ "conrogate-plugins",
+ "conrogate-protocol",
+ "conrogate-security",
+ "conrogate-storage",
+ "conrogate-traffic",
  "futures",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "redis",
+ "regex",
+ "rustls-pemfile",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "conrogate-plugins"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "conrogate-core",
+ "conrogate-security",
  "hex",
  "http",
  "http-body-util",
@@ -496,59 +557,100 @@ dependencies = [
  "hyper-util",
  "ipnet",
  "jsonwebtoken",
- "rand",
- "redis",
  "regex",
- "rustls",
- "rustls-pemfile",
- "sea-orm",
- "sea-orm-migration",
- "seahash",
  "serde",
  "serde_json",
- "sha1",
  "sha2",
- "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "conrogate-protocol"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "base64",
+ "bytes",
+ "chrono",
+ "conrogate-core",
+ "conrogate-plugins",
+ "conrogate-security",
+ "futures",
+ "http",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "ipnet",
+ "rustls",
+ "rustls-pemfile",
+ "serde_json",
+ "sha1",
  "tokio",
  "tokio-rustls",
- "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "conrogate-security"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "conrogate-core",
+ "ipnet",
+ "tracing",
+]
+
+[[package]]
+name = "conrogate-server"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "axum",
+ "chrono",
+ "conrogate-core",
+ "conrogate-security",
+ "conrogate-storage",
+ "http",
+ "http-body-util",
+ "serde",
+ "serde_json",
+ "tokio",
  "tower",
  "tower-http",
  "tracing",
- "tracing-appender",
- "tracing-subscriber",
  "utoipa",
  "utoipa-axum",
+]
+
+[[package]]
+name = "conrogate-storage"
+version = "0.0.1"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "conrogate-core",
+ "hex",
+ "redis",
+ "sea-orm",
+ "sea-orm-migration",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 
 [[package]]
-name = "conrogate-gate"
+name = "conrogate-traffic"
 version = "0.0.1"
 dependencies = [
- "anyhow",
- "bytes",
- "chrono",
- "clap",
+ "async-trait",
  "conrogate-core",
- "dotenvy",
- "http",
- "http-body-util",
- "hyper-util",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "conrogate-migrate"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "clap",
- "conrogate-core",
- "dotenvy",
+ "redis",
  "tokio",
  "tracing",
 ]

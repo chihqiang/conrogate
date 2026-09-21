@@ -9,7 +9,7 @@ Conrogate 采用「控制面 + 数据面」双平面架构，提供三种部署�
 ```text
                     ┌─────────────────────────────────────────────┐
                     │              控制面 (Control Plane)          │
-                    │  conrogate-control  /  conrogate 合并进程      │
+                    │  conrogate control  /  conrogate 合并进程      │
                     │  ├─ REST API (axum, 默认 :9000)              │
                     │  ├─ 鉴权中间件 (Bearer Token)                │
                     │  ├─ 审计服务 (AuditService)                  │
@@ -28,7 +28,7 @@ Conrogate 采用「控制面 + 数据面」双平面架构，提供三种部署�
                                            ▼
                     ┌──────────────────────────────────────────────┐
                     │              数据面 (Data Plane)              │
-                    │  conrogate-gate × N  /  conrogate 合并进程     │
+                    │  conrogate gate × N  /  conrogate 合并进程     │
                     │  路由匹配 → 插件链 → 限流/熔断 → 负载均衡 → 转发 │
                     └──────────────┬───────────────────────────────┘
                                    │ 遥测上报（heartbeat / metrics / events）
@@ -40,10 +40,10 @@ Conrogate 采用「控制面 + 数据面」双平面架构，提供三种部署�
 
 | 平面 | 职责 | 二进制 | 端口 |
 |------|------|--------|------|
-| 控制面 | 管理 API、配置落库、版本发布/回滚、指标入库、审计 | `conrogate-control` | 9000 |
-| 数据面 | 请求转发、插件执行、限流/熔断、遥测采集 | `conrogate-gate` | 8080 |
+| 控制面 | 管理 API、配置落库、版本发布/回滚、指标入库、审计 | `conrogate control` | 9000 |
+| 数据面 | 请求转发、插件执行、限流/熔断、遥测采集 | `conrogate gate` | 8080 |
 | 合并模式 | 控制面 + 数据面同进程双端口 | `conrogate` | 8080 + 9000 |
-| 迁移工具 | 迁移 CLI，部署前置执行 | `conrogate-migrate` | — |
+| 迁移工具 | 迁移 CLI，部署前置执行 | `conrogate migrate` | — |
 
 ### 部署模式
 
@@ -58,9 +58,9 @@ Conrogate 采用「控制面 + 数据面」双平面架构，提供三种部署�
 | 组件 | 位置 | 职责 |
 |------|------|------|
 | `conrogate-core` | 核心层 | 契约（Trait/DTO/Config）、负载均衡、插件框架、协议适配、持久化（Entity/迁移/仓储/配置缓存）、流量治理、控制面服务（`control/`）、网关核心（`gateway/`） |
-| `conrogate-core/src/plugins/{cors,auth,header_rewrite}` | 官方内置插件 | 以 Rust 模块内建于核心 crate：CORS / JWT 鉴权 / 头改写（由二进制装配注入网关） |
-| `conrogate-gate` | 数据面二进制 | 独立启动数据面（含心跳上报） |
-| `conrogate-control` | 控制面二进制 | 独立启动控制面 |
+| `crates/conrogate-plugins/src/{cors,auth,header_rewrite}` | 官方内置插件 | 以 Rust 模块内建于插件 crate：CORS / JWT 鉴权 / 头改写（由 CLI 装配注入网关） |
+| `conrogate gate` | 数据面二进制 | 独立启动数据面（含心跳上报） |
+| `conrogate control` | 控制面二进制 | 独立启动控制面 |
 | `conrogate` | 合并二进制 | Bootstrap 装配两平面 |
 
 ## 3. 配置下发协调（核心链路）
@@ -115,7 +115,7 @@ gate 每 30s 上报心跳 `POST /api/v1/reports/heartbeat`（gate_id + version +
 
 ## 5. 进程内协调（合并模式 Bootstrap）
 
-`conrogate/src/bootstrap.rs` 装配顺序：
+`crates/conrogate/src/bootstrap.rs` 装配顺序：
 
 1. DB 连接池（main 读写 + read 只读）。
 2. 初始化 9 类仓储，加载初始配置到内存。
@@ -147,11 +147,11 @@ gate 每 30s 上报心跳 `POST /api/v1/reports/heartbeat`（gate_id + version +
 
 | 文件 | 协调职责 |
 |------|----------|
-| `conrogate/src/bootstrap.rs` | 合并模式全量装配、热加载循环、停机编排 |
-| `conrogate-gate/src/main.rs` | 分离模式数据面启动、心跳上报任务 |
-| `conrogate-control/src/main.rs` | 分离模式控制面启动、仓储组装 |
-| `conrogate-core/src/gateway/server.rs` | 数据面配置快照加载（Redis 优先 + DB 降级） |
-| `conrogate-gate/src/http_config_loader.rs` | HTTP 模式配置拉取（翻页 + 原子重载） |
-| `conrogate-core/src/control/service.rs` | 配置发布/回滚 + Redis 快照写入 |
-| `conrogate-core/src/storage/config_cache.rs` | ConfigCache 抽象：DB 直读实现 / Redis 实现（原子管道 + Pub/Sub） |
-| `conrogate-core/src/control/api.rs` | 控制面路由注册与鉴权分层 |
+| `crates/conrogate/src/bootstrap.rs` | 合并模式全量装配、热加载循环、停机编排 |
+| `crates/conrogate-cli/src/cmd_gate.rs` | 分离模式数据面启动、心跳上报任务 |
+| `crates/conrogate-cli/src/cmd_control.rs` | 分离模式控制面启动、仓储组装 |
+| `crates/conrogate-gateway/src/server.rs` | 数据面配置快照加载（Redis 优先 + DB 降级） |
+| `crates/conrogate-cli/src/http_config_loader.rs` | HTTP 模式配置拉取（翻页 + 原子重载） |
+| `crates/conrogate-server/src/service.rs` | 配置发布/回滚 + Redis 快照写入 |
+| `crates/conrogate-storage/src/config_cache.rs` | ConfigCache 抽象：DB 直读实现 / Redis 实现（原子管道 + Pub/Sub） |
+| `crates/conrogate-server/src/api.rs` | 控制面路由注册与鉴权分层 |

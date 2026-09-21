@@ -1,0 +1,34 @@
+[package]
+name = "conrogate-gateway"
+description = "Conrogate 网关引擎：路由匹配、连接池、健康检查、遥测、配置热加载"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+conrogate-core = { workspace = true }
+conrogate-balancer = { path = "../conrogate-balancer" }
+conrogate-protocol = { path = "../conrogate-protocol" }
+conrogate-traffic = { path = "../conrogate-traffic" }
+conrogate-storage = { path = "../conrogate-storage" }
+conrogate-security = { path = "../conrogate-security" }
+conrogate-plugins = { path = "../conrogate-plugins" }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tokio-rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+futures = { workspace = true }
+tracing = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+hyper-rustls = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+redis = { workspace = true }
+sea-orm = { workspace = true }
+regex = { workspace = true }

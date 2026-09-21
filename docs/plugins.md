@@ -1,6 +1,6 @@
 # 插件文档
 
-> 面向接入人员的官方插件使用说明。插件为**编译集成模式**：随 `conrogate-core` 编译内建，由二进制装配注入网关，绑定配置存在数据库并通过配置热加载下发到数据面。
+> 面向接入人员的官方插件使用说明。插件为**编译集成模式**：随 `crates/conrogate-core` 编译内建，由二进制装配注入网关，绑定配置存在数据库并通过配置热加载下发到数据面。
 
 ## 1. 插件总览
 
@@ -8,10 +8,10 @@
 
 | 插件名 | 模块路径 | 协议 | 阻断性 | 作用 |
 |--------|----------|------|--------|------|
-| `auth` | `conrogate-core/src/plugins/auth/` | HTTP、WebSocket | **阻断** | JWT Bearer Token 鉴权，校验失败返回 401 |
-| `cors` | `conrogate-core/src/plugins/cors/` | HTTP | 非阻断 | CORS 跨域响应头注入 + OPTIONS 预检处理 |
-| `header_rewrite` | `conrogate-core/src/plugins/header_rewrite/` | HTTP | 非阻断 | 请求 / 响应头改写（set / add / remove，支持占位符） |
-| `ip_allow_deny` | `conrogate-core/src/plugins/ip_allow_deny/` | HTTP、WebSocket、TCP | **阻断** | 绑定级 IP allow / deny 访问控制，拒绝返回 403 |
+| `auth` | `crates/conrogate-core/src/plugins/auth/` | HTTP、WebSocket | **阻断** | JWT Bearer Token 鉴权，校验失败返回 401 |
+| `cors` | `crates/conrogate-core/src/plugins/cors/` | HTTP | 非阻断 | CORS 跨域响应头注入 + OPTIONS 预检处理 |
+| `header_rewrite` | `crates/conrogate-core/src/plugins/header_rewrite/` | HTTP | 非阻断 | 请求 / 响应头改写（set / add / remove，支持占位符） |
+| `ip_allow_deny` | `crates/conrogate-core/src/plugins/ip_allow_deny/` | HTTP、WebSocket、TCP | **阻断** | 绑定级 IP allow / deny 访问控制，拒绝返回 403 |
 
 - **阻断性**：阻断插件（`blocking = true`）可在请求阶段直接终止请求（如鉴权失败返回 401）；非阻断插件只记录 / 改响应头，永不拦截。
 - **每绑定独立实例**：插件配置按「路由绑定」隔离，同一插件绑定到不同路由可配置不同的密钥 / 白名单 / 跳过规则，互不干扰。
@@ -407,4 +407,4 @@ curl -i -H "X-Forwarded-For: 10.1.0.5" http://<网关>:8080/your/path
 - 配置绑定 API 细节 → `docs/api.md`
 - 配置版本发布 / 回滚 → `docs/operations.md`
 - 全局 IP 黑名单（基础设施层）→ `docs/security.md`
-- 插件体系代码入口 → `conrogate-core/src/contract/plugin.rs`（`Plugin` trait）与 `conrogate-core/src/plugin/loader.rs`（链构建）
+- 插件体系代码入口 → `crates/conrogate-core/src/contract/plugin.rs`（`Plugin` trait）与 `crates/conrogate-core/src/plugin/loader.rs`（链构建）

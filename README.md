@@ -27,13 +27,13 @@ docker run -d --name conrogate-mysql \
 
 # 2. 迁移（--seed 写入演示路由，供步骤 4 验证）
 CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' \
-  cargo run -p conrogate-migrate -- --seed
+  cargo run -p conrogate-cli -- migrate --seed
 
 # 3. 合并模式启动（8080 数据面 + 9000 控制面）
 CONROGATE_DB_URL='mysql://conrogate:conrogatepass@127.0.0.1:3306/conrogate' \
 CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
 CONROGATE_CONTROL_AUTH_TOKEN=admin:dev-token:admin \
-  cargo run -p conrogate
+  cargo run -p conrogate-cli -- serve
 
 # 4. 验证
 curl http://localhost:9000/health         # 控制面（公开）
@@ -48,9 +48,9 @@ curl http://localhost:8080/demo/hello     # 数据面转发
 
 | 模式 | 二进制 | 端口 | 适用场景 |
 |------|--------|------|----------|
-| 合并模式 | `conrogate` | 8080 + 9000 | 开发 / 小规模生产 |
-| 分离模式 | `conrogate-gate` × N + `conrogate-control` × 1~2 | 8080 / 9000 | 生产 / 大规模 |
-| 迁移工具 | `conrogate-migrate` | — | 部署前置执行 |
+| 合并模式 | `conrogate serve` | 8080 + 9000 | 开发 / 小规模生产 |
+| 分离模式 | `conrogate gate` × N + `conrogate control` × 1~2 | 8080 / 9000 | 生产 / 大规模 |
+| 迁移工具 | `conrogate migrate` | — | 部署前置执行 |
 
 详细部署指南见 → [`docs/deployment.md`](docs/deployment.md)
 
@@ -163,10 +163,10 @@ cargo check --workspace                   # 编译检查
 cargo test --workspace                    # 运行测试
 cargo clippy --workspace                  # 代码质量
 cargo fmt --all                           # 统一代码风格
-cargo run -p conrogate-migrate -- --seed  # 手动执行数据库迁移
-cargo run -p conrogate                    # 合并模式（数据面 8080 + 控制面 9000）
-cargo run -p conrogate-control            # 分离模式：控制面（9000）
-cargo run -p conrogate-gate               # 分离模式：数据面（8080）
+cargo run -p conrogate-cli -- migrate --seed  # 手动执行数据库迁移
+cargo run -p conrogate-cli -- serve             # 合并模式（数据面 8080 + 控制面 9000）
+cargo run -p conrogate-cli -- control           # 分离模式：控制面（9000）
+cargo run -p conrogate-cli -- gate              # 分离模式：数据面（8080）
 ```
 
 ### Docker
@@ -183,7 +183,7 @@ docker compose -f deploy/docker-compose.deps.yml up -d    # 起依赖（PG + Red
 docker run --rm \
   -v conrogate-data:/data \
   -e CONROGATE_DB_URL=sqlite:///data/conrogate.db \
-  zhiqiangwang/app:conrogate conrogate-migrate
+  zhiqiangwang/app:conrogate conrogate migrate
 
 # ② 启动（8080 数据面 + 9000 控制面）
 docker run -d --name conrogate \
@@ -205,7 +205,7 @@ docker rm -f conrogate       # 停止并删除容器（数据仍在 conrogate-da
 # 迁移（--seed 写入演示路由；SQLite 同样先迁移再启动）
 docker run --rm \
   -e CONROGATE_DB_URL='mysql://conrogate:conrogatepass@host.docker.internal:3306/conrogate' \
-  zhiqiangwang/app:conrogate conrogate-migrate --seed
+  zhiqiangwang/app:conrogate conrogate migrate --seed
 
 # 分离：控制面（:9000）
 docker run -d --name conrogate-control \
@@ -213,7 +213,7 @@ docker run -d --name conrogate-control \
   -e CONROGATE_CONTROL_AUTH_TOKEN=your-secret-token \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
   -p 9000:9000 \
-  zhiqiangwang/app:conrogate conrogate-control
+  zhiqiangwang/app:conrogate conrogate control
 
 # 分离：数据面（:8080，HTTP 从 control 拉取配置）
 docker run -d --name conrogate-gate \
@@ -221,10 +221,10 @@ docker run -d --name conrogate-gate \
   -e CONROGATE_GATE_REFRESH_CONTROL_API_URL=http://control-host:9000 \
   -e CONROGATE_LOG_OUTPUT_FILE_ENABLED=false \
   -p 8080:8080 \
-  zhiqiangwang/app:conrogate conrogate-gate
+  zhiqiangwang/app:conrogate conrogate gate
 ```
 
-> `--env-file` 是**容器内**路径：若使用 `.env.prod`，需挂载宿主文件，如 `-v "$PWD/.env.prod:/app/.env.prod:ro" zhiqiangwang/app:conrogate conrogate-gate --env-file /app/.env.prod`；否则直接用上面的 `-e` 传参。
+> `--env-file` 是**容器内**路径：若使用 `.env.prod`，需挂载宿主文件，如 `-v "$PWD/.env.prod:/app/.env.prod:ro" zhiqiangwang/app:conrogate conrogate gate --env-file /app/.env.prod`；否则直接用上面的 `-e` 传参。
 
 ## License
 

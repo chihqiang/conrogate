@@ -1,0 +1,14 @@
+[package]
+name = "conrogate-balancer"
+description = "Conrogate 负载均衡算法：轮询 / 加权轮询 / 最少连接 / 一致性哈希"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+conrogate-core = { workspace = true }
+async-trait = { workspace = true }
+seahash = "4"
+
+[dev-dependencies]
+tokio = { workspace = true }
