@@ -217,14 +217,14 @@ health_check() {
 }
 
 CONROGATE_BIN="${CONROGATE_BIN:-$ROOT/../target/debug/conrogate}"
-MIGRATE_BIN="${MIGRATE_BIN:-$ROOT/../target/debug/conrogate migrate}"
+MIGRATE_CMD="${MIGRATE_CMD:-$ROOT/../target/debug/conrogate migrate}"
 
 # 启动隔离的合并模式网关实例（独立 SQLite 库 + 独立端口），用于网关级配置测试。
 # 使用前先 export 额外环境变量（如限流/熔断/TLS）。成功输出 PID 到 stdout。
 start_isolated_gateway() { # start_isolated_gateway <ctl-port> <gate-port> <db-path> -> <pid>
   local ctl=$1 gate=$2 db=$3
   rm -f "$db"
-  if ! CONROGATE_DB_URL="sqlite://$db" "$MIGRATE_BIN" >/dev/null 2>&1; then
+  if ! CONROGATE_DB_URL="sqlite://$db" $MIGRATE_CMD >/dev/null 2>&1; then
     echo "  [FAIL] 迁移隔离网关数据库失败" >&2
     return 1
   fi
@@ -236,7 +236,7 @@ start_isolated_gateway() { # start_isolated_gateway <ctl-port> <gate-port> <db-p
   CONROGATE_CONTROL_LISTEN_PORT="$ctl" \
   CONROGATE_CONTROL_AUTH_TOKEN="$TOKEN" \
   CONROGATE_GATE_PORT="$gate" \
-    "$CONROGATE_BIN" >"$log" 2>&1 &
+    "$CONROGATE_BIN" serve >"$log" 2>&1 &
   pid=$!
   local ok=""
   for _ in $(seq 1 50); do
