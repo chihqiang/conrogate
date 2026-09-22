@@ -1,9 +1,9 @@
 //! 网关核心 Trait：协议适配层、ServiceContext、仓储层、插件注册与调度。
 
-use crate::contract::dto::{EventRow, MetricRow, RouteSnapshot, UpstreamNodeDto};
-use crate::contract::error::ConrogateError;
-use crate::contract::plugin::{Plugin, PluginContext, PluginOutcome, PluginResponse};
-use crate::contract::protocol::{ProtocolId, RouteMatchInfo};
+use crate::dto::{EventRow, MetricRow, RouteSnapshot, UpstreamNodeDto};
+use crate::error::ConrogateError;
+use crate::plugin::{Plugin, PluginContext, PluginOutcome, PluginResponse};
+use crate::protocol::{ProtocolId, RouteMatchInfo};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -93,7 +93,7 @@ pub trait PluginExecutor: Send + Sync {
 #[async_trait]
 pub trait BlacklistCheck: Send + Sync {
     fn is_blocked(&self, ip: &str) -> bool;
-    fn reload(&self, list: Vec<crate::contract::dto::IpBlacklistDto>);
+    fn reload(&self, list: Vec<crate::dto::IpBlacklistDto>);
 }
 
 /// ServiceContext 聚合所有能力，供 ProtocolHandler 使用

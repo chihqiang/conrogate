@@ -3,9 +3,9 @@
 //! 哈希环按节点集合缓存，节点列表未变化时复用，避免每次请求重建 O(n) 的环。
 //! 虚拟节点数按节点权重成比例分配（权重越高，落在其上的 key 越多）。
 
-use conrogate_core::contract::balancer::{BalancerAlgorithm, LoadBalancer};
-use conrogate_core::contract::dto::UpstreamNodeDto;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::balancer::{BalancerAlgorithm, LoadBalancer};
+use conrogate_core::dto::UpstreamNodeDto;
+use conrogate_core::ConrogateError;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 

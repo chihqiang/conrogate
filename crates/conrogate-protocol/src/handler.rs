@@ -3,9 +3,9 @@
 //! 扩展新协议时实现 `ProtocolHandler` Trait 并注册到 `ProtocolHandlerRegistry`，
 //! 网关侧按 `ProtocolId` 查找对应 handler 分发处理，无需修改网关核心。
 
-use conrogate_core::contract::dto::RouteSnapshot;
-use conrogate_core::contract::protocol::ProtocolId;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::dto::RouteSnapshot;
+use conrogate_core::protocol::ProtocolId;
+use conrogate_core::ConrogateError;
 use bytes::Bytes;
 use http::{Request, Response};
 use hyper::body::Incoming;
@@ -30,7 +30,7 @@ pub trait ProtocolHandler: Send + Sync {
         &self,
         _req: Request<Bytes>,
         _client_ip: String,
-        _match_info: conrogate_core::contract::protocol::RouteMatchInfo,
+        _match_info: conrogate_core::protocol::RouteMatchInfo,
         _pre_matched: Option<RouteSnapshot>,
     ) -> Result<Response<Bytes>, ConrogateError> {
         Err(ConrogateError::ProtocolNotSupported(
@@ -45,7 +45,7 @@ pub trait ProtocolHandler: Send + Sync {
         _body: Incoming,
         _route: RouteSnapshot,
         _client_ip: String,
-        _match_info: conrogate_core::contract::protocol::RouteMatchInfo,
+        _match_info: conrogate_core::protocol::RouteMatchInfo,
     ) -> Result<Response<crate::proxy::ReqBody>, ConrogateError> {
         Err(ConrogateError::ProtocolNotSupported(
             self.protocol().to_string(),
@@ -99,14 +99,14 @@ impl ProtocolHandlerRegistry {
 
 /// 插件指标 → 遥测事件（走聚合落库链路）
 pub(crate) struct TelemetryPluginMetrics {
-    telemetry: Arc<dyn conrogate_core::contract::gateway::TelemetryReport>,
+    telemetry: Arc<dyn conrogate_core::gateway::TelemetryReport>,
 }
 
 #[async_trait::async_trait]
-impl conrogate_core::contract::plugin::PluginMetrics for TelemetryPluginMetrics {
+impl conrogate_core::plugin::PluginMetrics for TelemetryPluginMetrics {
     async fn increment(&self, name: &str) {
         self.telemetry
-            .record_event(conrogate_core::contract::dto::EventRow {
+            .record_event(conrogate_core::dto::EventRow {
                 ts: chrono::Utc::now(),
                 event_type: "plugin.metric.increment".into(),
                 route_id: None,
@@ -119,7 +119,7 @@ impl conrogate_core::contract::plugin::PluginMetrics for TelemetryPluginMetrics 
 
     async fn gauge(&self, name: &str, value: f64) {
         self.telemetry
-            .record_event(conrogate_core::contract::dto::EventRow {
+            .record_event(conrogate_core::dto::EventRow {
                 ts: chrono::Utc::now(),
                 event_type: "plugin.metric.gauge".into(),
                 route_id: None,
@@ -133,11 +133,11 @@ impl conrogate_core::contract::plugin::PluginMetrics for TelemetryPluginMetrics 
 
 /// 插件日志 → 遥测事件 + tracing（结构化日志，挂载当前 span）
 pub(crate) struct TelemetryPluginLogger {
-    telemetry: Arc<dyn conrogate_core::contract::gateway::TelemetryReport>,
+    telemetry: Arc<dyn conrogate_core::gateway::TelemetryReport>,
 }
 
 #[async_trait::async_trait]
-impl conrogate_core::contract::plugin::PluginLogger for TelemetryPluginLogger {
+impl conrogate_core::plugin::PluginLogger for TelemetryPluginLogger {
     async fn log(&self, level: &str, message: &str) {
         match level.to_ascii_lowercase().as_str() {
             "error" => tracing::error!(message),
@@ -147,7 +147,7 @@ impl conrogate_core::contract::plugin::PluginLogger for TelemetryPluginLogger {
             _ => tracing::info!(message),
         }
         self.telemetry
-            .record_event(conrogate_core::contract::dto::EventRow {
+            .record_event(conrogate_core::dto::EventRow {
                 ts: chrono::Utc::now(),
                 event_type: "plugin.log".into(),
                 route_id: None,
@@ -161,9 +161,9 @@ impl conrogate_core::contract::plugin::PluginLogger for TelemetryPluginLogger {
 
 /// 从 ServiceContext 构造插件服务（注入真实遥测，替换 Noop 占位）
 pub(crate) fn plugin_services(
-    svc: &conrogate_core::contract::gateway::ServiceContext,
-) -> conrogate_core::contract::plugin::PluginServices {
-    conrogate_core::contract::plugin::PluginServices {
+    svc: &conrogate_core::gateway::ServiceContext,
+) -> conrogate_core::plugin::PluginServices {
+    conrogate_core::plugin::PluginServices {
         metrics: Arc::new(TelemetryPluginMetrics {
             telemetry: svc.telemetry.clone(),
         }),

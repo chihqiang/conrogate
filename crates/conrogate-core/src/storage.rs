@@ -1,7 +1,7 @@
 //! 仓储层 Trait 定义。
 
-use crate::contract::dto::*;
-use crate::contract::error::ConrogateError;
+use crate::dto::*;
+use crate::error::ConrogateError;
 use async_trait::async_trait;
 
 // ── 路由仓储 ──
@@ -180,14 +180,14 @@ pub trait NodeApplicationRepo: Send + Sync {
 pub trait InstalledPluginRepo: Send + Sync {
     async fn list(
         &self,
-        status: Option<crate::contract::plugin::PluginStatus>,
+        status: Option<crate::plugin::PluginStatus>,
     ) -> Result<Vec<InstalledPluginDto>, ConrogateError>;
     async fn find_by_name(&self, name: &str) -> Result<Option<InstalledPluginDto>, ConrogateError>;
     async fn insert(&self, dto: &InstalledPluginDto) -> Result<(), ConrogateError>;
     async fn update_status(
         &self,
         name: &str,
-        status: crate::contract::plugin::PluginStatus,
+        status: crate::plugin::PluginStatus,
     ) -> Result<(), ConrogateError>;
     async fn soft_delete(&self, name: &str) -> Result<(), ConrogateError>;
 }

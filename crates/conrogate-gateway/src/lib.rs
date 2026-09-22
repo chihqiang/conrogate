@@ -9,7 +9,6 @@ pub mod health;
 pub mod health_check;
 pub mod pool;
 pub mod route;
-pub mod security;
 pub mod server;
 pub mod task_manager;
 pub mod telemetry;

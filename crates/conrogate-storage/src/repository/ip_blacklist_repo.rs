@@ -1,8 +1,8 @@
 //! 全局 IP 黑名单仓储实现。
 
-use conrogate_core::contract::dto::*;
-use conrogate_core::contract::storage::IpBlacklistRepo;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::dto::*;
+use conrogate_core::storage::IpBlacklistRepo;
+use conrogate_core::ConrogateError;
 use crate::convert;
 use crate::entity::ip_blacklist::{self, Entity as BlacklistEntity};
 use sea_orm::{

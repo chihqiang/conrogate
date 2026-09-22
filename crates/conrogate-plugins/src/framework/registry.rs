@@ -1,6 +1,6 @@
 //! 插件注册表实现。
 
-use conrogate_core::contract::plugin::Plugin;
+use conrogate_core::plugin::Plugin;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 

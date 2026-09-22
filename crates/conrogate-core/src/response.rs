@@ -3,8 +3,8 @@
 //! trace_id 生命周期：请求入口提取/生成一次（见 `trace_id_from_headers`），
 //! 贯穿响应信封、`x-trace-id` 响应头、日志 span 与审计，保证一次请求可端到端追踪。
 
-use crate::contract::constant::TRACE_ID_HEADER;
-use crate::contract::ConrogateError;
+use crate::constant::TRACE_ID_HEADER;
+use crate::ConrogateError;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;

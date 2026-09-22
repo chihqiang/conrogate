@@ -10,8 +10,8 @@
 //! 2. 冷启动保护：窗口内请求数低于 `min_requests` 时不做判定（避免误杀）
 //! 3. 原子操作：热路径无锁，仅窗口过期时加锁清理
 
-use conrogate_core::contract::traffic::RetryBudget;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::traffic::RetryBudget;
+use conrogate_core::ConrogateError;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};

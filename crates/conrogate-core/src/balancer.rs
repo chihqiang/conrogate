@@ -1,7 +1,7 @@
 //! 负载均衡 Trait 与算法枚举。
 
-use crate::contract::dto::UpstreamNodeDto;
-use crate::contract::error::ConrogateError;
+use crate::dto::UpstreamNodeDto;
+use crate::error::ConrogateError;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

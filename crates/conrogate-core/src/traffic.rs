@@ -1,6 +1,6 @@
 //! 流量治理 Trait：限流器、熔断器、重试器、自适应并发、重试预算。
 
-use crate::contract::error::ConrogateError;
+use crate::error::ConrogateError;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;

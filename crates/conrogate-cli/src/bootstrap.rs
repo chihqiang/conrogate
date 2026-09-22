@@ -2,13 +2,13 @@
 //!
 //! 合并模式装配流程。
 
-use conrogate_core::contract::storage::EventRepo;
+use conrogate_core::storage::EventRepo;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// 启动全部组件，返回停机信号发送端
 pub async fn run(
-    config: conrogate_core::contract::config::Config,
+    config: conrogate_core::config::Config,
 ) -> anyhow::Result<tokio::sync::broadcast::Sender<()>> {
     let (shutdown_tx, _) = tokio::sync::broadcast::channel::<()>(1);
 
@@ -60,17 +60,17 @@ pub async fn run(
     );
 
     // ── 加载初始配置到内存 ──
-    let routes = conrogate_core::contract::storage::ReadOnlyRouteRepo::list_enabled(&*route_repo)
+    let routes = conrogate_core::storage::ReadOnlyRouteRepo::list_enabled(&*route_repo)
         .await
         .unwrap_or_default();
     let upstreams =
-        conrogate_core::contract::storage::ReadOnlyUpstreamRepo::list_all(&*upstream_repo)
+        conrogate_core::storage::ReadOnlyUpstreamRepo::list_all(&*upstream_repo)
             .await
             .unwrap_or_default();
     // 加载插件绑定（用于 requires_body 静态判定）
     let mut all_bindings = Vec::new();
     for route in &routes {
-        let rb = conrogate_core::contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
+        let rb = conrogate_core::storage::ReadOnlyPluginBindingRepo::list_by_route(
             &*binding_repo,
             route.id,
         )
@@ -143,13 +143,13 @@ pub async fn run(
 
     // ── 10. PluginRegistry + 注册静态插件 ──
     let plugin_registry = Arc::new(conrogate_plugins::framework::registry::PluginRegistryImpl::new());
-    let cors_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
+    let cors_plugin: Arc<dyn conrogate_core::plugin::Plugin> =
         Arc::new(conrogate_plugins::cors::CorsPlugin::new());
-    let auth_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
+    let auth_plugin: Arc<dyn conrogate_core::plugin::Plugin> =
         Arc::new(conrogate_plugins::auth::AuthPlugin::new());
-    let header_rewrite_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
+    let header_rewrite_plugin: Arc<dyn conrogate_core::plugin::Plugin> =
         Arc::new(conrogate_plugins::header_rewrite::HeaderRewritePlugin::new());
-    let ip_allow_deny_plugin: Arc<dyn conrogate_core::contract::plugin::Plugin> =
+    let ip_allow_deny_plugin: Arc<dyn conrogate_core::plugin::Plugin> =
         Arc::new(conrogate_plugins::ip_allow_deny::IpAllowDenyPlugin::new());
     plugin_registry.register(cors_plugin.clone()).await;
     plugin_registry.register(auth_plugin.clone()).await;
@@ -163,7 +163,7 @@ pub async fn run(
         &*auth_plugin,
         &*header_rewrite_plugin,
         &*ip_allow_deny_plugin,
-    ] as [&dyn conrogate_core::contract::plugin::Plugin; 4]
+    ] as [&dyn conrogate_core::plugin::Plugin; 4]
     {
         if let Err(e) = p.init(&serde_json::Value::Null).await {
             if p.is_blocking() {
@@ -190,18 +190,18 @@ pub async fn run(
 
     // ── 13a. 全局 IP 黑名单（初始从 DB 加载，热载循环内持续刷新）──
     let blacklist = Arc::new(conrogate_security::blacklist::BlacklistMatcher::new());
-    let ip_blacklist_repo: Arc<dyn conrogate_core::contract::storage::IpBlacklistRepo> = Arc::new(
+    let ip_blacklist_repo: Arc<dyn conrogate_core::storage::IpBlacklistRepo> = Arc::new(
         conrogate_storage::repository::ip_blacklist_repo::IpBlacklistRepoImpl::new(
             (*read_db).clone(),
         ),
     );
-    match conrogate_core::contract::storage::IpBlacklistRepo::list_all(&*ip_blacklist_repo).await {
+    match conrogate_core::storage::IpBlacklistRepo::list_all(&*ip_blacklist_repo).await {
         Ok(list) => blacklist.reload(list),
         Err(e) => tracing::warn!(error = %e, "ip blacklist initial load failed"),
     }
 
     // ── 14. ServiceContext ──
-    let svc = Arc::new(conrogate_core::contract::gateway::ServiceContext {
+    let svc = Arc::new(conrogate_core::gateway::ServiceContext {
         routes: route_matcher.clone(),
         balancer: upstream_selector.clone(),
         traffic,
@@ -220,9 +220,9 @@ pub async fn run(
     let gate_plugin_executor = plugin_executor.clone();
     let gate_handle = tokio::spawn(async move {
         let server = conrogate_gateway::server::GatewayServer::from_components(
-            conrogate_core::contract::config::Config {
+            conrogate_core::config::Config {
                 gate: gate_config.clone(),
-                ..conrogate_core::contract::config::Config::default()
+                ..conrogate_core::config::Config::default()
             },
             svc,
             gate_plugin_registry,
@@ -354,26 +354,26 @@ pub async fn run(
 
 /// 控制面仓储聚合
 struct ControlRepos {
-    route_repo: Arc<dyn conrogate_core::contract::storage::RouteRepo>,
-    upstream_repo: Arc<dyn conrogate_core::contract::storage::UpstreamRepo>,
-    binding_repo: Arc<dyn conrogate_core::contract::storage::PluginBindingRepo>,
-    config_repo: Arc<dyn conrogate_core::contract::storage::ConfigVersionRepo>,
-    metric_repo: Arc<dyn conrogate_core::contract::storage::MetricRepo>,
-    event_repo: Arc<dyn conrogate_core::contract::storage::EventRepo>,
-    audit_repo: Arc<dyn conrogate_core::contract::storage::AuditLogRepo>,
-    node_app_repo: Arc<dyn conrogate_core::contract::storage::NodeApplicationRepo>,
-    plugin_repo: Arc<dyn conrogate_core::contract::storage::InstalledPluginRepo>,
-    ip_blacklist_repo: Arc<dyn conrogate_core::contract::storage::IpBlacklistRepo>,
+    route_repo: Arc<dyn conrogate_core::storage::RouteRepo>,
+    upstream_repo: Arc<dyn conrogate_core::storage::UpstreamRepo>,
+    binding_repo: Arc<dyn conrogate_core::storage::PluginBindingRepo>,
+    config_repo: Arc<dyn conrogate_core::storage::ConfigVersionRepo>,
+    metric_repo: Arc<dyn conrogate_core::storage::MetricRepo>,
+    event_repo: Arc<dyn conrogate_core::storage::EventRepo>,
+    audit_repo: Arc<dyn conrogate_core::storage::AuditLogRepo>,
+    node_app_repo: Arc<dyn conrogate_core::storage::NodeApplicationRepo>,
+    plugin_repo: Arc<dyn conrogate_core::storage::InstalledPluginRepo>,
+    ip_blacklist_repo: Arc<dyn conrogate_core::storage::IpBlacklistRepo>,
 }
 
 /// 启动控制面 axum 服务
 async fn start_control_plane(
-    control_config: conrogate_core::contract::config::ControlConfig,
+    control_config: conrogate_core::config::ControlConfig,
     repos: ControlRepos,
     redis_url: String,
 ) {
     // Redis 配置缓存（可选）
-    let config_cache: Option<Arc<dyn conrogate_core::contract::storage::ConfigCache>> =
+    let config_cache: Option<Arc<dyn conrogate_core::storage::ConfigCache>> =
         if !redis_url.is_empty() {
             match conrogate_storage::config_cache::RedisConfigCache::new(&redis_url) {
                 Ok(cache) => {
@@ -450,7 +450,7 @@ async fn config_hot_reload_loop(
     poll_interval: std::time::Duration,
 ) {
     // 尝试创建 Redis 配置缓存
-    let config_cache: Option<Arc<dyn conrogate_core::contract::storage::ConfigCache>> =
+    let config_cache: Option<Arc<dyn conrogate_core::storage::ConfigCache>> =
         if !redis_url.is_empty() {
             match conrogate_storage::config_cache::RedisConfigCache::new(&redis_url) {
                 Ok(cache) => {
@@ -530,7 +530,7 @@ async fn config_hot_reload_loop(
             conrogate_storage::repository::ip_blacklist_repo::IpBlacklistRepoImpl::new(
                 (*db).clone(),
             );
-        match conrogate_core::contract::storage::IpBlacklistRepo::list_all(&ip_blacklist_repo).await
+        match conrogate_core::storage::IpBlacklistRepo::list_all(&ip_blacklist_repo).await
         {
             Ok(list) => blacklist.reload(list),
             Err(e) => tracing::warn!(error = %e, "ip blacklist reload failed, keeping current"),
@@ -541,12 +541,12 @@ async fn config_hot_reload_loop(
 /// 原子读取配置快照：优先 Redis 快照，失败降级直连 DB；
 /// 任一数据源读取失败返回 `None`，保持当前生效配置。
 async fn load_config_snapshot(
-    config_cache: Option<&dyn conrogate_core::contract::storage::ConfigCache>,
+    config_cache: Option<&dyn conrogate_core::storage::ConfigCache>,
     db: &Arc<sea_orm::DatabaseConnection>,
 ) -> Option<(
-    Vec<conrogate_core::contract::dto::RouteDto>,
-    Vec<conrogate_core::contract::dto::UpstreamDto>,
-    Vec<conrogate_core::contract::dto::PluginBindingDto>,
+    Vec<conrogate_core::dto::RouteDto>,
+    Vec<conrogate_core::dto::UpstreamDto>,
+    Vec<conrogate_core::dto::PluginBindingDto>,
 )> {
     if let Some(cache) = config_cache {
         match cache.get_snapshot().await {
@@ -565,11 +565,11 @@ async fn load_config_snapshot(
 async fn load_config_from_db(
     db: &Arc<sea_orm::DatabaseConnection>,
 ) -> Option<(
-    Vec<conrogate_core::contract::dto::RouteDto>,
-    Vec<conrogate_core::contract::dto::UpstreamDto>,
-    Vec<conrogate_core::contract::dto::PluginBindingDto>,
+    Vec<conrogate_core::dto::RouteDto>,
+    Vec<conrogate_core::dto::UpstreamDto>,
+    Vec<conrogate_core::dto::PluginBindingDto>,
 )> {
-    use conrogate_core::contract::storage::*;
+    use conrogate_core::storage::*;
 
     let route_repo =
         conrogate_storage::repository::route_repo::RouteRepoImpl::new((**db).clone());

@@ -93,7 +93,7 @@
 //!
 //! Conrogate 官方请求 / 响应头改写插件。
 
-use conrogate_core::contract::{
+use conrogate_core::{
     plugin::{Plugin, PluginContext, PluginKind, PluginOutcome, PluginResponse},
     protocol::ProtocolId,
     ConrogateError,
@@ -300,7 +300,7 @@ impl Plugin for HeaderRewritePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use conrogate_core::contract::plugin::{HttpContext, PluginLogger, PluginMetrics, PluginServices};
+    use conrogate_core::plugin::{HttpContext, PluginLogger, PluginMetrics, PluginServices};
     use http::Method;
 
     struct NoopMetrics;

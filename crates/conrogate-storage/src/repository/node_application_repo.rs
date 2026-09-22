@@ -1,8 +1,8 @@
 //! 节点应用记录仓储实现。
 
-use conrogate_core::contract::dto::NodeApplicationRow;
-use conrogate_core::contract::storage::NodeApplicationRepo;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::dto::NodeApplicationRow;
+use conrogate_core::storage::NodeApplicationRepo;
+use conrogate_core::ConrogateError;
 use crate::convert;
 use crate::entity::node_applications::{self, Entity as NodeAppEntity};
 use sea_orm::{

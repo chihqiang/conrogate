@@ -60,7 +60,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     // 加载配置
-    let config = conrogate_core::contract::config::Config::from_env()
+    let config = conrogate_core::config::Config::from_env()
         .map_err(|e| anyhow::anyhow!("config load failed: {e}"))?;
     config
         .validate()

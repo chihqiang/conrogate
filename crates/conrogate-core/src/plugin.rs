@@ -1,7 +1,7 @@
 //! 插件系统 Trait 定义。
 
-use crate::contract::error::ConrogateError;
-use crate::contract::protocol::ProtocolId;
+use crate::error::ConrogateError;
+use crate::protocol::ProtocolId;
 use async_trait::async_trait;
 use serde::Serialize;
 use serde_json::Value;

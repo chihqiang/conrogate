@@ -1,10 +1,10 @@
 //! 配置缓存与加载器实现。
 
-use conrogate_core::contract::dto::ConfigSnapshot;
-use conrogate_core::contract::storage::{
+use conrogate_core::dto::ConfigSnapshot;
+use conrogate_core::storage::{
     ConfigCache, ConfigLoader, ReadOnlyPluginBindingRepo, ReadOnlyRouteRepo, ReadOnlyUpstreamRepo,
 };
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::ConrogateError;
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 

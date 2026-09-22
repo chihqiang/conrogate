@@ -6,8 +6,8 @@
 //! 避免单实例熔断时其他实例继续把流量打到故障上游）；聚合计数带 TTL 缓存，
 //! 避免每个请求都访问 Redis。判定仍为失败率门槛制，Redis 不可用时 fail-open。
 
-use conrogate_core::contract::traffic::{Breaker, BreakerFactory, BreakerState};
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::traffic::{Breaker, BreakerFactory, BreakerState};
+use conrogate_core::ConrogateError;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

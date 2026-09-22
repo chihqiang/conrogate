@@ -5,12 +5,12 @@
 
 use sea_orm::DatabaseConnection;
 
-use conrogate_core::contract::balancer::BalancerAlgorithm;
-use conrogate_core::contract::dto::*;
-use conrogate_core::contract::plugin::{PluginKind, PluginStatus};
-use conrogate_core::contract::protocol::{PathMatch, ProtocolId, RouteMatchConditions};
-use conrogate_core::contract::storage::*;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::balancer::BalancerAlgorithm;
+use conrogate_core::dto::*;
+use conrogate_core::plugin::{PluginKind, PluginStatus};
+use conrogate_core::protocol::{PathMatch, ProtocolId, RouteMatchConditions};
+use conrogate_core::storage::*;
+use conrogate_core::ConrogateError;
 use crate::repository::installed_plugin_repo::InstalledPluginRepoImpl;
 
 /// 写入演示数据：注册官方插件 + 1 个上游 + 1 条演示路由（上游已有数据则跳过）。

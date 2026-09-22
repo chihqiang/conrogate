@@ -4,9 +4,9 @@
 
 use super::service::ControlService;
 use super::trace::TraceId;
-use conrogate_core::contract::dto::*;
-use conrogate_core::contract::response;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::dto::*;
+use conrogate_core::response;
+use conrogate_core::ConrogateError;
 use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Response};
 use axum::Extension;
@@ -569,10 +569,10 @@ pub async fn list_plugins(
         .status
         .as_deref()
         .and_then(|s| match s.to_lowercase().as_str() {
-            "installed" => Some(conrogate_core::contract::plugin::PluginStatus::Installed),
-            "active" => Some(conrogate_core::contract::plugin::PluginStatus::Active),
-            "disabled" => Some(conrogate_core::contract::plugin::PluginStatus::Disabled),
-            "uninstalled" => Some(conrogate_core::contract::plugin::PluginStatus::Uninstalled),
+            "installed" => Some(conrogate_core::plugin::PluginStatus::Installed),
+            "active" => Some(conrogate_core::plugin::PluginStatus::Active),
+            "disabled" => Some(conrogate_core::plugin::PluginStatus::Disabled),
+            "uninstalled" => Some(conrogate_core::plugin::PluginStatus::Uninstalled),
             _ => None,
         });
     match state.svc.list_plugins(status).await {
@@ -601,7 +601,7 @@ pub async fn activate_plugin(
         .svc
         .update_plugin_status(
             &name,
-            conrogate_core::contract::plugin::PluginStatus::Active,
+            conrogate_core::plugin::PluginStatus::Active,
             Some(&operator),
             &trace,
         )
@@ -627,7 +627,7 @@ pub async fn disable_plugin(
         .svc
         .update_plugin_status(
             &name,
-            conrogate_core::contract::plugin::PluginStatus::Disabled,
+            conrogate_core::plugin::PluginStatus::Disabled,
             Some(&operator),
             &trace,
         )
@@ -676,7 +676,7 @@ pub async fn list_ip_blacklist(
             filter,
             q.page.unwrap_or(1),
             q.page_size
-                .unwrap_or(conrogate_core::contract::constant::DEFAULT_PAGE_SIZE),
+                .unwrap_or(conrogate_core::constant::DEFAULT_PAGE_SIZE),
         )
         .await
     {

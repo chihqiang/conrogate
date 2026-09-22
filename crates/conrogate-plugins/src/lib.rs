@@ -13,7 +13,7 @@ pub mod ip_allow_deny;
 pub async fn register_all(
     registry: &framework::registry::PluginRegistryImpl,
 ) {
-    use conrogate_core::contract::plugin::Plugin;
+    use conrogate_core::plugin::Plugin;
     use std::sync::Arc;
 
     let cors: Arc<dyn Plugin> = Arc::new(cors::CorsPlugin::new());
@@ -28,7 +28,7 @@ pub async fn register_all(
 }
 
 /// 返回全部官方插件实例（调用方自行注册 + init）
-pub fn official_plugins() -> Vec<std::sync::Arc<dyn conrogate_core::contract::plugin::Plugin>> {
+pub fn official_plugins() -> Vec<std::sync::Arc<dyn conrogate_core::plugin::Plugin>> {
     vec![
         std::sync::Arc::new(cors::CorsPlugin::new()),
         std::sync::Arc::new(auth::AuthPlugin::new()),

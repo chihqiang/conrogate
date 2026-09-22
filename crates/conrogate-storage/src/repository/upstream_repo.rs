@@ -1,8 +1,8 @@
 //! 上游仓储实现。
 
-use conrogate_core::contract::dto::*;
-use conrogate_core::contract::storage::{ReadOnlyUpstreamRepo, UpstreamRepo};
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::dto::*;
+use conrogate_core::storage::{ReadOnlyUpstreamRepo, UpstreamRepo};
+use conrogate_core::ConrogateError;
 use crate::convert;
 use crate::entity::{
     upstream_nodes,

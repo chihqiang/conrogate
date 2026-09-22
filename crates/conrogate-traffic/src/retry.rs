@@ -1,6 +1,6 @@
 //! 重试器实现。
 
-use conrogate_core::contract::traffic::{RetryConfig, Retryer};
+use conrogate_core::traffic::{RetryConfig, Retryer};
 use std::time::Duration;
 
 pub struct RetryerImpl {

@@ -1,7 +1,7 @@
 //! 代理转发：HTTP 请求转发 + 响应回传 + TCP 双向转发。
 
-use conrogate_core::contract::dto::UpstreamNodeDto;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::dto::UpstreamNodeDto;
+use conrogate_core::ConrogateError;
 use bytes::Bytes;
 use http::Request;
 use http_body_util::{BodyExt, Full};

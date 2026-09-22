@@ -1,7 +1,7 @@
 //! 数据库连接池管理。
 
-use conrogate_core::contract::config::DbConfig;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::config::DbConfig;
+use conrogate_core::ConrogateError;
 use sea_orm::{ConnectOptions, Database, DatabaseConnection};
 
 /// 数据库连接类型别名

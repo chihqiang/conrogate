@@ -1,7 +1,7 @@
 //! DTO 定义。
 
-use crate::contract::balancer::BalancerAlgorithm;
-use crate::contract::protocol::{ProtocolId, RouteMatchConditions};
+use crate::balancer::BalancerAlgorithm;
+use crate::protocol::{ProtocolId, RouteMatchConditions};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -304,8 +304,8 @@ pub struct InstalledPluginDto {
     pub name: String,
     pub version: String,
     pub api_version: u32,
-    pub kind: crate::contract::plugin::PluginKind,
-    pub status: crate::contract::plugin::PluginStatus,
+    pub kind: crate::plugin::PluginKind,
+    pub status: crate::plugin::PluginStatus,
     pub package_hash: Option<String>,
     pub manifest: serde_json::Value,
     pub installed_at: DateTime<Utc>,

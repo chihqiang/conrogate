@@ -4,7 +4,7 @@
 
 use crate::bootstrap;
 
-pub fn run(config: conrogate_core::contract::config::Config) -> anyhow::Result<()> {
+pub fn run(config: conrogate_core::config::Config) -> anyhow::Result<()> {
     tracing::info!(
         instance_id = ?config.common.instance_id,
         gate_port = config.gate.listen.port,
@@ -28,7 +28,7 @@ fn build_runtime(worker_threads: usize) -> anyhow::Result<tokio::runtime::Runtim
         .map_err(|e| anyhow::anyhow!("tokio runtime build failed: {e}"))
 }
 
-async fn async_run(config: conrogate_core::contract::config::Config) -> anyhow::Result<()> {
+async fn async_run(config: conrogate_core::config::Config) -> anyhow::Result<()> {
     let shutdown_tx = bootstrap::run(config).await?;
 
     tokio::signal::ctrl_c().await?;

@@ -1,7 +1,7 @@
 //! 数据库迁移。
 
-use conrogate_core::contract::config::DbConfig;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::config::DbConfig;
+use conrogate_core::ConrogateError;
 use sea_orm::{ConnectOptions, Database};
 use sea_orm_migration::MigratorTrait;
 

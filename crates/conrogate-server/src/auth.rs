@@ -1,7 +1,7 @@
 //! 认证中间件：Bearer Token 校验 + RBAC 角色控制。
 //! Token 格式：operator:secret:role（role = viewer / operator / admin）
 
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::ConrogateError;
 use axum::extract::{Request, State};
 use axum::middleware::Next;
 use axum::response::Response;
@@ -62,7 +62,7 @@ fn parse_token(token: &str) -> Option<(&str, &str, Role)> {
 
 /// 构建 401 统一错误体（code=10002）
 fn unauthorized_response() -> Response {
-    conrogate_core::contract::response::err(ConrogateError::Unauthorized)
+    conrogate_core::response::err(ConrogateError::Unauthorized)
 }
 
 /// Bearer Token 认证中间件

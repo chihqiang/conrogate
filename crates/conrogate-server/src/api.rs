@@ -145,7 +145,7 @@ pub fn build_router(state: AppState, auth_token: &str, api_prefix: &str) -> Rout
                 .on_request(|request: &axum::http::Request<Body>, span: &Span| {
                     let trace_id = request
                         .headers()
-                        .get(conrogate_core::contract::constant::TRACE_ID_HEADER)
+                        .get(conrogate_core::constant::TRACE_ID_HEADER)
                         .and_then(|v| v.to_str().ok())
                         .unwrap_or_default()
                         .to_string();

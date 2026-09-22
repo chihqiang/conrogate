@@ -3,9 +3,9 @@
 //! 连接计数按 upstream_id 隔离（负载均衡器注册表为全局单例，跨 upstream
 //! 混用计数会导致同地址节点计数串扰）。
 
-use conrogate_core::contract::balancer::{BalancerAlgorithm, LoadBalancer};
-use conrogate_core::contract::dto::UpstreamNodeDto;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::balancer::{BalancerAlgorithm, LoadBalancer};
+use conrogate_core::dto::UpstreamNodeDto;
+use conrogate_core::ConrogateError;
 use std::collections::HashMap;
 use std::sync::Mutex;
 

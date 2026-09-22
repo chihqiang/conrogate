@@ -407,4 +407,4 @@ curl -i -H "X-Forwarded-For: 10.1.0.5" http://<网关>:8080/your/path
 - 配置绑定 API 细节 → `docs/api.md`
 - 配置版本发布 / 回滚 → `docs/operations.md`
 - 全局 IP 黑名单（基础设施层）→ `docs/security.md`
-- 插件体系代码入口 → `crates/conrogate-core/src/contract/plugin.rs`（`Plugin` trait）与 `crates/conrogate-core/src/plugin/loader.rs`（链构建）
+- 插件体系代码入口 → `crates/conrogate-core/src/plugin.rs`（`Plugin` trait）与 `crates/conrogate-core/src/plugin/loader.rs`（链构建）

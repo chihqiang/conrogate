@@ -3,9 +3,9 @@
 //! 状态按节点集合签名隔离：不同 upstream（或节点增删/权重变化）的节点列表
 //! 拥有独立的权重状态，避免注册表单例被多个 upstream 共享导致状态错乱。
 
-use conrogate_core::contract::balancer::{BalancerAlgorithm, LoadBalancer};
-use conrogate_core::contract::dto::UpstreamNodeDto;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::balancer::{BalancerAlgorithm, LoadBalancer};
+use conrogate_core::dto::UpstreamNodeDto;
+use conrogate_core::ConrogateError;
 use std::collections::HashMap;
 use std::sync::Mutex;
 

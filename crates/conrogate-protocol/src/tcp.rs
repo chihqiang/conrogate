@@ -1,9 +1,9 @@
 //! TCP 隧道协议处理器：原始字节流路由 + 转发。
 
-use conrogate_core::contract::gateway::ServiceContext;
-use conrogate_core::contract::plugin::{PluginContext, PluginOutcome};
-use conrogate_core::contract::protocol::{ProtocolId, RouteMatchInfo};
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::gateway::ServiceContext;
+use conrogate_core::plugin::{PluginContext, PluginOutcome};
+use conrogate_core::protocol::{ProtocolId, RouteMatchInfo};
+use conrogate_core::ConrogateError;
 use crate::handler::{plugin_services, ProtocolHandler};
 use std::sync::Arc;
 use std::time::Duration;
@@ -45,7 +45,7 @@ impl TcpTunnelProtocolHandler {
     }
 
     /// 获取路由当前生效的插件链（每绑定独立配置实例）
-    fn resolve_plugins(&self, route_id: u64) -> Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>> {
+    fn resolve_plugins(&self, route_id: u64) -> Vec<Arc<dyn conrogate_core::plugin::Plugin>> {
         self.svc.plugins.route_plugins(route_id)
     }
 
@@ -54,7 +54,7 @@ impl TcpTunnelProtocolHandler {
     async fn record_pre_tunnel_failure(&self, route_id: Option<u64>, status_4xx: bool) {
         self.svc
             .telemetry
-            .record_metric(conrogate_core::contract::dto::MetricRow::raw_sample(
+            .record_metric(conrogate_core::dto::MetricRow::raw_sample(
                 chrono::Utc::now(),
                 self.svc.gate_id.clone(),
                 route_id,
@@ -111,13 +111,13 @@ impl TcpTunnelProtocolHandler {
             .and_then(|(_, p)| p.parse::<u16>().ok())
             .unwrap_or(0);
         let mut plugin_ctx = PluginContext {
-            request_id: conrogate_core::contract::response::generate_trace_id(),
-            trace_id: conrogate_core::contract::response::generate_trace_id(),
+            request_id: conrogate_core::response::generate_trace_id(),
+            trace_id: conrogate_core::response::generate_trace_id(),
             route_id: route.id,
             client_ip: client_ip.clone(),
             protocol: ProtocolId::TcpTunnel,
             http: None,
-            tunnel: Some(conrogate_core::contract::plugin::TunnelContext {
+            tunnel: Some(conrogate_core::plugin::TunnelContext {
                 remote_addr: listen_addr.clone(),
                 sni: sni.clone(),
                 alpn: None,
@@ -213,7 +213,7 @@ impl TcpTunnelProtocolHandler {
         };
         self.svc
             .telemetry
-            .record_metric(conrogate_core::contract::dto::MetricRow::raw_sample(
+            .record_metric(conrogate_core::dto::MetricRow::raw_sample(
                 chrono::Utc::now(),
                 self.svc.gate_id.clone(),
                 Some(route.id),
@@ -262,11 +262,11 @@ impl ProtocolHandler for TcpTunnelProtocolHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use conrogate_core::contract::dto::{MetricRow, PluginBindingDto, RouteSnapshot, UpstreamNodeDto};
-    use conrogate_core::contract::gateway::{
+    use conrogate_core::dto::{MetricRow, PluginBindingDto, RouteSnapshot, UpstreamNodeDto};
+    use conrogate_core::gateway::{
         RouteLookup, TelemetryReport, TrafficControl, UpstreamSelector,
     };
-    use conrogate_core::contract::plugin::{Plugin, PluginKind};
+    use conrogate_core::plugin::{Plugin, PluginKind};
     use conrogate_plugins::framework::registry::PluginRegistryImpl;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -348,7 +348,7 @@ mod tests {
         async fn record_metric(&self, metric: MetricRow) {
             self.metrics.lock().unwrap().push(metric);
         }
-        async fn record_event(&self, _event: conrogate_core::contract::dto::EventRow) {}
+        async fn record_event(&self, _event: conrogate_core::dto::EventRow) {}
     }
 
     /// 记录 on_connect/on_disconnect 调用次数的隧道插件

@@ -1,8 +1,8 @@
 //! 插件绑定仓储实现。
 
-use conrogate_core::contract::dto::{BindPluginDto, PluginBindingDto, UpdatePluginBindingDto};
-use conrogate_core::contract::storage::{PluginBindingRepo, ReadOnlyPluginBindingRepo};
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::dto::{BindPluginDto, PluginBindingDto, UpdatePluginBindingDto};
+use conrogate_core::storage::{PluginBindingRepo, ReadOnlyPluginBindingRepo};
+use conrogate_core::ConrogateError;
 use crate::convert;
 use crate::entity::route_plugin_bindings::{self, Entity as BindingEntity};
 use sea_orm::{

@@ -1,8 +1,8 @@
 //! 插件加载器：从注册表构建插件链。
 
-use conrogate_core::contract::dto::PluginBindingDto;
-use conrogate_core::contract::plugin::Plugin;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::dto::PluginBindingDto;
+use conrogate_core::plugin::Plugin;
+use conrogate_core::ConrogateError;
 use std::collections::HashMap;
 use std::sync::Arc;
 

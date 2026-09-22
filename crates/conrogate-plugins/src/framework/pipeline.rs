@@ -1,8 +1,8 @@
 //! 插件管线执行器：按顺序执行插件钩子链。
 //! 支持热加载时通过 set_route_chain() 原子替换路由的插件链。
 
-use conrogate_core::contract::plugin::{Plugin, PluginContext, PluginOutcome, PluginResponse};
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::plugin::{Plugin, PluginContext, PluginOutcome, PluginResponse};
+use conrogate_core::ConrogateError;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -48,7 +48,7 @@ impl Default for PluginPipelineImpl {
 }
 
 #[async_trait::async_trait]
-impl conrogate_core::contract::gateway::PluginExecutor for PluginPipelineImpl {
+impl conrogate_core::gateway::PluginExecutor for PluginPipelineImpl {
     fn route_plugins(&self, route_id: u64) -> Vec<Arc<dyn Plugin>> {
         self.get_route_chain(route_id)
     }

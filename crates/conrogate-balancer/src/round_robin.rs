@@ -1,8 +1,8 @@
 //! RoundRobin 负载均衡算法。
 
-use conrogate_core::contract::balancer::{BalancerAlgorithm, LoadBalancer};
-use conrogate_core::contract::dto::UpstreamNodeDto;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::balancer::{BalancerAlgorithm, LoadBalancer};
+use conrogate_core::dto::UpstreamNodeDto;
+use conrogate_core::ConrogateError;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 pub struct RoundRobin {

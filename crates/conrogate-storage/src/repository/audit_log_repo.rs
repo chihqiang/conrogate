@@ -1,8 +1,8 @@
 //! 审计日志仓储实现。
 
-use conrogate_core::contract::dto::{AuditLogQuery, AuditLogRow, PaginatedResult};
-use conrogate_core::contract::storage::AuditLogRepo;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::dto::{AuditLogQuery, AuditLogRow, PaginatedResult};
+use conrogate_core::storage::AuditLogRepo;
+use conrogate_core::ConrogateError;
 use crate::convert;
 use crate::entity::audit_logs::{self, Entity as AuditEntity};
 use sea_orm::{

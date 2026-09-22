@@ -1,10 +1,10 @@
 //! HTTP 协议处理器：完整转发链路（缓冲 / 流式两种模式）。
 
-use conrogate_core::contract::dto::{RouteSnapshot, UpstreamNodeDto};
-use conrogate_core::contract::gateway::ServiceContext;
-use conrogate_core::contract::plugin::{HttpContext, Plugin, PluginContext, PluginOutcome, PluginResponse};
-use conrogate_core::contract::protocol::{ProtocolId, RouteMatchInfo};
-use conrogate_core::contract::{response, ConrogateError};
+use conrogate_core::dto::{RouteSnapshot, UpstreamNodeDto};
+use conrogate_core::gateway::ServiceContext;
+use conrogate_core::plugin::{HttpContext, Plugin, PluginContext, PluginOutcome, PluginResponse};
+use conrogate_core::protocol::{ProtocolId, RouteMatchInfo};
+use conrogate_core::{response, ConrogateError};
 use crate::handler::{plugin_services, ProtocolHandler};
 use crate::proxy::{body_from_bytes, body_from_incoming, HttpClient, ReqBody};
 use bytes::Bytes;
@@ -46,7 +46,7 @@ pub struct HttpProtocolHandler {
     /// 最大重试次数
     max_retries: u32,
     /// 重试预算（启用时限制全局重试比例，防止重试风暴）
-    retry_budget: Option<Arc<dyn conrogate_core::contract::traffic::RetryBudget>>,
+    retry_budget: Option<Arc<dyn conrogate_core::traffic::RetryBudget>>,
 }
 
 impl HttpProtocolHandler {
@@ -154,7 +154,7 @@ impl HttpProtocolHandler {
     /// 设置重试预算控制器（启用时限制全局重试比例）
     pub fn with_retry_budget(
         mut self,
-        budget: Arc<dyn conrogate_core::contract::traffic::RetryBudget>,
+        budget: Arc<dyn conrogate_core::traffic::RetryBudget>,
     ) -> Self {
         self.retry_budget = Some(budget);
         self
@@ -195,7 +195,7 @@ impl HttpProtocolHandler {
     }
 
     /// 解析路由绑定的插件链 → Arc<dyn Plugin> 列表
-    fn resolve_plugins(&self, route_id: u64) -> Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>> {
+    fn resolve_plugins(&self, route_id: u64) -> Vec<Arc<dyn conrogate_core::plugin::Plugin>> {
         self.svc.plugins.route_plugins(route_id)
     }
 
@@ -596,7 +596,7 @@ impl HttpProtocolHandler {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(ToString::to_string)
-            .unwrap_or_else(conrogate_core::contract::response::generate_trace_id);
+            .unwrap_or_else(conrogate_core::response::generate_trace_id);
         let real_ip = self.resolve_real_ip(client_ip, headers);
         RequestMeta {
             match_info,
@@ -663,7 +663,7 @@ impl HttpProtocolHandler {
             // 上报限流事件到遥测
             self.svc
                 .telemetry
-                .record_event(conrogate_core::contract::dto::EventRow {
+                .record_event(conrogate_core::dto::EventRow {
                     ts: chrono::Utc::now(),
                     event_type: "rate_limited".into(),
                     route_id: Some(route.id),
@@ -700,7 +700,7 @@ impl HttpProtocolHandler {
                 .await;
             self.svc
                 .telemetry
-                .record_event(conrogate_core::contract::dto::EventRow {
+                .record_event(conrogate_core::dto::EventRow {
                     ts: chrono::Utc::now(),
                     event_type: "circuit_breaker_open".into(),
                     route_id: Some(route.id),
@@ -900,7 +900,7 @@ impl HttpProtocolHandler {
         let latency_ms = meta.start.elapsed().as_millis() as f64;
         self.svc
             .telemetry
-            .record_metric(conrogate_core::contract::dto::MetricRow::raw_sample(
+            .record_metric(conrogate_core::dto::MetricRow::raw_sample(
                 chrono::Utc::now(),
                 self.svc.gate_id.clone(),
                 Some(route.id),
@@ -926,7 +926,7 @@ impl HttpProtocolHandler {
         let latency_ms = meta.start.elapsed().as_millis() as f64;
         self.svc
             .telemetry
-            .record_metric(conrogate_core::contract::dto::MetricRow::raw_sample(
+            .record_metric(conrogate_core::dto::MetricRow::raw_sample(
                 chrono::Utc::now(),
                 self.svc.gate_id.clone(),
                 Some(route_id),
@@ -955,7 +955,7 @@ impl HttpProtocolHandler {
     ) {
         self.svc
             .telemetry
-            .record_event(conrogate_core::contract::dto::EventRow {
+            .record_event(conrogate_core::dto::EventRow {
                 ts: chrono::Utc::now(),
                 event_type: "upstream_failed".into(),
                 route_id: Some(route.id),
@@ -1014,8 +1014,8 @@ impl ProtocolHandler for HttpProtocolHandler {
         &self,
         req: Request<Bytes>,
         client_ip: String,
-        match_info: conrogate_core::contract::protocol::RouteMatchInfo,
-        pre_matched: Option<conrogate_core::contract::dto::RouteSnapshot>,
+        match_info: conrogate_core::protocol::RouteMatchInfo,
+        pre_matched: Option<conrogate_core::dto::RouteSnapshot>,
     ) -> Result<Response<Bytes>, ConrogateError> {
         self.handle(req, client_ip, match_info, pre_matched).await
     }
@@ -1024,9 +1024,9 @@ impl ProtocolHandler for HttpProtocolHandler {
         &self,
         parts: http::request::Parts,
         body: hyper::body::Incoming,
-        route: conrogate_core::contract::dto::RouteSnapshot,
+        route: conrogate_core::dto::RouteSnapshot,
         client_ip: String,
-        match_info: conrogate_core::contract::protocol::RouteMatchInfo,
+        match_info: conrogate_core::protocol::RouteMatchInfo,
     ) -> Result<Response<ReqBody>, ConrogateError> {
         self.handle_stream(parts, body, route, client_ip, match_info)
             .await
@@ -1036,11 +1036,11 @@ impl ProtocolHandler for HttpProtocolHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use conrogate_core::contract::dto::{EventRow, MetricRow};
-    use conrogate_core::contract::gateway::{
+    use conrogate_core::dto::{EventRow, MetricRow};
+    use conrogate_core::gateway::{
         PluginExecutor, RouteLookup, TelemetryReport, TrafficControl, UpstreamSelector,
     };
-    use conrogate_core::contract::plugin::{PluginOutcome, PluginResponse};
+    use conrogate_core::plugin::{PluginOutcome, PluginResponse};
     use http_body_util::{BodyExt, Full};
     use hyper::body::Incoming;
     use hyper_util::rt::TokioIo;
@@ -1739,7 +1739,7 @@ mod tests {
     /// 插件拒绝（auth/ip_allow_deny 等）：统一信封携带请求 trace_id
     #[test]
     fn plugin_terminate_body_is_unified_envelope_with_trace_id() {
-        let body = conrogate_core::contract::response::error_body_with_trace(
+        let body = conrogate_core::response::error_body_with_trace(
             "plugin-trace-789",
             ConrogateError::ERR_UNAUTHORIZED,
             "unauthorized: missing bearer token",

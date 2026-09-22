@@ -1,9 +1,9 @@
 //! 上游选择器：集成负载均衡 + 健康检查 + 服务发现。
 
-use conrogate_core::contract::balancer::{BalancerAlgorithm, BalancerRegistry};
-use conrogate_core::contract::dto::{RouteSnapshot, UpstreamDto, UpstreamNodeDto};
-use conrogate_core::contract::gateway::UpstreamSelector;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::balancer::{BalancerAlgorithm, BalancerRegistry};
+use conrogate_core::dto::{RouteSnapshot, UpstreamDto, UpstreamNodeDto};
+use conrogate_core::gateway::UpstreamSelector;
+use conrogate_core::ConrogateError;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 

@@ -4,7 +4,7 @@
 //! 声明式迁移的兼容性（BIGINT 自增主键、partial unique index、JSON 列、
 //! 时间戳默认值、外键等）。
 
-use conrogate_core::contract::{
+use conrogate_core::{
     balancer::BalancerAlgorithm,
     dto::*,
     protocol::{PathMatch, ProtocolId, RouteMatchConditions},

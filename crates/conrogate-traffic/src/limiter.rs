@@ -1,7 +1,7 @@
 //! 限流器实现：固定窗口 / 滑动窗口 / 令牌桶（含 Redis 集群模式）。
 
-use conrogate_core::contract::traffic::{LimitAlgorithm, Limiter};
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::traffic::{LimitAlgorithm, Limiter};
+use conrogate_core::ConrogateError;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};

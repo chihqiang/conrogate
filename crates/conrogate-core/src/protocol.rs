@@ -48,14 +48,14 @@ impl std::fmt::Display for ProtocolId {
 }
 
 impl std::str::FromStr for ProtocolId {
-    type Err = crate::contract::ConrogateError;
+    type Err = crate::ConrogateError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "http" => Ok(Self::Http),
             "websocket" => Ok(Self::WebSocket),
             "tcp_tunnel" | "tcp" => Ok(Self::TcpTunnel),
-            _ => Err(crate::contract::ConrogateError::ProtocolNotSupported(
+            _ => Err(crate::ConrogateError::ProtocolNotSupported(
                 s.to_string(),
             )),
         }

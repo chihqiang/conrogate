@@ -1,11 +1,11 @@
 //! 网关服务入口：启动 HTTP/TCP 监听 + 组装 ServiceContext。
 
 use conrogate_balancer::registry::create_default_registry;
-use conrogate_core::contract::config::Config;
-use conrogate_core::contract::gateway::ServiceContext;
-use conrogate_core::contract::protocol::ProtocolId;
-use conrogate_core::contract::storage::{EventRepo, IpBlacklistRepo};
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::config::Config;
+use conrogate_core::gateway::ServiceContext;
+use conrogate_core::protocol::ProtocolId;
+use conrogate_core::storage::{EventRepo, IpBlacklistRepo};
+use conrogate_core::ConrogateError;
 use crate::filter::ConfigReloader;
 use crate::pool::UpstreamSelectorImpl;
 use crate::route::RouteMatcher;
@@ -19,7 +19,7 @@ use conrogate_protocol::{
 use conrogate_traffic::breaker::{BreakerConfig, BreakerFactoryImpl};
 use conrogate_traffic::limiter::TokenBucketLimiter;
 use conrogate_traffic::adaptive::{AdaptiveConfig, AdaptiveConcurrencyImpl};
-use conrogate_core::contract::traffic::{AdaptiveConcurrency, ConcurrencyPermit};
+use conrogate_core::traffic::{AdaptiveConcurrency, ConcurrencyPermit};
 use conrogate_traffic::retry_budget::{RetryBudgetConfig, RetryBudgetImpl};
 use bytes::Bytes;
 use http::{Request, Response};
@@ -43,9 +43,9 @@ pub struct GatewayServer {
     max_body_bytes: usize,
     max_header_bytes: usize,
     idle_timeout: std::time::Duration,
-    config_cache: Option<Arc<dyn conrogate_core::contract::storage::ConfigCache>>,
+    config_cache: Option<Arc<dyn conrogate_core::storage::ConfigCache>>,
     /// 全局 IP 黑名单匹配器（HTTP/WS/TCP 隧道统一生效，随配置热载刷新）
-    blacklist: Arc<dyn conrogate_core::contract::gateway::BlacklistCheck>,
+    blacklist: Arc<dyn conrogate_core::gateway::BlacklistCheck>,
     /// 自适应并发控制器（启用时替代静态 Semaphore）
     adaptive_concurrency: Option<Arc<AdaptiveConcurrencyImpl>>,
     /// 重试预算控制器（启用时限制全局重试比例）
@@ -54,13 +54,13 @@ pub struct GatewayServer {
 
 /// 遥测通道（指标/事件接收端），由调用方决定消费方式（DB 落库或日志兜底）
 struct TelemetryChannels {
-    metric_rx: mpsc::Receiver<conrogate_core::contract::dto::MetricRow>,
-    event_rx: mpsc::Receiver<conrogate_core::contract::dto::EventRow>,
+    metric_rx: mpsc::Receiver<conrogate_core::dto::MetricRow>,
+    event_rx: mpsc::Receiver<conrogate_core::dto::EventRow>,
 }
 
 /// 从 DB 全量刷新全局 IP 黑名单（失败保持当前黑名单，fail-open 不阻断加载）
 async fn refresh_blacklist_from_db(
-    blacklist: &Arc<dyn conrogate_core::contract::gateway::BlacklistCheck>,
+    blacklist: &Arc<dyn conrogate_core::gateway::BlacklistCheck>,
     db: &Arc<conrogate_storage::pool::DbConn>,
 ) {
     let repo =
@@ -74,12 +74,12 @@ async fn refresh_blacklist_from_db(
 /// 原子读取配置快照：任一数据源读取失败返回 `None`（保持当前生效配置，
 /// 避免把半套配置刷入运行时导致路由/上游/插件链被部分清空）。
 async fn load_config_snapshot(
-    config_cache: Option<&dyn conrogate_core::contract::storage::ConfigCache>,
+    config_cache: Option<&dyn conrogate_core::storage::ConfigCache>,
     db: &Arc<conrogate_storage::pool::DbConn>,
 ) -> Option<(
-    Vec<conrogate_core::contract::dto::RouteDto>,
-    Vec<conrogate_core::contract::dto::UpstreamDto>,
-    Vec<conrogate_core::contract::dto::PluginBindingDto>,
+    Vec<conrogate_core::dto::RouteDto>,
+    Vec<conrogate_core::dto::UpstreamDto>,
+    Vec<conrogate_core::dto::PluginBindingDto>,
 )> {
     // 优先 Redis 快照（单次读取即为完整三件套）
     if let Some(cache) = config_cache {
@@ -92,7 +92,7 @@ async fn load_config_snapshot(
         }
     }
 
-    let routes = match conrogate_core::contract::storage::ReadOnlyRouteRepo::list_enabled(
+    let routes = match conrogate_core::storage::ReadOnlyRouteRepo::list_enabled(
         &conrogate_storage::repository::route_repo::RouteRepoImpl::new((**db).clone()),
     )
     .await
@@ -103,7 +103,7 @@ async fn load_config_snapshot(
             return None;
         }
     };
-    let upstreams = match conrogate_core::contract::storage::ReadOnlyUpstreamRepo::list_all(
+    let upstreams = match conrogate_core::storage::ReadOnlyUpstreamRepo::list_all(
         &conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((**db).clone()),
     )
     .await
@@ -116,7 +116,7 @@ async fn load_config_snapshot(
     };
     let mut bindings = Vec::new();
     for route in &routes {
-        match conrogate_core::contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
+        match conrogate_core::storage::ReadOnlyPluginBindingRepo::list_by_route(
             &conrogate_storage::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
                 (**db).clone(),
             ),
@@ -140,7 +140,7 @@ impl GatewayServer {
     /// `plugins` 为调用方装配好的插件实例（官方插件由二进制注入，核心不依赖具体插件 crate）。
     async fn from_config_inner(
         config: Config,
-        plugins: Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>>,
+        plugins: Vec<Arc<dyn conrogate_core::plugin::Plugin>>,
     ) -> (Self, TelemetryChannels) {
         let config_reloader = ConfigReloader::new(config.clone());
 
@@ -280,7 +280,7 @@ impl GatewayServer {
             .with_max_retries(config.gate.retry.max_attempts);
         // 注入重试预算（启用时）
         let http_handler = if let Some(ref rb) = retry_budget {
-            http_handler.with_retry_budget(rb.clone() as Arc<dyn conrogate_core::contract::traffic::RetryBudget>)
+            http_handler.with_retry_budget(rb.clone() as Arc<dyn conrogate_core::traffic::RetryBudget>)
         } else {
             http_handler
         };
@@ -321,7 +321,7 @@ impl GatewayServer {
     /// 无 DB 场景：遥测仅记录日志（防止通道满后静默丢弃）。
     pub async fn from_config(
         config: Config,
-        plugins: Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>>,
+        plugins: Vec<Arc<dyn conrogate_core::plugin::Plugin>>,
     ) -> Self {
         let (server, channels) = Self::from_config_inner(config, plugins).await;
         tokio::spawn(async move {
@@ -411,7 +411,7 @@ impl GatewayServer {
     pub async fn from_config_with_db(
         config: Config,
         read_db: Arc<conrogate_storage::pool::DbConn>,
-        plugins: Vec<Arc<dyn conrogate_core::contract::plugin::Plugin>>,
+        plugins: Vec<Arc<dyn conrogate_core::plugin::Plugin>>,
     ) -> Self {
         // 提取 Redis 配置（在 config 被 move 之前）
         let redis_url = if !config.gate.refresh.config_cache_redis_url.is_empty() {
@@ -494,15 +494,15 @@ impl GatewayServer {
                 (*read_db).clone(),
             );
 
-        let routes = conrogate_core::contract::storage::ReadOnlyRouteRepo::list_enabled(&route_repo)
+        let routes = conrogate_core::storage::ReadOnlyRouteRepo::list_enabled(&route_repo)
             .await
             .unwrap_or_default();
-        let upstreams = conrogate_core::contract::storage::ReadOnlyUpstreamRepo::list_all(&upstream_repo)
+        let upstreams = conrogate_core::storage::ReadOnlyUpstreamRepo::list_all(&upstream_repo)
             .await
             .unwrap_or_default();
         let mut all_bindings = Vec::new();
         for route in &routes {
-            let rb = conrogate_core::contract::storage::ReadOnlyPluginBindingRepo::list_by_route(
+            let rb = conrogate_core::storage::ReadOnlyPluginBindingRepo::list_by_route(
                 &binding_repo,
                 route.id,
             )
@@ -850,7 +850,7 @@ impl GatewayServer {
     }
 
     /// 热加载路由
-    pub fn reload_routes(&self, routes: Vec<conrogate_core::contract::dto::RouteDto>) {
+    pub fn reload_routes(&self, routes: Vec<conrogate_core::dto::RouteDto>) {
         self.route_matcher.load(routes);
         tracing::info!("routes reloaded");
     }
@@ -858,8 +858,8 @@ impl GatewayServer {
     /// 热加载路由 + 插件绑定（含 requires_body 静态判定）
     pub fn reload_routes_with_bindings(
         &self,
-        routes: Vec<conrogate_core::contract::dto::RouteDto>,
-        bindings: Vec<conrogate_core::contract::dto::PluginBindingDto>,
+        routes: Vec<conrogate_core::dto::RouteDto>,
+        bindings: Vec<conrogate_core::dto::PluginBindingDto>,
     ) {
         let body_required = self.plugin_registry.body_required_plugin_names();
         // 按 route_id 分组绑定，构建每绑定独立配置实例的插件链，原子替换插件链缓存。
@@ -873,13 +873,13 @@ impl GatewayServer {
     }
 
     /// 热加载上游
-    pub fn reload_upstreams(&self, upstreams: Vec<conrogate_core::contract::dto::UpstreamDto>) {
+    pub fn reload_upstreams(&self, upstreams: Vec<conrogate_core::dto::UpstreamDto>) {
         self.upstream_selector.load_upstreams(upstreams);
         tracing::info!("upstreams reloaded");
     }
 
     /// 热载全局 IP 黑名单（HTTP 配置模式：从 control API 拉取后调用）
-    pub fn reload_blacklist(&self, dtos: Vec<conrogate_core::contract::dto::IpBlacklistDto>) {
+    pub fn reload_blacklist(&self, dtos: Vec<conrogate_core::dto::IpBlacklistDto>) {
         self.blacklist.reload(dtos);
     }
 
@@ -1030,7 +1030,7 @@ fn error_response(
     }
     builder
         .body(boxed_body(Bytes::from(
-            serde_json::to_vec(&conrogate_core::contract::response::error_body_with_trace(
+            serde_json::to_vec(&conrogate_core::response::error_body_with_trace(
                 trace_id, code, msg,
             ))
             .unwrap_or_default(),
@@ -1054,7 +1054,7 @@ impl hyper::service::Service<Request<Incoming>> for HyperServiceBridge {
             let start = std::time::Instant::now();
             let method = req.method().clone();
             let path = req.uri().path().to_string();
-            let trace_id = conrogate_core::contract::response::trace_id_from_headers(req.headers());
+            let trace_id = conrogate_core::response::trace_id_from_headers(req.headers());
 
             let resp = match this.process(req).await {
                 Ok(r) => r,
@@ -1113,7 +1113,7 @@ impl HyperServiceBridge {
         let ws_connect_timeout = self.ws_connect_timeout;
         let ws_idle_timeout = self.ws_idle_timeout;
         let ws_shutdown = self.ws_shutdown.clone();
-        let req_trace_id = conrogate_core::contract::response::trace_id_from_headers(req.headers());
+        let req_trace_id = conrogate_core::response::trace_id_from_headers(req.headers());
 
         // 健康探针：GET /healthz → 200（仍携带 x-trace-id，保证最小响应可追踪）
         if req.method() == http::Method::GET && req.uri().path() == "/healthz" {

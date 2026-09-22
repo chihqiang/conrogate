@@ -83,7 +83,7 @@
 //! - HTTP / WebSocket / TCP 隧道三协议
 //! - IPv4 / IPv6 / CIDR
 
-use conrogate_core::contract::{
+use conrogate_core::{
     plugin::{Plugin, PluginContext, PluginKind, PluginOutcome},
     protocol::ProtocolId,
     response, ConrogateError,
@@ -243,7 +243,7 @@ impl Plugin for IpAllowDenyPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use conrogate_core::contract::plugin::{HttpContext, PluginLogger, PluginMetrics, PluginServices};
+    use conrogate_core::plugin::{HttpContext, PluginLogger, PluginMetrics, PluginServices};
     use http::Method;
     use serde_json::json;
 
@@ -363,7 +363,7 @@ mod tests {
         let p = plugin(json!(["10.0.0.0/8"]), json!(["10.99.0.0/16"]));
         let mut ctx = ctx_with_ip("10.99.1.2");
         ctx.protocol = ProtocolId::TcpTunnel;
-        ctx.tunnel = Some(conrogate_core::contract::plugin::TunnelContext {
+        ctx.tunnel = Some(conrogate_core::plugin::TunnelContext {
             remote_addr: "10.99.1.2:1234".into(),
             sni: None,
             alpn: None,

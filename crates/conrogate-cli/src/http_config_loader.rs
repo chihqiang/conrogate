@@ -1,7 +1,7 @@
 //! HTTP 配置加载器：分离模式下 gate 从 control HTTP API 拉取配置快照。
 
-use conrogate_core::contract::dto::{IpBlacklistDto, PluginBindingDto, RouteDto, UpstreamDto};
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::dto::{IpBlacklistDto, PluginBindingDto, RouteDto, UpstreamDto};
+use conrogate_core::ConrogateError;
 use http_body_util::BodyExt;
 
 /// HTTP 配置加载器：从 control API 拉取配置

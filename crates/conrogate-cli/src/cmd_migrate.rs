@@ -8,7 +8,7 @@
 //!   conrogate migrate --seed --seed-name <name> --seed-address <host:port>
 
 pub fn run(
-    config: conrogate_core::contract::config::Config,
+    config: conrogate_core::config::Config,
     seed: bool,
     seed_name: String,
     seed_address: String,
@@ -22,7 +22,7 @@ pub fn run(
 }
 
 async fn async_run(
-    config: conrogate_core::contract::config::Config,
+    config: conrogate_core::config::Config,
     seed: bool,
     seed_name: String,
     seed_address: String,

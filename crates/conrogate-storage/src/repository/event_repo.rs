@@ -1,8 +1,8 @@
 //! 事件仓储实现。
 
-use conrogate_core::contract::dto::{EventQuery, EventRow, PaginatedResult};
-use conrogate_core::contract::storage::EventRepo;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::dto::{EventQuery, EventRow, PaginatedResult};
+use conrogate_core::storage::EventRepo;
+use conrogate_core::ConrogateError;
 use crate::convert;
 use crate::entity::gateway_events::{self, Entity as EventEntity};
 use sea_orm::sea_query::OnConflict;

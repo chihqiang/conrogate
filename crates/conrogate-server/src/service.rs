@@ -1,9 +1,9 @@
 //! 控制面业务服务层：聚合仓储 + 审计 + 配置版本管理。
 
 use super::audit::AuditService;
-use conrogate_core::contract::dto::*;
-use conrogate_core::contract::storage::*;
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::dto::*;
+use conrogate_core::storage::*;
+use conrogate_core::ConrogateError;
 use std::sync::Arc;
 
 /// 单批上报条数上限（批量大小上限 1000 条/批）
@@ -589,7 +589,7 @@ impl ControlService {
 
     pub async fn list_plugins(
         &self,
-        status: Option<conrogate_core::contract::plugin::PluginStatus>,
+        status: Option<conrogate_core::plugin::PluginStatus>,
     ) -> Result<Vec<InstalledPluginDto>, ConrogateError> {
         self.plugin_repo.list(status).await
     }
@@ -598,7 +598,7 @@ impl ControlService {
     pub async fn update_plugin_status(
         &self,
         name: &str,
-        status: conrogate_core::contract::plugin::PluginStatus,
+        status: conrogate_core::plugin::PluginStatus,
         operator: Option<&str>,
         trace_id: &str,
     ) -> Result<(), ConrogateError> {
@@ -630,7 +630,7 @@ impl ControlService {
             .ok_or_else(|| ConrogateError::PluginNotFound(name.to_string()))?;
 
         // 内置（Native）插件编译进二进制，不支持卸载
-        if plugin.kind == conrogate_core::contract::plugin::PluginKind::Native {
+        if plugin.kind == conrogate_core::plugin::PluginKind::Native {
             return Err(ConrogateError::BadRequest("内置插件不可卸载".to_string()));
         }
 

@@ -140,7 +140,7 @@
 //! - RS256 JWKS 远程密钥集拉取（带缓存 + TTL）
 //! - issuer/audience 校验 + 过期检查
 
-use conrogate_core::contract::{
+use conrogate_core::{
     plugin::{Plugin, PluginContext, PluginKind, PluginOutcome},
     protocol::ProtocolId,
     response, ConrogateError,
@@ -659,10 +659,10 @@ impl Plugin for AuthPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use conrogate_core::contract::plugin::{
+    use conrogate_core::plugin::{
         HttpContext, PluginContext, PluginLogger, PluginMetrics, PluginOutcome, PluginServices,
     };
-    use conrogate_core::contract::protocol::ProtocolId;
+    use conrogate_core::protocol::ProtocolId;
     use http::Method;
     use jsonwebtoken::{encode, EncodingKey, Header};
 

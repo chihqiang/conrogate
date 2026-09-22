@@ -1,6 +1,6 @@
 //! 日志初始化：支持 JSON 格式 + env-filter + 文件输出。
 
-use crate::contract::config::LogConfig;
+use crate::config::LogConfig;
 use std::path::Path;
 use tracing_subscriber::fmt::time::ChronoLocal;
 use tracing_subscriber::layer::SubscriberExt;

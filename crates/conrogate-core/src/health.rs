@@ -1,7 +1,7 @@
 //! 健康检查 Trait（扩展点）。
 
-use crate::contract::dto::UpstreamNodeDto;
-use crate::contract::error::ConrogateError;
+use crate::dto::UpstreamNodeDto;
+use crate::error::ConrogateError;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 

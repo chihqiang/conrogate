@@ -1,11 +1,11 @@
 //! 路由匹配引擎：多维条件匹配 + 优先级排序。
 
-use conrogate_core::contract::dto::{RouteDto, RouteSnapshot};
-use conrogate_core::contract::gateway::RouteLookup;
-use conrogate_core::contract::protocol::{
+use conrogate_core::dto::{RouteDto, RouteSnapshot};
+use conrogate_core::gateway::RouteLookup;
+use conrogate_core::protocol::{
     HeaderMatch, MatchOp, PathMatch, ProtocolId, QueryMatch, RouteMatchConditions, RouteMatchInfo,
 };
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::ConrogateError;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
@@ -99,14 +99,14 @@ impl RouteMatcher {
     pub fn load_with_bindings(
         &self,
         dtos: Vec<RouteDto>,
-        bindings: Vec<conrogate_core::contract::dto::PluginBindingDto>,
+        bindings: Vec<conrogate_core::dto::PluginBindingDto>,
         body_required_plugins: &std::collections::HashSet<String>,
     ) {
         // 本地构建新快照，最后整体原子替换（读取路径始终可见完整路由表）
         let mut routes: HashMap<ProtocolId, Vec<RouteEntry>> = HashMap::new();
 
         // 按 route_id 分组绑定
-        let mut binding_map: HashMap<u64, Vec<conrogate_core::contract::dto::PluginBindingDto>> =
+        let mut binding_map: HashMap<u64, Vec<conrogate_core::dto::PluginBindingDto>> =
             HashMap::new();
         for b in bindings {
             if b.enabled {

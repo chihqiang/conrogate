@@ -1,8 +1,8 @@
 //! 路由仓储实现。
 
-use conrogate_core::contract::dto::{CreateRouteDto, PaginatedResult, RouteDto, UpdateRouteDto};
-use conrogate_core::contract::storage::{ReadOnlyRouteRepo, RouteRepo};
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::dto::{CreateRouteDto, PaginatedResult, RouteDto, UpdateRouteDto};
+use conrogate_core::storage::{ReadOnlyRouteRepo, RouteRepo};
+use conrogate_core::ConrogateError;
 use crate::convert;
 use crate::entity::routes::{self, Entity as RouteEntity};
 use sea_orm::{

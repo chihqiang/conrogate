@@ -1,7 +1,7 @@
 //! 配置结构体与加载。
 
-use crate::contract::error::ConrogateError;
-use crate::contract::protocol::ProtocolId;
+use crate::error::ConrogateError;
+use crate::protocol::ProtocolId;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 

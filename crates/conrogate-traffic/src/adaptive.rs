@@ -16,8 +16,8 @@
 //!    - 不依赖静态 `max_connections` 配置
 //!    - 随上游延迟动态伸缩：健康时缓慢放开，异常时快速收紧
 
-use conrogate_core::contract::traffic::{AdaptiveConcurrency, ConcurrencyPermit};
-use conrogate_core::contract::ConrogateError;
+use conrogate_core::traffic::{AdaptiveConcurrency, ConcurrencyPermit};
+use conrogate_core::ConrogateError;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
