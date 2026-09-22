@@ -76,33 +76,46 @@ impl RetryBudget for RetryBudgetImpl {
     fn try_consume(&self) -> Result<(), ConrogateError> {
         self.maybe_refresh_window();
 
-        let total = self.total_requests.load(Ordering::Relaxed);
-        let retries = self.retry_requests.load(Ordering::Relaxed);
+        // CAS 循环：确保「检查比例 + 递增计数」原子执行，
+        // 避免并发调用同时读到旧低比例后全部通过导致超限。
+        loop {
+            let total = self.total_requests.load(Ordering::Acquire);
+            let retries = self.retry_requests.load(Ordering::Acquire);
 
-        // 冷启动保护：窗口内请求数不足时不做预算判定
-        if total < self.config.min_requests {
-            self.retry_requests.fetch_add(1, Ordering::Relaxed);
-            self.total_requests.fetch_add(1, Ordering::Relaxed);
-            return Ok(());
-        }
+            // 冷启动保护：窗口内请求数不足时不做预算判定
+            if total < self.config.min_requests {
+                self.retry_requests.fetch_add(1, Ordering::Release);
+                self.total_requests.fetch_add(1, Ordering::Release);
+                return Ok(());
+            }
 
-        // 预算判定：重试比例是否超限
-        let ratio = retries as f64 / total as f64;
-        if ratio >= self.config.budget_ratio {
-            tracing::warn!(
+            // 预算判定：重试比例是否超限
+            let ratio = retries as f64 / total as f64;
+            if ratio >= self.config.budget_ratio {
+                tracing::warn!(
+                    retries,
+                    total,
+                    ratio = format!("{:.1}%", ratio * 100.0),
+                    limit = format!("{:.1}%", self.config.budget_ratio * 100.0),
+                    "retry budget exhausted, refusing retry"
+                );
+                return Err(ConrogateError::RetryBudgetExhausted);
+            }
+
+            // CAS 递增 retries：若期间 retries 未被其他线程修改则成功
+            match self.retry_requests.compare_exchange(
                 retries,
-                total,
-                ratio = format!("{:.1}%", ratio * 100.0),
-                limit = format!("{:.1}%", self.config.budget_ratio * 100.0),
-                "retry budget exhausted, refusing retry"
-            );
-            return Err(ConrogateError::RetryBudgetExhausted);
+                retries + 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    self.total_requests.fetch_add(1, Ordering::Release);
+                    return Ok(());
+                }
+                Err(_) => continue, // 其他线程已修改，重新检查
+            }
         }
-
-        // 预算充足：消费一个重试配额
-        self.retry_requests.fetch_add(1, Ordering::Relaxed);
-        self.total_requests.fetch_add(1, Ordering::Relaxed);
-        Ok(())
     }
 
     fn record_request(&self) {

@@ -977,6 +977,45 @@ impl Config {
             ));
         }
 
+        if self.gate.breaker.enabled
+            && self.gate.breaker.cluster_store.is_some()
+            && self
+                .gate
+                .breaker
+                .cluster_store
+                .as_ref()
+                .unwrap()
+                .redis_url
+                .is_empty()
+        {
+            return Err(ConrogateError::ConfigInvalid(
+                "breaker cluster mode requires non-empty redis_url".into(),
+            ));
+        }
+
+        if self.gate.adaptive_concurrency.enabled {
+            let ac = &self.gate.adaptive_concurrency;
+            if ac.min_limit > ac.initial_limit || ac.initial_limit > ac.max_limit {
+                return Err(ConrogateError::ConfigInvalid(
+                    "adaptive_concurrency: min_limit <= initial_limit <= max_limit required".into(),
+                ));
+            }
+            if ac.decrease_ratio <= 0.0 || ac.decrease_ratio > 1.0 {
+                return Err(ConrogateError::ConfigInvalid(
+                    "adaptive_concurrency: decrease_ratio must be in (0.0, 1.0]".into(),
+                ));
+            }
+        }
+
+        if self.gate.retry_budget.enabled {
+            let rb = &self.gate.retry_budget;
+            if rb.budget_ratio <= 0.0 || rb.budget_ratio > 1.0 {
+                return Err(ConrogateError::ConfigInvalid(
+                    "retry_budget: budget_ratio must be in (0.0, 1.0]".into(),
+                ));
+            }
+        }
+
         Ok(())
     }
 }

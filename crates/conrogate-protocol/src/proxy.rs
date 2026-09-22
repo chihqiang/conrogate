@@ -91,13 +91,18 @@ pub async fn forward_http(
 }
 
 /// 转发 HTTP 请求到上游节点（流式模式：请求体与响应体均以流透传，不载入内存）
+///
+/// 注意：流式模式下仅对「发送请求 + 接收响应头」阶段做超时约束，
+/// 响应体由调用方按 hyper 的流式 body 消费；如需对响应体也做超时，
+/// 调用方应在 collect/读取 body 时自行包裹 `with_timeout`。
 pub async fn forward_http_stream(
     client: &HttpClient,
     node: &UpstreamNodeDto,
     req: Request<ReqBody>,
     timeout: Duration,
 ) -> Result<ProxyStreamResult, ConrogateError> {
-    let (status, headers, body) = forward_common(client, node, req, timeout).await?;
+    let (status, headers, body) =
+        with_timeout(timeout, forward_common(client, node, req, timeout)).await??;
     Ok(ProxyStreamResult {
         status,
         headers,

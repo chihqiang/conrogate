@@ -109,16 +109,12 @@ impl AdaptiveConcurrencyImpl {
     fn maybe_adjust(&self) {
         let now = Instant::now();
 
-        // 检查窗口是否过期
+        // 检查窗口是否过期 + 重置窗口起点（同一锁范围内，避免 TOCTOU 竞态）
         {
-            let window_start = self.inner.window_start.lock().unwrap();
+            let mut window_start = self.inner.window_start.lock().unwrap();
             if now.duration_since(*window_start) < self.inner.config.window {
                 return;
             }
-        }
-        // 过期：重置窗口起点
-        {
-            let mut window_start = self.inner.window_start.lock().unwrap();
             *window_start = now;
         }
 
