@@ -8,6 +8,7 @@ import { routeApi } from '@/api/routes'
 import { upstreamApi } from '@/api/upstreams'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
+import { fmtTime } from '@/utils/format'
 import AppBadge from '@/components/ui/AppBadge.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
@@ -64,13 +65,24 @@ function methodsText(methods: string[] | null): string {
   return methods && methods.length > 0 ? methods.join(', ') : '全部'
 }
 
-/** 时间戳格式化（本地时区 YYYY-MM-DD HH:mm:ss） */
-function fmtTime(value: string): string {
-  if (!value) return '-'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return '-'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+/** 从路由生成 curl 访问示例 */
+function curlPreview(row: RouteDto): string {
+  const mc = row.match_conditions
+  const pathEntry = Object.values(mc.path)[0] ?? '/'
+  const method = mc.methods && mc.methods.length > 0 ? mc.methods[0] : 'GET'
+  const host = mc.host || 'localhost:8080'
+  return `curl -X ${method} http://${host}${pathEntry}`
+}
+
+/** 复制 curl 到剪贴板 */
+async function copyCurl(row: RouteDto): Promise<void> {
+  const text = curlPreview(row)
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success(`已复制：${text}`)
+  } catch {
+    toast.error('复制失败，请手动选择文本复制')
+  }
 }
 
 // ── 表格列定义 ──
@@ -78,14 +90,15 @@ function fmtTime(value: string): string {
 const columns: TableColumn[] = [
   { key: 'id', label: 'ID', width: '56px' },
   { key: 'name', label: '名称' },
-  { key: 'protocol', label: '协议', width: '110px' },
+  { key: 'protocol', label: '协议', width: '100px' },
   { key: 'path', label: '路径', formatter: (_, row) => pathText((row as RouteDto).match_conditions.path) },
-  { key: 'methods', label: '方法', width: '120px', formatter: (v) => methodsText(v as string[] | null) },
-  { key: 'upstream_id', label: '上游', width: '120px', formatter: (v) => upstreamNames.value[v as number] ?? (v ? `#${v}` : '-') },
+  { key: 'methods', label: '方法', width: '110px', formatter: (v) => methodsText(v as string[] | null) },
+  { key: 'upstream_id', label: '上游', width: '110px', formatter: (v) => upstreamNames.value[v as number] ?? (v ? `#${v}` : '-') },
   { key: 'priority', label: '优先级', width: '70px' },
-  { key: 'enabled', label: '状态', width: '80px' },
+  { key: 'enabled', label: '状态', width: '70px' },
+  { key: 'access', label: '访问示例', width: '200px' },
   { key: 'created_at', label: '创建时间', width: '150px', formatter: (v) => fmtTime(String(v)) },
-  { key: 'actions', label: '操作', width: '260px', align: 'right' },
+  { key: 'actions', label: '操作', width: '230px', align: 'right' },
 ]
 
 // ── 数据加载 ──
@@ -179,6 +192,25 @@ onMounted(() => {
       <!-- 启用状态 -->
       <template #cell-enabled="{ value }">
         <AppBadge :tone="value ? 'green' : 'gray'">{{ value ? '启用' : '停用' }}</AppBadge>
+      </template>
+
+      <!-- 访问示例 -->
+      <template #cell-access="{ row }">
+        <div class="group flex items-center gap-1">
+          <code class="block truncate rounded bg-slate-50 px-2 py-1 font-mono text-xs text-slate-600">
+            {{ curlPreview(row as RouteDto) }}
+          </code>
+          <button
+            class="shrink-0 rounded p-1 text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-600"
+            title="复制 curl"
+            @click="copyCurl(row as RouteDto)"
+          >
+            <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path d="M8 2a2 2 0 00-2 2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2V4a2 2 0 00-2-2zM5 8a1 1 0 011-1h1v6H5a1 1 0 01-1-1V8z" />
+              <path d="M12 6a2 2 0 012-2h1a2 2 0 012 2v6a2 2 0 01-2 2h-1a2 2 0 01-2-2V6zm3 0a1 1 0 00-1 1v6h1a1 1 0 001-1V6z" />
+            </svg>
+          </button>
+        </div>
       </template>
 
       <!-- 操作列 -->

@@ -174,61 +174,93 @@ async function save(): Promise<void> {
   <AppModal
     :open="open"
     :title="route === null ? '新建路由' : `编辑路由 #${route.id}`"
+    width="max-w-2xl"
     @close="emit('update:open', false)"
   >
-    <form class="space-y-4" @submit.prevent="save">
-      <div class="grid grid-cols-2 gap-4">
-        <AppInput v-model="form.name" label="路由名称" required placeholder="例如 product-api" />
-        <AppSelect v-model="form.protocol" label="协议" :options="toOptions(RouteProtocolLabels)" />
-      </div>
-
-      <div class="grid grid-cols-2 gap-4">
-        <AppSelect v-model="form.pathType" label="路径匹配方式" :options="toOptions(PathMatchTypeLabels)" />
-        <AppInput v-model="form.pathValue" label="匹配路径" required placeholder="例如 /api" />
-      </div>
-
+    <form class="space-y-5" @submit.prevent="save">
+      <!-- 分区：基本信息 -->
       <div>
-        <span class="mb-1 block text-sm font-medium text-slate-700">HTTP 方法（不选表示全部）</span>
-        <div class="flex flex-wrap gap-2">
-          <label
-            v-for="m in toOptions(HttpMethodLabels)"
-            :key="m.value"
-            class="inline-flex cursor-pointer items-center gap-1 rounded border border-slate-300 px-2 py-1 text-xs"
-            :class="form.methods.includes(m.value as HttpMethod) ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'text-slate-600'"
-          >
-            <input v-model="form.methods" type="checkbox" :value="m.value" class="accent-indigo-600" />
-            {{ m.label }}
-          </label>
+        <h4 class="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">基本信息</h4>
+        <div class="grid grid-cols-2 gap-4">
+          <AppInput v-model="form.name" label="路由名称" required placeholder="例如 product-api" />
+          <AppSelect v-model="form.protocol" label="协议" :options="toOptions(RouteProtocolLabels)" />
         </div>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
-        <AppSelect
-          v-model="form.upstreamId"
-          label="转发上游"
-          :options="upstreams.map((u) => ({ value: u.id, label: `#${u.id} ${u.name}` }))"
-        />
-        <AppInput v-model="form.priority" label="优先级（越大越优先）" type="number" />
+      <!-- 分区：匹配规则 -->
+      <div>
+        <h4 class="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">匹配规则</h4>
+        <div class="grid grid-cols-2 gap-4">
+          <AppSelect v-model="form.pathType" label="路径匹配方式" :options="toOptions(PathMatchTypeLabels)" />
+          <AppInput v-model="form.pathValue" label="匹配路径" required placeholder="例如 /api" hint="支持前缀、精确、正则三种匹配方式" />
+        </div>
+
+        <!-- HTTP 方法 -->
+        <div class="mt-3">
+          <span class="mb-1.5 block text-sm font-medium text-slate-700">HTTP 方法</span>
+          <div class="flex flex-wrap gap-1.5">
+            <label
+              v-for="m in toOptions(HttpMethodLabels)"
+              :key="m.value"
+              class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-all duration-150"
+              :class="form.methods.includes(m.value as HttpMethod)
+                ? 'border-indigo-500 bg-indigo-50 text-indigo-700 shadow-sm'
+                : 'border-slate-300 text-slate-600 hover:border-slate-400 hover:bg-slate-50'"
+            >
+              <input v-model="form.methods" type="checkbox" :value="m.value" class="hidden accent-indigo-600" />
+              {{ m.label }}
+            </label>
+            <span class="ml-1 inline-flex items-center text-xs text-slate-400">不选 = 全部方法</span>
+          </div>
+        </div>
+
+        <!-- Host 匹配 -->
+        <div class="mt-3 grid grid-cols-2 gap-4">
+          <AppInput v-model="form.host" label="匹配 Host" placeholder="可留空" hint="如 api.example.com" />
+          <AppInput v-model="form.hostHeader" label="上游 Host 头覆盖" placeholder="可留空" hint="重写转发给上游的 Host 头" />
+        </div>
       </div>
 
-      <div class="grid grid-cols-2 gap-4">
-        <AppInput v-model="form.host" label="匹配 Host" placeholder="可留空" />
-        <AppInput v-model="form.hostHeader" label="上游 Host 头覆盖" placeholder="可留空" />
+      <!-- 分区：转发配置 -->
+      <div>
+        <h4 class="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">转发配置</h4>
+        <div class="grid grid-cols-2 gap-4">
+          <AppSelect
+            v-model="form.upstreamId"
+            label="转发上游"
+            allow-clear
+            :options="upstreams.map((u) => ({ value: u.id, label: `#${u.id} ${u.name}` }))"
+          />
+          <AppInput v-model="form.priority" label="优先级" type="number" hint="数字越大优先级越高" />
+        </div>
       </div>
 
-      <div class="flex flex-wrap gap-4 text-sm text-slate-600">
-        <label class="inline-flex items-center gap-1.5">
-          <input v-model="form.allowRetry" type="checkbox" class="accent-indigo-600" />
-          允许非幂等重试
-        </label>
-        <label class="inline-flex items-center gap-1.5">
-          <input v-model="form.wsStripSensitive" type="checkbox" class="accent-indigo-600" />
-          WS 剥离敏感头
-        </label>
-        <label class="inline-flex items-center gap-1.5">
-          <input v-model="form.enabled" type="checkbox" class="accent-indigo-600" />
-          立即启用
-        </label>
+      <!-- 分区：高级选项 -->
+      <div>
+        <h4 class="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">高级选项</h4>
+        <div class="grid grid-cols-3 gap-3">
+          <label
+            class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 p-2.5 text-sm transition-all duration-150 hover:border-slate-400 hover:bg-slate-50"
+            :class="form.allowRetry ? 'border-indigo-500 bg-indigo-50' : ''"
+          >
+            <input v-model="form.allowRetry" type="checkbox" class="h-4 w-4 rounded accent-indigo-600" />
+            <span :class="form.allowRetry ? 'text-indigo-700' : 'text-slate-600'">允许非幂等重试</span>
+          </label>
+          <label
+            class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 p-2.5 text-sm transition-all duration-150 hover:border-slate-400 hover:bg-slate-50"
+            :class="form.wsStripSensitive ? 'border-indigo-500 bg-indigo-50' : ''"
+          >
+            <input v-model="form.wsStripSensitive" type="checkbox" class="h-4 w-4 rounded accent-indigo-600" />
+            <span :class="form.wsStripSensitive ? 'text-indigo-700' : 'text-slate-600'">WS 剥离敏感头</span>
+          </label>
+          <label
+            class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 p-2.5 text-sm transition-all duration-150 hover:border-slate-400 hover:bg-slate-50"
+            :class="form.enabled ? 'border-emerald-500 bg-emerald-50' : ''"
+          >
+            <input v-model="form.enabled" type="checkbox" class="h-4 w-4 rounded accent-indigo-600" />
+            <span :class="form.enabled ? 'text-emerald-700' : 'text-slate-600'">立即启用</span>
+          </label>
+        </div>
       </div>
     </form>
 

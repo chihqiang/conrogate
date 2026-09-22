@@ -727,6 +727,23 @@ pub async fn delete_ip_blacklist(
     }
 }
 
+// ── 鉴权验证 ──
+
+/// Token 验证：返回当前 operator 与角色（受认证中间件保护，通过即代表 token 有效）
+pub async fn verify_token(
+    Extension(role): Extension<Role>,
+    Extension(operator): Extension<String>,
+) -> Response {
+    response::ok(serde_json::json!({
+        "operator": operator,
+        "role": match role {
+            Role::Admin => "admin",
+            Role::Operator => "operator",
+            Role::Viewer => "viewer",
+        },
+    }))
+}
+
 // ── 健康检查 ──
 
 pub async fn health_check() -> Response {

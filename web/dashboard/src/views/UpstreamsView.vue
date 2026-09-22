@@ -7,6 +7,7 @@ import { onMounted, ref } from 'vue'
 import { upstreamApi } from '@/api/upstreams'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
+import { fmtTime } from '@/utils/format'
 import AppBadge from '@/components/ui/AppBadge.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
@@ -36,20 +37,10 @@ const editing = ref<UpstreamDto | null>(null)
 /** 删除确认 */
 const deleting = ref<UpstreamDto | null>(null)
 
-// ── 辅助函数 ──
-
-function fmtTime(value: string): string {
-  if (!value) return '-'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return '-'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
-
 /** 节点列表 → 展示文本（地址，禁用节点标记 *） */
 function nodesText(nodes: UpstreamDto['nodes']): string {
   if (nodes.length === 0) return '-'
-  return nodes.map((n) => `${n.enabled ? '' : '*' }${n.address}`).join('，')
+  return nodes.map((n) => `${n.enabled ? '' : '*'}${n.address}`).join('，')
 }
 
 // ── 表格列定义 ──

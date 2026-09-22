@@ -8,6 +8,7 @@
 import { ref, watch } from 'vue'
 import { securityApi } from '@/api/security'
 import { useToastStore } from '@/stores/toast'
+import { fmtDuration } from '@/utils/format'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppInput from '@/components/ui/AppInput.vue'
 import AppModal from '@/components/ui/AppModal.vue'
@@ -47,12 +48,6 @@ function parseExpires(raw: string): number | null {
   if (!raw.trim()) return null
   const n = Number(raw)
   return Number.isFinite(n) ? n : NaN
-}
-
-function fmtDuration(secs: number): string {
-  if (secs >= 86400) return `${Math.floor(secs / 86400)} 天`
-  if (secs >= 3600) return `${Math.floor(secs / 3600)} 小时`
-  return `${secs} 秒`
 }
 
 async function submit(): Promise<void> {

@@ -52,10 +52,14 @@ const topRoutes = ref<TopRoutesResponse | null>(null)
 
 let timer: ReturnType<typeof setInterval> | null = null
 
+/** 请求序号：防止快速切换时间范围时旧响应覆盖新响应 */
+let requestId = 0
+
 // ── 数据加载 ──
 
-/** 拉取全部指标接口（并行） */
+/** 拉取全部指标接口（并行）；旧响应会被丢弃 */
 async function load(): Promise<void> {
+  const currentId = ++requestId
   loading.value = true
   try {
     const [o, q, l, s, t] = await Promise.all([
@@ -65,15 +69,18 @@ async function load(): Promise<void> {
       metricsApi.statusCodes(rangeMin.value),
       metricsApi.topRoutes(rangeMin.value),
     ])
+    // 竞态保护：如果期间又触发了新请求，丢弃本次结果
+    if (currentId !== requestId) return
     overview.value = o
     qps.value = q
     latency.value = l
     statusCodes.value = s
     topRoutes.value = t
   } catch (e) {
+    if (currentId !== requestId) return
     toast.error((e as Error).message)
   } finally {
-    loading.value = false
+    if (currentId === requestId) loading.value = false
   }
 }
 

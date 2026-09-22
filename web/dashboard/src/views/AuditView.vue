@@ -6,6 +6,7 @@
 import { onMounted, ref } from 'vue'
 import { auditApi } from '@/api/events'
 import { useToastStore } from '@/stores/toast'
+import { fmtTime } from '@/utils/format'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
 import AppEmpty from '@/components/ui/AppEmpty.vue'
@@ -43,14 +44,6 @@ const actionOptions = [
 ]
 
 // ── 辅助函数 ──
-
-function fmtTime(value: string): string {
-  if (!value) return '-'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return '-'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
 
 function fmtDetail(detail: Record<string, unknown> | null): string {
   if (!detail) return '-'

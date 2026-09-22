@@ -36,28 +36,34 @@ function onKeydown(e: KeyboardEvent): void {
 watch(
   () => props.open,
   (v) => {
-    if (v) window.addEventListener('keydown', onKeydown)
-    else window.removeEventListener('keydown', onKeydown)
+    if (v) {
+      window.addEventListener('keydown', onKeydown)
+      document.body.style.overflow = 'hidden'
+    } else {
+      window.removeEventListener('keydown', onKeydown)
+      document.body.style.overflow = ''
+    }
   },
 )
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
+  document.body.style.overflow = ''
 })
 </script>
 
 <template>
   <Teleport to="body">
-    <Transition name="fade">
+    <Transition name="modal">
       <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <!-- 遮罩层 -->
-        <div class="absolute inset-0 bg-slate-900/50" @click="onBackdrop" />
-        <div :class="['relative w-full rounded-lg bg-white shadow-xl', width]">
+        <div class="absolute inset-0 bg-slate-900/50 backdrop-blur-[1px]" @click="onBackdrop" />
+        <div :class="['relative w-full overflow-hidden rounded-xl bg-white shadow-2xl', width]">
           <!-- 标题栏 -->
-          <div class="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+          <div class="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
             <h3 class="text-base font-semibold text-slate-800">{{ title }}</h3>
             <button
-              class="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              class="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
               aria-label="关闭"
               @click="emit('close')"
             >
@@ -67,11 +73,11 @@ onBeforeUnmount(() => {
             </button>
           </div>
           <!-- 内容区 -->
-          <div class="px-5 py-4">
+          <div class="max-h-[70vh] overflow-y-auto px-5 py-4">
             <slot />
           </div>
           <!-- 底部操作区（可选） -->
-          <div v-if="$slots.footer" class="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
+          <div v-if="$slots.footer" class="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
             <slot name="footer" />
           </div>
         </div>
@@ -81,12 +87,21 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.15s ease;
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
 }
-.fade-enter-from,
-.fade-leave-to {
+.modal-enter-active > div:last-child,
+.modal-leave-active > div:last-child {
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease;
+}
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+.modal-enter-from > div:last-child,
+.modal-leave-to > div:last-child {
+  transform: scale(0.95) translateY(-8px);
   opacity: 0;
 }
 </style>

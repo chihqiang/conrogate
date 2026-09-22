@@ -68,7 +68,7 @@ function alignClass(col: TableColumn): string {
         </tr>
       </thead>
       <tbody v-if="hasRows" class="divide-y divide-slate-100 bg-white">
-        <tr v-for="(row, index) in rows" :key="index" class="transition hover:bg-slate-50">
+        <tr v-for="(row, index) in rows" :key="String((row as Record<string, unknown>)?.id ?? index)" class="transition hover:bg-slate-50">
           <td
             v-for="col in columns"
             :key="col.key"

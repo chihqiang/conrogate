@@ -2,11 +2,17 @@
 /**
  * 登录页：输入控制面鉴权 token（`operator:secret:role` 三段式）。
  * 与后端 `CONROGATE_CONTROL_AUTH_TOKEN` 中任一 token 完全一致即通过。
+ *
+ * 安全保障：登录时调用 GET /auth/verify 验证 token，
+ * 只有服务端可达且 token 有效才保存 token 并跳转。
+ * 服务端未启动、token 无效、网络异常均会被拦截，不会进入控制台。
  */
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
+import { authApi } from '@/api/auth'
+import { ApiError } from '@/api/client'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppInput from '@/components/ui/AppInput.vue'
 import { Role, RoleLabels } from '@/types/enums'
@@ -28,17 +34,48 @@ const rolePreview = computed<string>(() => {
   return token.value.length > 0 ? '只读（缺省回退 viewer）' : '-'
 })
 
-/** 登录：校验非空 → 保存 token → 跳转（优先回跳地址） */
+/**
+ * 登录流程：
+ * 1. 前端校验非空
+ * 2. 临时保存 token（供 API client 携带 Authorization 头）
+ * 3. 调用 GET /auth/verify 验证 token 有效性
+ * 4. 验证通过 → 正式登录跳转
+ * 5. 验证失败 → 清除临时 token，Toast 报错，不跳转
+ */
 async function submit(): Promise<void> {
   if (!token.value.trim()) {
     toast.error('请输入鉴权 token')
     return
   }
+
+  // 临时保存 token，使验证请求能携带 Authorization 头
+  auth.login(token.value)
   submitting.value = true
+
   try {
-    auth.login(token.value)
+    // 调用专属验证端点确认 token 有效性
+    await authApi.verify()
+    // 验证通过，跳转（优先回跳地址）
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/'
     await router.push(redirect)
+  } catch (err) {
+    // 验证失败：清除临时 token，留在登录页
+    auth.logout()
+
+    if (err instanceof ApiError) {
+      if (err.status === 0) {
+        // 网络层错误：服务端未启动 / 连接被拒
+        toast.error('无法连接控制面，请确认服务端已启动')
+      } else if (err.status === 401 || err.code === 10002) {
+        toast.error('Token 无效，请检查输入')
+      } else if (err.status === 403 || err.code === 10003) {
+        toast.error('Token 权限不足')
+      } else {
+        toast.error(`验证失败：${err.message}`)
+      }
+    } else {
+      toast.error('验证失败，请重试')
+    }
   } finally {
     submitting.value = false
   }

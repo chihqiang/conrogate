@@ -8,6 +8,7 @@ import { onMounted, ref } from 'vue'
 import { securityApi } from '@/api/security'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
+import { fmtTime } from '@/utils/format'
 import BlacklistCreateModal from '@/components/features/BlacklistCreateModal.vue'
 import BlacklistRemoveModal from '@/components/features/BlacklistRemoveModal.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'
@@ -41,14 +42,6 @@ const creating = ref(false)
 
 // ── 辅助函数 ──
 
-function fmtTime(value: string | null): string {
-  if (!value) return '永久'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return '永久'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
-
 function fmtExpires(row: IpBlacklistDto): string {
   if (!row.expires_at) return '永久'
   const left = Date.parse(row.expires_at) - Date.now()
@@ -68,7 +61,7 @@ function isExpired(row: IpBlacklistDto): boolean {
 const columns: TableColumn[] = [
   { key: 'ip_or_cidr', label: 'IP / 网段', width: '180px' },
   { key: 'reason', label: '原因' },
-  { key: 'expires_at', label: '过期时间', width: '160px', formatter: (v) => fmtTime(String(v ?? '')) },
+  { key: 'expires_at', label: '过期时间', width: '160px', formatter: (v) => (v ? fmtTime(String(v)) : '永久') },
   { key: 'created_by', label: '操作人', width: '110px', formatter: (v) => String(v ?? '-') },
   { key: 'created_at', label: '拉黑时间', width: '150px', formatter: (v) => fmtTime(String(v)) },
   { key: 'actions', label: '操作', width: '90px', align: 'right' },

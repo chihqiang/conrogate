@@ -30,6 +30,8 @@ pub fn build_router(state: AppState, auth_token: &str, api_prefix: &str) -> Rout
 
     // 认证路由
     let protected_routes = Router::new()
+        // ── 鉴权验证 ──
+        .route("/auth/verify", get(handler::verify_token))
         // ── 路由管理 ──
         .route(
             "/routes",

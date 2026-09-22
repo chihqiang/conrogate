@@ -6,6 +6,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { nodeApi } from '@/api/nodes'
 import { useToastStore } from '@/stores/toast'
+import { fmtTime } from '@/utils/format'
 import AppBadge from '@/components/ui/AppBadge.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
@@ -22,16 +23,6 @@ const loading = ref(false)
 const autoRefresh = ref(true)
 
 let timer: ReturnType<typeof setInterval> | null = null
-
-// ── 辅助函数 ──
-
-function fmtTime(value: string): string {
-  if (!value) return '-'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return '-'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
 
 /** 依据 last_seen 判断节点是否在线（60s 内心跳视为在线） */
 function isOnline(lastSeen: string): boolean {
@@ -69,11 +60,15 @@ async function load(): Promise<void> {
 
 function toggleAutoRefresh(): void {
   if (autoRefresh.value) {
-    stopTimer()
-    timer = setInterval(() => void load(), 15_000)
+    startTimer()
   } else {
     stopTimer()
   }
+}
+
+function startTimer(): void {
+  stopTimer()
+  timer = setInterval(() => void load(), 15_000)
 }
 
 function stopTimer(): void {
@@ -89,11 +84,6 @@ onMounted(() => {
   void load()
   startTimer()
 })
-
-function startTimer(): void {
-  stopTimer()
-  timer = setInterval(() => void load(), 15_000)
-}
 
 onBeforeUnmount(() => stopTimer())
 </script>

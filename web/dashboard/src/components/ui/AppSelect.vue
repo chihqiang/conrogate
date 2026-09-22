@@ -15,8 +15,10 @@ withDefaults(
     placeholder?: string
     options?: SelectOption[]
     disabled?: boolean
+    /** 是否允许选择"无"（null），用于可空的关联字段 */
+    allowClear?: boolean
   }>(),
-  { label: '', placeholder: '请选择', options: () => [], disabled: false },
+  { label: '', placeholder: '请选择', options: () => [], disabled: false, allowClear: false },
 )
 
 const model = defineModel<string | number | null>()
@@ -27,15 +29,17 @@ const emit = defineEmits<{ change: [] }>()
 
 <template>
   <label class="block">
-    <span v-if="label" class="mb-1 block text-sm font-medium text-slate-700">{{ label }}</span>
+    <span v-if="label" class="mb-1.5 block text-sm font-medium text-slate-700">{{ label }}</span>
     <select
       v-model="model"
       :disabled="disabled"
-      class="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm outline-none transition focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 disabled:bg-slate-100"
+      class="h-9.5 w-full cursor-pointer rounded-lg border border-slate-300 bg-white px-2.5 text-sm outline-none transition-all duration-150 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 hover:border-slate-400 disabled:bg-slate-100"
       @change="emit('change')"
     >
       <!-- 空值占位项 -->
-      <option value="" disabled>{{ placeholder }}</option>
+      <option :value="null" disabled>{{ placeholder }}</option>
+      <!-- 可清除选项（allowClear 时允许选"无"） -->
+      <option v-if="allowClear" :value="null">无</option>
       <option v-for="opt in options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
     </select>
   </label>

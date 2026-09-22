@@ -7,6 +7,7 @@ import { onMounted, ref } from 'vue'
 import { pluginApi } from '@/api/plugins'
 import { useAuthStore } from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
+import { fmtTime } from '@/utils/format'
 import AppBadge from '@/components/ui/AppBadge.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppCard from '@/components/ui/AppCard.vue'
@@ -33,14 +34,6 @@ const acting = ref<Record<string, string>>({})
 const uninstalling = ref<InstalledPluginDto | null>(null)
 
 // ── 辅助函数 ──
-
-function fmtTime(value: string): string {
-  if (!value) return '-'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return '-'
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
 
 /** 插件清单标题/描述（后端写入的 manifest 元信息） */
 function manifestText(p: InstalledPluginDto): string {
