@@ -7,14 +7,8 @@ use std::sync::Arc;
 pub fn create_default_registry() -> BalancerRegistry {
     let mut registry = BalancerRegistry::new();
     registry.register(Arc::new(crate::round_robin::RoundRobin::new()));
-    registry.register(Arc::new(
-        crate::weighted::WeightedRoundRobin::new(),
-    ));
-    registry.register(Arc::new(
-        crate::least_conn::LeastConnections::new(),
-    ));
-    registry.register(Arc::new(
-        crate::consistent_hash::ConsistentHash::new(),
-    ));
+    registry.register(Arc::new(crate::weighted::WeightedRoundRobin::new()));
+    registry.register(Arc::new(crate::least_conn::LeastConnections::new()));
+    registry.register(Arc::new(crate::consistent_hash::ConsistentHash::new()));
     registry
 }

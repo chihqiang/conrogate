@@ -247,10 +247,7 @@ mod tests {
         breaker.allow().await.unwrap();
         breaker.record_failure().await;
         assert!(breaker.allow().await.is_err());
-        assert_eq!(
-            breaker.state(),
-            conrogate_core::traffic::BreakerState::Open
-        );
+        assert_eq!(breaker.state(), conrogate_core::traffic::BreakerState::Open);
 
         // 熔断开关关闭 → 放行
         assert!(adapter.check_circuit_breaker(1, 1).await.is_ok());

@@ -5,12 +5,12 @@
 //! 响应头，并覆写统一信封响应体中的 `trace_id` 字段，保证
 //! **body trace_id == x-trace-id 响应头 == 日志 span == 审计** 全链路一致。
 
-use conrogate_core::constant::TRACE_ID_HEADER;
-use conrogate_core::response::trace_id_from_headers;
 use axum::body::Body;
 use axum::extract::Request;
 use axum::middleware::Next;
 use axum::response::Response;
+use conrogate_core::constant::TRACE_ID_HEADER;
+use conrogate_core::response::trace_id_from_headers;
 use http_body_util::BodyExt;
 use std::ops::Deref;
 
@@ -72,10 +72,10 @@ async fn rewrite_envelope_trace_id(body: Body, trace_id: &str) -> Option<Body> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use conrogate_core::ConrogateError;
     use axum::extract::Extension;
     use axum::routing::get;
     use axum::{middleware, Router};
+    use conrogate_core::ConrogateError;
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 

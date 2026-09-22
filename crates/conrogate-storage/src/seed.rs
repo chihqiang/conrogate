@@ -5,13 +5,13 @@
 
 use sea_orm::DatabaseConnection;
 
+use crate::repository::installed_plugin_repo::InstalledPluginRepoImpl;
 use conrogate_core::balancer::BalancerAlgorithm;
 use conrogate_core::dto::*;
 use conrogate_core::plugin::{PluginKind, PluginStatus};
 use conrogate_core::protocol::{PathMatch, ProtocolId, RouteMatchConditions};
 use conrogate_core::storage::*;
 use conrogate_core::ConrogateError;
-use crate::repository::installed_plugin_repo::InstalledPluginRepoImpl;
 
 /// 写入演示数据：注册官方插件 + 1 个上游 + 1 条演示路由（上游已有数据则跳过）。
 pub async fn seed_demo_data(
@@ -23,8 +23,7 @@ pub async fn seed_demo_data(
     let plugin_repo = InstalledPluginRepoImpl::new(main_db.clone());
     seed_official_plugins(&plugin_repo).await?;
 
-    let upstream_repo =
-        crate::repository::upstream_repo::UpstreamRepoImpl::new(main_db.clone());
+    let upstream_repo = crate::repository::upstream_repo::UpstreamRepoImpl::new(main_db.clone());
     let route_repo = crate::repository::route_repo::RouteRepoImpl::new(main_db.clone());
 
     // 检查是否已有数据

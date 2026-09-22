@@ -1,10 +1,10 @@
 //! 认证中间件：Bearer Token 校验 + RBAC 角色控制。
 //! Token 格式：operator:secret:role（role = viewer / operator / admin）
 
-use conrogate_core::ConrogateError;
 use axum::extract::{Request, State};
 use axum::middleware::Next;
 use axum::response::Response;
+use conrogate_core::ConrogateError;
 
 /// 认证配置：支持逗号分隔的多个独立 token，每个 token 内嵌 operator:secret:role
 #[derive(Clone)]

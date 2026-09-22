@@ -1,10 +1,10 @@
 //! 事件仓储实现。
 
+use crate::convert;
+use crate::entity::gateway_events::{self, Entity as EventEntity};
 use conrogate_core::dto::{EventQuery, EventRow, PaginatedResult};
 use conrogate_core::storage::EventRepo;
 use conrogate_core::ConrogateError;
-use crate::convert;
-use crate::entity::gateway_events::{self, Entity as EventEntity};
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,

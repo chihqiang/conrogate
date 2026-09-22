@@ -1,27 +1,27 @@
 //! 网关服务入口：启动 HTTP/TCP 监听 + 组装 ServiceContext。
 
+use crate::filter::ConfigReloader;
+use crate::pool::UpstreamSelectorImpl;
+use crate::route::RouteMatcher;
+use crate::telemetry::{MetricAggregator, TelemetryReportImpl};
+use bytes::Bytes;
 use conrogate_balancer::registry::create_default_registry;
 use conrogate_core::config::Config;
 use conrogate_core::gateway::ServiceContext;
 use conrogate_core::protocol::ProtocolId;
 use conrogate_core::storage::{EventRepo, IpBlacklistRepo};
+use conrogate_core::traffic::{AdaptiveConcurrency, ConcurrencyPermit};
 use conrogate_core::ConrogateError;
-use crate::filter::ConfigReloader;
-use crate::pool::UpstreamSelectorImpl;
-use crate::route::RouteMatcher;
-use crate::telemetry::{MetricAggregator, TelemetryReportImpl};
 use conrogate_plugins::framework::pipeline::PluginPipelineImpl;
 use conrogate_plugins::framework::registry::PluginRegistryImpl;
 use conrogate_protocol::proxy::ReqBody;
 use conrogate_protocol::{
     HttpProtocolHandler, ProtocolHandler, ProtocolHandlerRegistry, TcpTunnelProtocolHandler,
 };
+use conrogate_traffic::adaptive::{AdaptiveConcurrencyImpl, AdaptiveConfig};
 use conrogate_traffic::breaker::{BreakerConfig, BreakerFactoryImpl};
 use conrogate_traffic::limiter::TokenBucketLimiter;
-use conrogate_traffic::adaptive::{AdaptiveConfig, AdaptiveConcurrencyImpl};
-use conrogate_core::traffic::{AdaptiveConcurrency, ConcurrencyPermit};
 use conrogate_traffic::retry_budget::{RetryBudgetConfig, RetryBudgetImpl};
-use bytes::Bytes;
 use http::{Request, Response};
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
@@ -280,7 +280,8 @@ impl GatewayServer {
             .with_max_retries(config.gate.retry.max_attempts);
         // 注入重试预算（启用时）
         let http_handler = if let Some(ref rb) = retry_budget {
-            http_handler.with_retry_budget(rb.clone() as Arc<dyn conrogate_core::traffic::RetryBudget>)
+            http_handler
+                .with_retry_budget(rb.clone() as Arc<dyn conrogate_core::traffic::RetryBudget>)
         } else {
             http_handler
         };
@@ -435,9 +436,9 @@ impl GatewayServer {
         let metric_repo = Arc::new(
             conrogate_storage::repository::metric_repo::MetricRepoImpl::new((*read_db).clone()),
         );
-        let event_repo = Arc::new(conrogate_storage::repository::event_repo::EventRepoImpl::new(
-            (*read_db).clone(),
-        ));
+        let event_repo = Arc::new(
+            conrogate_storage::repository::event_repo::EventRepoImpl::new((*read_db).clone()),
+        );
         tokio::spawn(async move {
             let mut aggregator = MetricAggregator::new(channels.metric_rx, telemetry_bucket_sec)
                 .with_metric_repo(metric_repo);
@@ -864,7 +865,9 @@ impl GatewayServer {
         let body_required = self.plugin_registry.body_required_plugin_names();
         // 按 route_id 分组绑定，构建每绑定独立配置实例的插件链，原子替换插件链缓存。
         // 任一绑定实例化失败则保持当前配置不动（fail-open）。
-        if let Ok(chains) = conrogate_plugins::framework::loader::build_chains(&self.plugin_registry, &bindings) {
+        if let Ok(chains) =
+            conrogate_plugins::framework::loader::build_chains(&self.plugin_registry, &bindings)
+        {
             self.plugin_executor.set_route_chains(chains);
             self.route_matcher
                 .load_with_bindings(routes, bindings, &body_required);
@@ -1265,14 +1268,15 @@ impl HyperServiceBridge {
                                         if let Ok(v) = upstream_host.parse() {
                                             upgrade_req.headers_mut().insert(http::header::HOST, v);
                                         }
-                                        let forward = conrogate_protocol::upgrade::forward_websocket(
-                                            &upstream_addr,
-                                            io,
-                                            upgrade_req,
-                                            ws_connect_timeout,
-                                            ws_idle_timeout,
-                                            upgrade_buffer_size,
-                                        );
+                                        let forward =
+                                            conrogate_protocol::upgrade::forward_websocket(
+                                                &upstream_addr,
+                                                io,
+                                                upgrade_req,
+                                                ws_connect_timeout,
+                                                ws_idle_timeout,
+                                                upgrade_buffer_size,
+                                            );
                                         tokio::select! {
                                             result = forward => {
                                                 if let Err(e) = result {

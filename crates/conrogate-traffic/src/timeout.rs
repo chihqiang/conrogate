@@ -31,7 +31,11 @@ where
 /// ```ignore
 /// let resp = with_timeout_or(timeout, fut, || ConrogateError::Internal("read body".into())).await?;
 /// ```
-pub async fn with_timeout_or<F, E>(dur: Duration, fut: F, on_timeout: impl FnOnce() -> E) -> Result<F::Output, E>
+pub async fn with_timeout_or<F, E>(
+    dur: Duration,
+    fut: F,
+    on_timeout: impl FnOnce() -> E,
+) -> Result<F::Output, E>
 where
     F: Future,
 {
@@ -88,12 +92,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_timeout_or_custom_error() {
-        let result: Result<i32, &str> =
-            with_timeout_or(Duration::from_millis(10), async {
+        let result: Result<i32, &str> = with_timeout_or(
+            Duration::from_millis(10),
+            async {
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 42
-            }, || "timed out")
-            .await;
+            },
+            || "timed out",
+        )
+        .await;
         assert_eq!(result, Err("timed out"));
     }
 }

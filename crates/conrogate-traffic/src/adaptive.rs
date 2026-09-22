@@ -89,7 +89,9 @@ impl Default for AdaptiveConfig {
 
 impl AdaptiveConcurrencyImpl {
     pub fn new(config: AdaptiveConfig) -> Self {
-        let initial = config.initial_limit.clamp(config.min_limit, config.max_limit);
+        let initial = config
+            .initial_limit
+            .clamp(config.min_limit, config.max_limit);
         Self {
             inner: Arc::new(Inner {
                 current_limit: Mutex::new(initial),
@@ -135,8 +137,10 @@ impl AdaptiveConcurrencyImpl {
         let failure_rate = failures as f64 / total as f64;
 
         // 计算 P99 延迟
-        let mut latencies: Vec<u64> =
-            samples.iter().map(|s| s.latency.as_millis() as u64).collect();
+        let mut latencies: Vec<u64> = samples
+            .iter()
+            .map(|s| s.latency.as_millis() as u64)
+            .collect();
         latencies.sort_unstable();
         let p99_idx = ((total as f64 * 0.99) as usize).min(total as usize - 1);
         let p99_latency = Duration::from_millis(latencies[p99_idx]);
@@ -158,8 +162,8 @@ impl AdaptiveConcurrencyImpl {
             );
         } else {
             // AI：窗口内全部健康 → 线性增加
-            new_limit = (old_limit + self.inner.config.increase_step)
-                .min(self.inner.config.max_limit);
+            new_limit =
+                (old_limit + self.inner.config.increase_step).min(self.inner.config.max_limit);
             if new_limit != old_limit {
                 tracing::info!(old_limit, new_limit, "AIMD: additive increase");
             }

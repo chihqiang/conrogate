@@ -3,16 +3,14 @@
 //! 框架部分（`framework/`）实现插件注册表、管线执行器、链构建器。
 //! 官方插件（`cors/`、`auth/`、`header_rewrite/`、`ip_allow_deny/`）以 Rust 模块内建于本 crate。
 
-pub mod framework;
 pub mod auth;
 pub mod cors;
+pub mod framework;
 pub mod header_rewrite;
 pub mod ip_allow_deny;
 
 /// 注册全部官方插件到注册表
-pub async fn register_all(
-    registry: &framework::registry::PluginRegistryImpl,
-) {
+pub async fn register_all(registry: &framework::registry::PluginRegistryImpl) {
     use conrogate_core::plugin::Plugin;
     use std::sync::Arc;
 

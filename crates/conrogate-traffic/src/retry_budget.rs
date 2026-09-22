@@ -245,9 +245,7 @@ mod tests {
         let mut tasks = Vec::new();
         for _ in 0..200 {
             let b = budget.clone();
-            tasks.push(tokio::spawn(async move {
-                b.try_consume().is_ok()
-            }));
+            tasks.push(tokio::spawn(async move { b.try_consume().is_ok() }));
         }
 
         let mut consumed = 0;

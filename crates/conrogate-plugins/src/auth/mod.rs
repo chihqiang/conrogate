@@ -140,12 +140,12 @@
 //! - RS256 JWKS 远程密钥集拉取（带缓存 + TTL）
 //! - issuer/audience 校验 + 过期检查
 
+use async_trait::async_trait;
 use conrogate_core::{
     plugin::{Plugin, PluginContext, PluginKind, PluginOutcome},
     protocol::ProtocolId,
     response, ConrogateError,
 };
-use async_trait::async_trait;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde_json::Value;
 use std::collections::HashMap;

@@ -44,8 +44,7 @@ impl ConfigCache for DbConfigCache {
     }
 
     async fn get_snapshot(&self) -> Result<Option<ConfigSnapshot>, ConrogateError> {
-        let route_repo =
-            crate::repository::route_repo::RouteRepoImpl::new((*self.db).clone());
+        let route_repo = crate::repository::route_repo::RouteRepoImpl::new((*self.db).clone());
         let upstream_repo =
             crate::repository::upstream_repo::UpstreamRepoImpl::new((*self.db).clone());
 
@@ -54,10 +53,9 @@ impl ConfigCache for DbConfigCache {
 
         let mut bindings = Vec::new();
         for route in &routes {
-            let binding_repo =
-                crate::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
-                    (*self.db).clone(),
-                );
+            let binding_repo = crate::repository::plugin_binding_repo::PluginBindingRepoImpl::new(
+                (*self.db).clone(),
+            );
             let route_bindings =
                 ReadOnlyPluginBindingRepo::list_by_route(&binding_repo, route.id).await?;
             bindings.extend(route_bindings);

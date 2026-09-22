@@ -1,10 +1,10 @@
 //! TCP 隧道协议处理器：原始字节流路由 + 转发。
 
+use crate::handler::{plugin_services, ProtocolHandler};
 use conrogate_core::gateway::ServiceContext;
 use conrogate_core::plugin::{PluginContext, PluginOutcome};
 use conrogate_core::protocol::{ProtocolId, RouteMatchInfo};
 use conrogate_core::ConrogateError;
-use crate::handler::{plugin_services, ProtocolHandler};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -193,8 +193,7 @@ impl TcpTunnelProtocolHandler {
             None
         };
         let result =
-            crate::proxy::forward_tcp(&node, inbound, self.timeout, max_bytes_per_sec)
-                .await;
+            crate::proxy::forward_tcp(&node, inbound, self.timeout, max_bytes_per_sec).await;
 
         // 7. 记录结果
         let success = result.is_ok();
@@ -263,9 +262,7 @@ impl ProtocolHandler for TcpTunnelProtocolHandler {
 mod tests {
     use super::*;
     use conrogate_core::dto::{MetricRow, PluginBindingDto, RouteSnapshot, UpstreamNodeDto};
-    use conrogate_core::gateway::{
-        RouteLookup, TelemetryReport, TrafficControl, UpstreamSelector,
-    };
+    use conrogate_core::gateway::{RouteLookup, TelemetryReport, TrafficControl, UpstreamSelector};
     use conrogate_core::plugin::{Plugin, PluginKind};
     use conrogate_plugins::framework::registry::PluginRegistryImpl;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -437,7 +434,8 @@ mod tests {
             blocking: true,
             enabled: true,
         };
-        let chains = conrogate_plugins::framework::loader::build_chains(&registry, &[binding]).unwrap();
+        let chains =
+            conrogate_plugins::framework::loader::build_chains(&registry, &[binding]).unwrap();
         executor.set_route_chains(chains);
 
         let handler = TcpTunnelProtocolHandler::with_config(svc, Duration::from_secs(2), 0, 0);

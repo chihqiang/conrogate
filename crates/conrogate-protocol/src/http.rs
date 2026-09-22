@@ -1,13 +1,13 @@
 //! HTTP 协议处理器：完整转发链路（缓冲 / 流式两种模式）。
 
+use crate::handler::{plugin_services, ProtocolHandler};
+use crate::proxy::{body_from_bytes, body_from_incoming, HttpClient, ReqBody};
+use bytes::Bytes;
 use conrogate_core::dto::{RouteSnapshot, UpstreamNodeDto};
 use conrogate_core::gateway::ServiceContext;
 use conrogate_core::plugin::{HttpContext, Plugin, PluginContext, PluginOutcome, PluginResponse};
 use conrogate_core::protocol::{ProtocolId, RouteMatchInfo};
 use conrogate_core::{response, ConrogateError};
-use crate::handler::{plugin_services, ProtocolHandler};
-use crate::proxy::{body_from_bytes, body_from_incoming, HttpClient, ReqBody};
-use bytes::Bytes;
 use http::{HeaderMap, Method, Request, Response, StatusCode, Uri};
 use hyper_util::client::legacy::Client;
 use std::sync::Arc;
@@ -389,13 +389,9 @@ impl HttpProtocolHandler {
                         })?;
                     *retry_req.headers_mut() = saved_headers.clone();
 
-                    proxy_result = crate::proxy::forward_http(
-                        &self.client,
-                        &node,
-                        retry_req,
-                        self.timeout,
-                    )
-                    .await;
+                    proxy_result =
+                        crate::proxy::forward_http(&self.client, &node, retry_req, self.timeout)
+                            .await;
 
                     match &proxy_result {
                         Ok(r) => {
@@ -763,13 +759,9 @@ impl HttpProtocolHandler {
             .path_and_query()
             .map(|p| p.as_str().to_string())
             .unwrap_or_else(|| "/".to_string());
-        format!(
-            "{}{}",
-            crate::proxy::upstream_addr(node),
-            path_and_query
-        )
-        .parse()
-        .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("uri parse: {e}")))
+        format!("{}{}", crate::proxy::upstream_addr(node), path_and_query)
+            .parse()
+            .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("uri parse: {e}")))
     }
 
     /// 过滤敏感头 + 注入网关头（trace/request id、真实 IP、proto、Host）

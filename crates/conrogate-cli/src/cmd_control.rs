@@ -25,9 +25,8 @@ async fn async_run(config: conrogate_core::config::Config) -> anyhow::Result<()>
     let main_db = Arc::new(main_db);
 
     // ── 2. 初始化仓储 ──
-    let route_repo: Arc<dyn conrogate_core::storage::RouteRepo> = Arc::new(
-        conrogate_storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()),
-    );
+    let route_repo: Arc<dyn conrogate_core::storage::RouteRepo> =
+        Arc::new(conrogate_storage::repository::route_repo::RouteRepoImpl::new((*main_db).clone()));
     let upstream_repo: Arc<dyn conrogate_core::storage::UpstreamRepo> = Arc::new(
         conrogate_storage::repository::upstream_repo::UpstreamRepoImpl::new((*main_db).clone()),
     );
@@ -44,9 +43,8 @@ async fn async_run(config: conrogate_core::config::Config) -> anyhow::Result<()>
     let metric_repo: Arc<dyn conrogate_core::storage::MetricRepo> = Arc::new(
         conrogate_storage::repository::metric_repo::MetricRepoImpl::new((*main_db).clone()),
     );
-    let event_repo: Arc<dyn conrogate_core::storage::EventRepo> = Arc::new(
-        conrogate_storage::repository::event_repo::EventRepoImpl::new((*main_db).clone()),
-    );
+    let event_repo: Arc<dyn conrogate_core::storage::EventRepo> =
+        Arc::new(conrogate_storage::repository::event_repo::EventRepoImpl::new((*main_db).clone()));
     let audit_repo: Arc<dyn conrogate_core::storage::AuditLogRepo> = Arc::new(
         conrogate_storage::repository::audit_log_repo::AuditLogRepoImpl::new((*main_db).clone()),
     );
@@ -67,23 +65,27 @@ async fn async_run(config: conrogate_core::config::Config) -> anyhow::Result<()>
     );
 
     // ── 3. 组装 ControlService ──
-    let config_cache: Option<Arc<dyn conrogate_core::storage::ConfigCache>> =
-        if !config.gate.refresh.config_cache_redis_url.is_empty() {
-            match conrogate_storage::config_cache::RedisConfigCache::new(
-                &config.gate.refresh.config_cache_redis_url,
-            ) {
-                Ok(cache) => {
-                    tracing::info!("Redis config cache enabled");
-                    Some(Arc::new(cache))
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Redis config cache init failed, falling back to no cache");
-                    None
-                }
+    let config_cache: Option<Arc<dyn conrogate_core::storage::ConfigCache>> = if !config
+        .gate
+        .refresh
+        .config_cache_redis_url
+        .is_empty()
+    {
+        match conrogate_storage::config_cache::RedisConfigCache::new(
+            &config.gate.refresh.config_cache_redis_url,
+        ) {
+            Ok(cache) => {
+                tracing::info!("Redis config cache enabled");
+                Some(Arc::new(cache))
             }
-        } else {
-            None
-        };
+            Err(e) => {
+                tracing::warn!(error = %e, "Redis config cache init failed, falling back to no cache");
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     let svc = Arc::new(
         conrogate_server::ControlService::new(
