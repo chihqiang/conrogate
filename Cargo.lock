@@ -576,6 +576,7 @@ dependencies = [
  "conrogate-core",
  "conrogate-plugins",
  "conrogate-security",
+ "conrogate-traffic",
  "futures",
  "http",
  "http-body-util",

@@ -2,6 +2,7 @@
 
 use conrogate_core::dto::UpstreamNodeDto;
 use conrogate_core::ConrogateError;
+use conrogate_traffic::timeout::with_timeout;
 use bytes::Bytes;
 use http::Request;
 use http_body_util::{BodyExt, Full};
@@ -72,7 +73,7 @@ pub async fn forward_http(
     timeout: Duration,
 ) -> Result<ProxyResult, ConrogateError> {
     // 整个响应（头 + 体）受 total 超时约束：上游发完响应头后中途停滞也会超时，避免挂死
-    let result = tokio::time::timeout(timeout, async {
+    let result = with_timeout(timeout, async {
         let (status, headers, body) = forward_common(client, node, req, timeout).await?;
         let body_bytes = body
             .collect()
@@ -85,8 +86,7 @@ pub async fn forward_http(
             body: body_bytes,
         })
     })
-    .await
-    .map_err(|_| ConrogateError::UpstreamTimeout)??;
+    .await??;
     Ok(result)
 }
 
@@ -136,9 +136,8 @@ async fn forward_common(
     *upstream_req.headers_mut() = headers;
 
     // 发送请求（带超时）
-    let response = tokio::time::timeout(timeout, client.request(upstream_req))
-        .await
-        .map_err(|_| ConrogateError::UpstreamTimeout)?
+    let response = with_timeout(timeout, client.request(upstream_req))
+        .await?
         .map_err(|e| ConrogateError::UpstreamConnectFailed(e.to_string()))?;
 
     let (parts, body) = response.into_parts();
@@ -181,9 +180,8 @@ pub async fn forward_tcp(
         .resolve(&node.address)
         .await
         .map_err(|e| ConrogateError::UpstreamConnectFailed(format!("DNS resolve: {e}")))?;
-    let upstream = tokio::time::timeout(timeout, TcpStream::connect(&addrs[..]))
-        .await
-        .map_err(|_| ConrogateError::UpstreamTimeout)?
+    let upstream = with_timeout(timeout, TcpStream::connect(&addrs[..]))
+        .await?
         .map_err(|e| ConrogateError::UpstreamConnectFailed(e.to_string()))?;
 
     let (mut ri, mut wi) = inbound.into_split();

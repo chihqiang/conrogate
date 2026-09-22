@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 conrogate-core = { workspace = true }
+conrogate-traffic = { path = "../conrogate-traffic" }
 async-trait = { workspace = true }
 tokio = { workspace = true }
 tokio-rustls = { workspace = true }
