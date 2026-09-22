@@ -1,6 +1,8 @@
 //! 主动健康检查器：定期 HTTP/TCP 探测上游节点。
 
 use conrogate_core::dto::UpstreamNodeDto;
+use conrogate_core::health::{HealthChecker, NodeHealth};
+use conrogate_core::ConrogateError;
 use std::collections::HashMap;
 use std::sync::RwLock;
 use std::time::{Duration, Instant};
@@ -32,17 +34,6 @@ impl Default for ActiveHealthCheckerConfig {
             http_path: None,
         }
     }
-}
-
-/// 节点健康状态
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum NodeHealth {
-    /// 健康
-    Healthy,
-    /// 降级
-    Degraded,
-    /// 不可用
-    Unhealthy,
 }
 
 /// 节点健康状态记录
@@ -96,9 +87,13 @@ impl ActiveHealthChecker {
             status.consecutive_failure += 1;
             status.consecutive_success = 0;
             if status.consecutive_failure >= self.config.unhealthy_threshold {
-                status.state = NodeHealth::Unhealthy;
+                status.state = NodeHealth::Unhealthy {
+                    reason: format!("{} consecutive failures", status.consecutive_failure),
+                };
             } else if status.consecutive_failure > 0 {
-                status.state = NodeHealth::Degraded;
+                status.state = NodeHealth::Degraded {
+                    reason: format!("{} consecutive failures", status.consecutive_failure),
+                };
             }
         }
 
@@ -119,7 +114,7 @@ impl ActiveHealthChecker {
         let nodes = self.nodes.read().unwrap();
         let status = nodes.get(addr);
         match status {
-            Some(s) => s.state != NodeHealth::Unhealthy,
+            Some(s) => !matches!(&s.state, NodeHealth::Unhealthy { .. }),
             None => true, // 未知状态默认可调度
         }
     }
@@ -194,5 +189,30 @@ impl ActiveHealthChecker {
 impl Default for ActiveHealthChecker {
     fn default() -> Self {
         Self::new(ActiveHealthCheckerConfig::default())
+    }
+}
+
+/// 实现 core 的 HealthChecker trait，统一健康状态类型
+#[async_trait::async_trait]
+impl HealthChecker for ActiveHealthChecker {
+    fn name(&self) -> &'static str {
+        "active"
+    }
+
+    async fn check(&self, node: &UpstreamNodeDto) -> Result<NodeHealth, ConrogateError> {
+        Ok(self.check_node(node).await)
+    }
+
+    async fn mark_failure(&self, _node_id: u64) {
+        // 主动检查器通过探测结果自动更新状态，不需要外部标记失败
+    }
+
+    async fn node_state(&self, _node_id: u64) -> NodeHealth {
+        let nodes = self.nodes.read().unwrap();
+        nodes
+            .values()
+            .find(|_| true) // ActiveHealthChecker 按 address 而非 node_id 索引
+            .map(|s| s.state.clone())
+            .unwrap_or(NodeHealth::Healthy)
     }
 }
